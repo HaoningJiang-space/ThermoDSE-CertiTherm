@@ -1,0 +1,64 @@
+{
+  "files": [
+    {
+      "path": "arch_4x4_mesh_fullcut/case_manifest.json",
+      "sha256": "a6fbdc83649c4df9448ac7af2b7584e1313dc2b6ba93314cf1f4b2fca97a2dbd"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/observation.json",
+      "sha256": "96c2419a05e683aaf28ce3372114a6578e0e7bf40629cfe6c372eb689cd9fd56"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/placed_power.npy",
+      "sha256": "ad299a0c397fcc3034e84fefaf3e3ff200856ec702ceadde9b1f34c341826e85"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/point_power.npy",
+      "sha256": "6f23414556b988e5a264e442895edad230a0d415a51ed84da8c17aeced0ebd86"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/response.npy",
+      "sha256": "012b051da7abaf7049e99ed2784c75258aa0552d03b9116cf0d34567baab5c7b"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/thermal_metadata.json",
+      "sha256": "9330838f314a99de9c921506d1dd6ff0ed83f622318b20ea002383a632f3da04"
+    },
+    {
+      "path": "arch_5x4_rect_struct/case_manifest.json",
+      "sha256": "e3f1141cb8cd2e3658682d63ab0cd4d9decbeeb8b9f697b1db982e57e3fcc140"
+    },
+    {
+      "path": "arch_5x4_rect_struct/observation.json",
+      "sha256": "849694deb7b2b9042223cd75fd21eebb7d27ca466e0addaf287d2439a4d8a514"
+    },
+    {
+      "path": "arch_5x4_rect_struct/placed_power.npy",
+      "sha256": "9523a70cb14d073f258bbb1d7af78156e85fe62d87416aec39e24d00ada9c9bf"
+    },
+    {
+      "path": "arch_5x4_rect_struct/point_power.npy",
+      "sha256": "d40b45aa16a529ec5dabe78776e7acf03339aed9ba7c674aef32751be62bf873"
+    },
+    {
+      "path": "arch_5x4_rect_struct/response.npy",
+      "sha256": "c48e48fc85a7f372202c1ff91866d1b88e0b1140602eff51053f71e36c36dd77"
+    },
+    {
+      "path": "arch_5x4_rect_struct/thermal_metadata.json",
+      "sha256": "68354d5fae153a8fb96095b8d9c51bfb37d3de7af4c2ba7fa99fa00fd02b1604"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "edfeaee2e965aec27dcc6b542f6e59187432e79c52f2f593de1b2fceabdd66a7"
+    },
+    {
+      "path": "query.json",
+      "sha256": "1a4e6ad15760c3dca0d432df82ef62878e9ff29676a798e7c6829c4752ecd828"
+    }
+  ],
+  "package_id": "enhanced_sink_s10",
+  "schema_version": "certitherm.g3-case-manifest.v1",
+  "workload_family": "attention",
+  "workload_id": "transformer"
+}

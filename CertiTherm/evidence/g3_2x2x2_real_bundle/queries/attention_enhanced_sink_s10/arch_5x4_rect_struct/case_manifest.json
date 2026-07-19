@@ -1,0 +1,30 @@
+{
+  "architecture_id": "arch_5x4_rect_struct",
+  "case_id": "attention::enhanced_sink_s10::arch_5x4_rect_struct",
+  "files": [
+    {
+      "path": "arch_5x4_rect_struct/response.npy",
+      "sha256": "c48e48fc85a7f372202c1ff91866d1b88e0b1140602eff51053f71e36c36dd77"
+    },
+    {
+      "path": "arch_5x4_rect_struct/thermal_metadata.json",
+      "sha256": "68354d5fae153a8fb96095b8d9c51bfb37d3de7af4c2ba7fa99fa00fd02b1604"
+    },
+    {
+      "path": "arch_5x4_rect_struct/observation.json",
+      "sha256": "849694deb7b2b9042223cd75fd21eebb7d27ca466e0addaf287d2439a4d8a514"
+    },
+    {
+      "path": "arch_5x4_rect_struct/point_power.npy",
+      "sha256": "d40b45aa16a529ec5dabe78776e7acf03339aed9ba7c674aef32751be62bf873"
+    },
+    {
+      "path": "arch_5x4_rect_struct/placed_power.npy",
+      "sha256": "9523a70cb14d073f258bbb1d7af78156e85fe62d87416aec39e24d00ada9c9bf"
+    }
+  ],
+  "package_id": "enhanced_sink_s10",
+  "schema_version": "certitherm.g3-case-manifest.v1",
+  "workload_family": "attention",
+  "workload_id": "transformer"
+}

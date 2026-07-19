@@ -1,0 +1,30 @@
+{
+  "architecture_id": "arch_4x4_mesh_fullcut",
+  "case_id": "attention::standard_sink_s06::arch_4x4_mesh_fullcut",
+  "files": [
+    {
+      "path": "arch_4x4_mesh_fullcut/response.npy",
+      "sha256": "542468028fe347d23f4f2cfbd2566062dc8e72c502ccf9ee3ee0c200af45231d"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/thermal_metadata.json",
+      "sha256": "9917b5cc5552359cde688234907f5481c6b4c5894979d0b44ed610059ba78444"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/observation.json",
+      "sha256": "1f0f5228341b59cf52d3b58ff586d7cb575834d93833ef268140b236f71b328e"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/point_power.npy",
+      "sha256": "24a8087e2877dbba506bd7bcafcac3ea24c7f2079b340b020330837b8c380536"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/placed_power.npy",
+      "sha256": "bad13761970d615ea2f9c195f42fc3b239b4e86d63d65cac441eb1bfbc0fe07f"
+    }
+  ],
+  "package_id": "standard_sink_s06",
+  "schema_version": "certitherm.g3-case-manifest.v1",
+  "workload_family": "attention",
+  "workload_id": "transformer"
+}

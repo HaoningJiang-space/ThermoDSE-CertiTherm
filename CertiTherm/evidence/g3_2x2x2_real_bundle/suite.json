@@ -1,0 +1,43 @@
+{
+  "architecture_families": [
+    "mesh_fullcut",
+    "rect_struct"
+  ],
+  "evidence_class": "physical_placed_power",
+  "package_regimes": [
+    "standard_sink_s06",
+    "enhanced_sink_s10"
+  ],
+  "queries": [
+    {
+      "package_id": "standard_sink_s06",
+      "query_spec": "queries/cnn_standard_sink_s06/query.json",
+      "workload_family": "cnn",
+      "workload_id": "resnet50"
+    },
+    {
+      "package_id": "enhanced_sink_s10",
+      "query_spec": "queries/cnn_enhanced_sink_s10/query.json",
+      "workload_family": "cnn",
+      "workload_id": "resnet50"
+    },
+    {
+      "package_id": "standard_sink_s06",
+      "query_spec": "queries/attention_standard_sink_s06/query.json",
+      "workload_family": "attention",
+      "workload_id": "transformer"
+    },
+    {
+      "package_id": "enhanced_sink_s10",
+      "query_spec": "queries/attention_enhanced_sink_s10/query.json",
+      "workload_family": "attention",
+      "workload_id": "transformer"
+    }
+  ],
+  "schema_version": "certitherm.g3-suite.v1",
+  "suite_id": "g3_real_2x2x2_content_bound",
+  "workload_families": [
+    "cnn",
+    "attention"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "architecture_id": "arch_4x4_mesh_fullcut",
+  "case_id": "cnn::enhanced_sink_s10::arch_4x4_mesh_fullcut",
+  "files": [
+    {
+      "path": "arch_4x4_mesh_fullcut/response.npy",
+      "sha256": "012b051da7abaf7049e99ed2784c75258aa0552d03b9116cf0d34567baab5c7b"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/thermal_metadata.json",
+      "sha256": "9330838f314a99de9c921506d1dd6ff0ed83f622318b20ea002383a632f3da04"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/observation.json",
+      "sha256": "36f29dba3b08d14cf16c47e3dbfe41185c77bf5ccae037b80d224e7da6021ee7"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/point_power.npy",
+      "sha256": "bd49b49207b37964215a5f993eed6df2834e4ef3730367800629fb610239b594"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/placed_power.npy",
+      "sha256": "4f87478670d2001e21fd4bcf955344e9bb1a64cc923d7f2e4a7e8e20ed17ba4d"
+    }
+  ],
+  "package_id": "enhanced_sink_s10",
+  "schema_version": "certitherm.g3-case-manifest.v1",
+  "workload_family": "cnn",
+  "workload_id": "resnet50"
+}

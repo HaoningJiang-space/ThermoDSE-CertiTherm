@@ -1,0 +1,64 @@
+{
+  "files": [
+    {
+      "path": "arch_4x4_mesh_fullcut/case_manifest.json",
+      "sha256": "cd5b32753601fc002e75d2d91a5a4831deaa96fc5c8ad1ffbc8a675f345020e3"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/observation.json",
+      "sha256": "7c2f095f9d971c8e5334126c0ad98f6839f2daa23c81762ef4150f82604ddbef"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/placed_power.npy",
+      "sha256": "4b3a3f164f9c5f4f0ca71fd21055e16ffa5831abd553ce8170853ae260818c29"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/point_power.npy",
+      "sha256": "567ee73e3ebf18df7edf2665c56f06a9f9abd04bb76bd14059613873bfcfc463"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/response.npy",
+      "sha256": "542468028fe347d23f4f2cfbd2566062dc8e72c502ccf9ee3ee0c200af45231d"
+    },
+    {
+      "path": "arch_4x4_mesh_fullcut/thermal_metadata.json",
+      "sha256": "9917b5cc5552359cde688234907f5481c6b4c5894979d0b44ed610059ba78444"
+    },
+    {
+      "path": "arch_5x4_rect_struct/case_manifest.json",
+      "sha256": "0dc1015d160cd6d5e03eafb485cbdb9ceb16c813918fd398f5c6e7d5309e5858"
+    },
+    {
+      "path": "arch_5x4_rect_struct/observation.json",
+      "sha256": "e4f94666f69abad0b4d705b94e8ae6c1b117daeb85037a40354eb6be5a914043"
+    },
+    {
+      "path": "arch_5x4_rect_struct/placed_power.npy",
+      "sha256": "72dc57a33a7a722c9e34b1ce07ef1e6a2ef1cc1e1a98d7f204a58b6efdcd3e99"
+    },
+    {
+      "path": "arch_5x4_rect_struct/point_power.npy",
+      "sha256": "e722634542eaadaa28817483b09a24903c7c991f7c63ffdb81c6b2e7112b8963"
+    },
+    {
+      "path": "arch_5x4_rect_struct/response.npy",
+      "sha256": "84e4324fa5980eef04425285b48f9a526733afc89a5b7faae44074fce63078cb"
+    },
+    {
+      "path": "arch_5x4_rect_struct/thermal_metadata.json",
+      "sha256": "b6cdf316d92c8d928c31156a1f8ced8a4d4a5bd975b2ef1de3230eef87e87358"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "56c68270156d14a8961a03794cdaf9d3f09743e8661df44569978eb8ea5f26a1"
+    },
+    {
+      "path": "query.json",
+      "sha256": "7f1c4fb942eb7ffc97c83d1e97ce834cbf003677177fce0aff045f3648e7c3c4"
+    }
+  ],
+  "package_id": "standard_sink_s06",
+  "schema_version": "certitherm.g3-case-manifest.v1",
+  "workload_family": "cnn",
+  "workload_id": "resnet50"
+}

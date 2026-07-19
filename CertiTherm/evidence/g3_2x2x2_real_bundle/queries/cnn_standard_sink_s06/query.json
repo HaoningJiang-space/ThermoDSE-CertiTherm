@@ -1,0 +1,32 @@
+{
+  "candidates": [
+    {
+      "area_mm2": 1.0,
+      "candidate_id": "arch_5x4_rect_struct",
+      "nonthermal_objective": 6.132844584636305,
+      "observation_json": "arch_5x4_rect_struct/observation.json",
+      "placed_power_npy": "arch_5x4_rect_struct/placed_power.npy",
+      "point_power_npy": "arch_5x4_rect_struct/point_power.npy",
+      "point_power_semantics": "original_thermodse_point_estimate",
+      "response_npy": "arch_5x4_rect_struct/response.npy",
+      "thermal_metadata_json": "arch_5x4_rect_struct/thermal_metadata.json",
+      "tie_break_rank": 0
+    },
+    {
+      "area_mm2": 1.0,
+      "candidate_id": "arch_4x4_mesh_fullcut",
+      "nonthermal_objective": 7.680142708280406,
+      "observation_json": "arch_4x4_mesh_fullcut/observation.json",
+      "placed_power_npy": "arch_4x4_mesh_fullcut/placed_power.npy",
+      "point_power_npy": "arch_4x4_mesh_fullcut/point_power.npy",
+      "point_power_semantics": "original_thermodse_point_estimate",
+      "response_npy": "arch_4x4_mesh_fullcut/response.npy",
+      "thermal_metadata_json": "arch_4x4_mesh_fullcut/thermal_metadata.json",
+      "tie_break_rank": 1
+    }
+  ],
+  "evidence_class": "physical_placed_power",
+  "query_id": "g3-real-cnn-standard_sink_s06",
+  "schema_version": "certitherm.g2-query-spec.v2",
+  "thermal_limit_k": 348.0
+}
