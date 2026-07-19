@@ -1,11 +1,13 @@
 """
-CertiTherm G3: Cheapest measurement that resolves NON_IDENTIFIABLE.
+Legacy post-G2 measurement-search prototype.
 
 For a NON_IDENTIFIABLE design, enumerate candidate measurements
 (1-block, 2-block, k-block combinations) and find the cheapest k that
 makes the design identifiable (lower_d' > T_budget or upper_d' <= T_budget).
 
-Returns the cheapest resolving measurement and full witness data.
+The historical output from this script is invalidated. The current helper now
+reuses the corrected LP kernel, but testing only two witness-conditioned
+measurement values does not establish a policy or minimum-information claim.
 """
 import os
 import sys

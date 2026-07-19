@@ -1,5 +1,11 @@
 # G2 Soundness Fix Report
 
+> **SUPERSEDED / STILL NOT CLAIM-GRADE.** Commit `62995b5` fixed the main
+> max-min/min-max error for zero lower bounds, but its epigraph LP ignored
+> registered nonzero component lower bounds, used a process-random `hash()` in
+> its manifest, and did not implement the frozen cross-candidate query. This
+> file is retained as an intermediate correction record.
+
 **Date**: 2026-07-19
 **Status**: G2 LP oracle corrected, witness verification added, 14/14 unit tests pass
 

@@ -1,7 +1,12 @@
 # CertiTherm G3 Report: EDA-Specific Next Measurement Selection
 
+> **INVALIDATED; G3 WAS NOT COMPLETED.** The reported result called a duplicated
+> row-wise max-min routine instead of the corrected min-max oracle. It also used
+> a single synthetic content-factor case before G2 had passed. The numbers below
+> are preserved for forensic comparison only and must not be cited.
+
 **Date**: 2026-07-19
-**Status**: G3 complete for 4x4 paper design with CF=1.5x
+**Status**: `LEGACY_INVALIDATED_FOR_CLAIMS`
 
 ## Method
 
@@ -66,9 +71,9 @@ Per the contract, G3 is "Broad DSE Decision-Value and Systems-Cost Gate" with:
 - 2 non-isomorphic architecture families
 - 2 real package/cooling regimes
 
-What G3 shows in this run:
-- ✓ Algorithm correct: finds cheapest measurement (ubuf_2, cost=1)
-- ✓ Witness replay verified: m*_safe → CERTIFIED_SAFE, m*_infeas → CERTIFIED_INFEASIBLE
+What the historical script reported (not validated evidence):
+- a proposed `ubuf_2` measurement under the duplicated max-min routine
+- two solver-self-reported conditional outcomes without an independent policy replay
 - ⚠️ Single architecture family (4x4 TESA)
 - ⚠️ Synthetic content factor (not real package regime)
 - ⚠️ Single DNN family (uniform across all 7 networks)
@@ -77,4 +82,4 @@ To fully satisfy the contract G3 gate, would need to repeat on:
 - 2x2, 3x3, 5x4 designs (different arch families) — verified to be SAFE/INFEASIBLE, not NON_IDENT
 - Real gem5+McPAT per-block power (not 1.5x uniform)
 
-The algorithm and witness machinery are correct; the empirical breadth is limited by available data.
+Neither algorithm correctness nor G3 completion follows from this invalidated run.
