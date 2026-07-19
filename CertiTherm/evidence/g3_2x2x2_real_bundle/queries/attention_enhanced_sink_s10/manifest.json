@@ -49,12 +49,8 @@
       "sha256": "68354d5fae153a8fb96095b8d9c51bfb37d3de7af4c2ba7fa99fa00fd02b1604"
     },
     {
-      "path": "manifest.json",
-      "sha256": "edfeaee2e965aec27dcc6b542f6e59187432e79c52f2f593de1b2fceabdd66a7"
-    },
-    {
       "path": "query.json",
-      "sha256": "1a4e6ad15760c3dca0d432df82ef62878e9ff29676a798e7c6829c4752ecd828"
+      "sha256": "0fabe1f02ab96cb04e51f9cbec2585de8b3522ff93e541eb1707fac1ad391a48"
     }
   ],
   "package_id": "enhanced_sink_s10",

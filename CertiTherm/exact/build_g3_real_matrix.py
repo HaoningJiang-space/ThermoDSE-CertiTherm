@@ -384,6 +384,8 @@ def _build_spatial_observation(block_names: list[str], point: np.ndarray, placed
 def _aggregate_file_manifest(root: Path) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        if path.relative_to(root).as_posix() == "manifest.json":
+            continue
         records.append(
             {
                 "path": path.relative_to(root).as_posix(),

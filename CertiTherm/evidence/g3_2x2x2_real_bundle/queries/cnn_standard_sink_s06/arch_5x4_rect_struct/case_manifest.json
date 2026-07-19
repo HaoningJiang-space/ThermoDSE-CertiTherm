@@ -4,23 +4,23 @@
   "files": [
     {
       "path": "arch_5x4_rect_struct/response.npy",
-      "sha256": "84e4324fa5980eef04425285b48f9a526733afc89a5b7faae44074fce63078cb"
+      "sha256": "55e7ee184659034a930444006ab5f9c549688edf0a9f0a5e0cae4f2b622a6df8"
     },
     {
       "path": "arch_5x4_rect_struct/thermal_metadata.json",
-      "sha256": "b6cdf316d92c8d928c31156a1f8ced8a4d4a5bd975b2ef1de3230eef87e87358"
+      "sha256": "8ceecb8aadc170778a3703077285daf50229c2abf25488bc1556c0a53b6df4a2"
     },
     {
       "path": "arch_5x4_rect_struct/observation.json",
-      "sha256": "e4f94666f69abad0b4d705b94e8ae6c1b117daeb85037a40354eb6be5a914043"
+      "sha256": "c77b08e833dcb2ef3b943721f5a3150a5531610167a93e44bcfc87738a513b81"
     },
     {
       "path": "arch_5x4_rect_struct/point_power.npy",
-      "sha256": "e722634542eaadaa28817483b09a24903c7c991f7c63ffdb81c6b2e7112b8963"
+      "sha256": "1942d4152f2baa5070dc7dc6b30f780deed3d19135cabc08883bb89bee4c508f"
     },
     {
       "path": "arch_5x4_rect_struct/placed_power.npy",
-      "sha256": "72dc57a33a7a722c9e34b1ce07ef1e6a2ef1cc1e1a98d7f204a58b6efdcd3e99"
+      "sha256": "fd13ad2dc032a7882e4b45759fd320f16b3345482a14916d4110b8b171e2dd5c"
     }
   ],
   "package_id": "standard_sink_s06",

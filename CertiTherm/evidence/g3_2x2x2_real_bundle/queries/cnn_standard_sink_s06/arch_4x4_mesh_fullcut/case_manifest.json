@@ -4,23 +4,23 @@
   "files": [
     {
       "path": "arch_4x4_mesh_fullcut/response.npy",
-      "sha256": "542468028fe347d23f4f2cfbd2566062dc8e72c502ccf9ee3ee0c200af45231d"
+      "sha256": "083677bacbb534aa50ce0d4161096679899bcb4756b191105a70237525ded7ae"
     },
     {
       "path": "arch_4x4_mesh_fullcut/thermal_metadata.json",
-      "sha256": "9917b5cc5552359cde688234907f5481c6b4c5894979d0b44ed610059ba78444"
+      "sha256": "f5f1994291bc7bb4f9b7276871542a54dbc63e5dcb78888974139441d54b5a1f"
     },
     {
       "path": "arch_4x4_mesh_fullcut/observation.json",
-      "sha256": "7c2f095f9d971c8e5334126c0ad98f6839f2daa23c81762ef4150f82604ddbef"
+      "sha256": "60f0571b66ca18007c8b9dcccf24ca38b2e6a3ac340a10fe579875405fb7efee"
     },
     {
       "path": "arch_4x4_mesh_fullcut/point_power.npy",
-      "sha256": "567ee73e3ebf18df7edf2665c56f06a9f9abd04bb76bd14059613873bfcfc463"
+      "sha256": "bd49b49207b37964215a5f993eed6df2834e4ef3730367800629fb610239b594"
     },
     {
       "path": "arch_4x4_mesh_fullcut/placed_power.npy",
-      "sha256": "4b3a3f164f9c5f4f0ca71fd21055e16ffa5831abd553ce8170853ae260818c29"
+      "sha256": "4f87478670d2001e21fd4bcf955344e9bb1a64cc923d7f2e4a7e8e20ed17ba4d"
     }
   ],
   "package_id": "standard_sink_s06",

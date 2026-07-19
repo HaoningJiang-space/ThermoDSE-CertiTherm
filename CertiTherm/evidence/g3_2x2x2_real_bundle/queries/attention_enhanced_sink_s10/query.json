@@ -28,5 +28,5 @@
   "evidence_class": "physical_placed_power",
   "query_id": "g3-real-attention-enhanced_sink_s10",
   "schema_version": "certitherm.g2-query-spec.v2",
-  "thermal_limit_k": 348.0
+  "thermal_limit_k": 330.0
 }
