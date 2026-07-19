@@ -1,5 +1,13 @@
 # CertiTherm: Spatial Power Identifiability for Chiplet DSE
 
+> **Evidence status (2026-07-19): RESET AFTER INTEGRITY AUDIT.** The committed
+> Gaussian/corner/checker and finite-sample results are retained as legacy
+> debugging artifacts, but are not valid paper evidence. Their generator used
+> the wrong ThermoDSE ptrace column order, did not conserve obtainable
+> component-total power, could reuse stale cross-design state, and contained a
+> fail-open thermal constraint. See `audit/INTEGRITY_AUDIT_20260719.md` and
+> `results/README.md`. No physical or paper-level CertiTherm claim has passed.
+
 ## Core thesis (independent of ThermoDSE 2026)
 
 > Early-stage chiplet DSE has only module-average power, no final spatial power map.
@@ -27,7 +35,7 @@ information is needed and *where*?
 
 1. **New decision object**: `thermal decision identifiability` — distinct
    from temperature MAE.
-2. **Certifiable method**: Use DNN mapping + PE activity envelope + power
+2. **Certifiable method (planned)**: Use DNN mapping + PE activity envelope + power
    conservation to construct a fine-grained power uncertainty set, then
    compute peak temperature upper/lower bounds. Output one of three
    labels per design: `definitely_safe / definitely_infeasible / undecidable`.
@@ -54,12 +62,12 @@ information is needed and *where*?
 
 | Step | Action | Status |
 |---|---|---|
-| 1 | Set up audit harness (use existing ThermoDSE evaluator as oracle) | TODO |
-| 2 | Build uniform-power baseline (1 µW per instance) | TODO |
-| 3 | Synthesize spatial power map (block-level variation) | TODO |
-| 4 | Run decision-flip audit (uniform vs spatial winner comparison) | TODO |
-| 5 | CertiTherm core: identifiability classifier + certificate logic | TODO |
-| 6 | Acquisition: active refinement on undecidable candidates | TODO |
+| 1 | Set up content-bound audit harness | RESET; legacy harness is not claim-grade |
+| 2 | Bind obtainable aggregate-power observations | OPEN-G2 |
+| 3 | Build power-conserving synthetic stress pilot | CODE-FIXED; results not rerun |
+| 4 | Run decision-flip audit | LEGACY RESULTS INVALIDATED; physical rerun required |
+| 5 | Exact identifiability classifier + replayable certificates | G1 synthetic oracle validated in sibling project; migration pending |
+| 6 | EDA-specific information acquisition | BLOCKED until G2 physical certificate and witness exist |
 
 ## Related work (avoid overlap)
 
@@ -78,6 +86,6 @@ information is needed and *where*?
 
 ## See also
 
-- `/home/ynwang/jhn/DSE/ThermoDSE/REPRODUCTION_RESULTS.md` — reproduction context
-- `/home/ynwang/jhn/DSE/Chiplet_DSE_Projects_Research_20260717/` — earlier research notes
-- `/home/ynwang/jhn/DSE/DSE_FirstPrinciples_Followup_20260717/` — first-principles verdicts
+- `RESEARCH_CONTRACT.md` — frozen problem, nonclaims, evidence matrix, and gate plan
+- `audit/INTEGRITY_AUDIT_20260719.md` — claim/code/result consistency audit
+- `results/README.md` — artifact disposition and reuse rules

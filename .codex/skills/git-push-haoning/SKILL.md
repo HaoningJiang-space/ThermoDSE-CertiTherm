@@ -8,7 +8,7 @@ description: Safely clone, branch, commit, audit, and publish work for HaoningJi
 ## Bind the project
 
 - Treat `https://github.com/HaoningJiang-space/ThermoDSE-CertiTherm.git` as the canonical publication repository.
-- Use `/home/abc/3DIC/chiplet_dse/ThermoDSE-CertiTherm` as the default local clone when it exists.
+- Locate the active clone with `git rev-parse --show-toplevel`; keep documentation and manifests repository-relative.
 - Read `CLAUDE.md`, `CertiTherm/README.md`, `CertiTherm/INSIGHTS.md`, `CertiTherm/audit/SUMMARY.md`, Git status, remotes, and recent history before changing research content.
 - Keep ThermoDSE source as a sibling repository or an explicitly pinned dependency. Do not add the unrelated ThermoDSE history as a merge remote.
 
@@ -19,6 +19,7 @@ description: Safely clone, branch, commit, audit, and publish work for HaoningJi
 - Prefer an already-loaded SSH key. Check its identity with `ssh -T git@github.com`; repository ownership and the authenticated account are separate facts.
 - Otherwise require the user to authenticate through GitHub CLI browser/device flow or an operating-system credential helper in their own secure terminal. Do not echo or interpolate a token.
 - Keep fetch and push URLs credential-free. A permitted push URL is `git@github.com:HaoningJiang-space/ThermoDSE-CertiTherm.git` when the loaded key has write access.
+- Keep `origin` for GitHub publication and an optional credential-free `moe` remote for isolated execution/recovery. A push to `moe` does not count as public GitHub publication.
 
 ## Use round branches and worktrees
 

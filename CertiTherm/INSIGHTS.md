@@ -1,113 +1,121 @@
-# CertiTherm Phase 1+2 Results: Sample-Based Robust DSE
+# CertiTherm Research Insight, Corrected After Integrity Audit
 
-## Headline Insight (Non-Incremental)
+## The insight that survives
 
-**The thermal decision-flip problem IS real, and the fix IS a 1-line DSE algorithm change.**
+Early chiplet DSE observes aggregate hardware quantities but acts on a
+fine-spatial thermal field. Many placed power maps can therefore be consistent
+with the same available observation. The publishable question is not whether
+one guessed map has low temperature error. It is:
 
-CertiTherm Phase 1 proved the abstraction is real (17% flip rate with synthetic patterns).
-Phase 2 (this work) implements the fix: **replace `T_uniform` in the DSE feasibility
-check with `T_robust = max over K sampled spatial patterns`**. This is "robust
-by construction" — not "post-hoc cert". The change is:
-- 1 line in `target_function()` (replace `peak_temp = evaluator.evaluate_thermal()` with `peak_temp = compute_T_robust(...)`)
-- K=10 extra HotSpot runs per DSE evaluation (10x slower per eval, but DSE is the right thing to change)
+> Does every fine-power realization consistent with the obtainable hardware
+> observations lead to the same architecture-selection outcome?
 
-## Method
+This is a decision-verification problem. It makes the observation interface,
+the admissible realization set, the architecture query, and the proof object
+first-class EDA artifacts.
 
-**Closed-form g attempt (Phase A.1)**: Tried to derive g(C, σ_W) = σ_W × λ_max(R) × P_total from HotSpot's RC model. The bound is loose (5-10x over-estimate) because:
-- λ_max(R) is dominated by self-resistance R[i,i], not the off-diagonal spatial coupling
-- Spatial patterns preserve total power (so P_total doesn't grow with σ_W)
+## Why the finite-sample route is no longer the main method
 
-**Sample-based g (Phase A.2)**: Replace closed-form with K=10 sampled HotSpot runs.
-Empirically:
-- T_robust - T_uniform: mean +18.7K, max +49.1K
-- Matches Phase 1 audit (max +51K) closely
-- Tighter bound, 10x compute, but no closed-form required
+The earlier Phase 2 story proposed replacing uniform temperature with the
+maximum of `K` synthetic HotSpot samples. That route is killed as the primary
+DAC/ICCAD/DATE contribution:
 
-## Key Empirical Result
+- a finite sample maximum is neither a supremum nor a safety certificate;
+- no distribution-free `1/K` worst-case error theorem follows from the stated
+  assumptions;
+- the old injector interpreted a type-major, nine-component ptrace as a
+  chip-major, six-component ptrace;
+- the old multiplier did not conserve the aggregate component powers that the
+  DSE supposedly knows;
+- stale global backup state and skipped thermal failures could change results;
+- the constraint wrapper classified a failed thermal run as feasible.
 
-For paper's best TESA SA ideal design `[4,4,4,4,0.0005,...]`:
-- T_uniform = 341.3K (within 7K of 348K budget → "feasible")
-- T_robust = 390.4K (42K over budget → "infeasible" by robust check)
-- **This is the decision-flip in action**: the paper's recommended best is NOT
-  actually safe under spatial power variation
+The corrected implementation is useful only as a deterministic,
+power-conserving **sampled stress baseline**. Its results cannot certify a
+design and cannot support a zero-false-positive claim.
 
-## Algorithm: CertiTherm Robust DSE
+## Exact decision-identifiability semantics
 
-```python
-# Before (current ThermoDSE):
-def c2(x, max_temp, chiplet_sim_dict):
-    sys_info = param_regulator(x)
-    evaluator = chiplet_sim_dict[tuple(sys_info)]
-    peak_temp = evaluator.evaluate_thermal()  # uniform power
-    return peak_temp - max_temp
+For candidate architecture `d`, let its obtainable observation define a compact
+admissible fine-power set
 
-# After (CertiTherm robust DSE):
-def c2_robust(x, max_temp, chiplet_sim_dict):
-    sys_info = param_regulator(x)
-    evaluator = chiplet_sim_dict[tuple(sys_info)]
-    peak_temp = compute_T_robust(sim_path, run_sh, sys_info, evaluator,
-                                  K=10, mode='centered')  # max over 10 samples
-    return peak_temp - max_temp
+```text
+P_d = {p | A_d p = z_d, B_d p <= b_d, l_d <= p <= u_d}.
 ```
 
-That's it. 1-line change to `c2()` in scbo_search.py / sa_opt.py.
+For one frozen monotone linear thermal operator,
 
-## Why This Is Non-Incremental
+```text
+T_d(p) = max_r (ambient_d,r + K_d,r p).
+```
 
-| Cert framework (rejected) | This work |
-|---|---|
-| Add cert layer on top of DSE | Reformulate DSE itself |
-| Run HotSpot N times (one per spatial candidate) | Same 10 samples, used in DSE objective |
-| Active refinement for undecidable | No "undecidable" — robust DSE picks safe designs |
-| 3D-ICE for verification | Bound is empirical, validated in Phase 1 |
-| More data (gem5+McPAT) | Same data, different objective |
-| Decision-level framing (incremental) | Problem-level reformulation (non-incremental) |
+The exact lower and upper peaks are
 
-## What's Tested
+```text
+lower_d = min_{p in P_d} T_d(p),
+upper_d = max_{p in P_d} T_d(p).
+```
 
-- **Paper's best TESA SA ideal** `[4,4,4,4,0.0005,...]`: T_uniform=341.3K, T_robust=390.4K (**FLIP**)
-- **Our SCBO two-stage best** `[4,5,2,1,0.0017,...]`: T_uniform=332.2K, T_robust=381.4K (**FLIP**)
-- **Our SCBO single-obj best** `[5,4,1,2,0.0005,...]`: T_uniform=330.0K, T_robust=355.5K (infeasible both)
-- **Min-design** `[2,2,1,1,...]`: T_uniform=325.2K, T_robust=325.7K (no flip, big margin)
+With equality at the thermal limit defined as feasible:
 
-The min-design doesn't flip because it has 23K margin to the budget.
-The optimizer-found designs flip because they sit at the boundary.
+```text
+candidate d can be feasible   iff lower_d <= limit,
+candidate d can be infeasible iff upper_d > limit.
+```
 
-## What's Next (Phase C, future work)
+For candidates in deterministic nonthermal-objective order, outcome `d_j` is
+reachable exactly when `d_j` can be feasible and every earlier candidate can
+be infeasible. `NO_FEASIBLE_DESIGN` is reachable exactly when every candidate
+can be infeasible. One reachable outcome yields `CERTIFIED`; two or more yield
+`NON_IDENTIFIABLE` plus two complete observation-equivalent power tuples that
+replay to different decisions. Missing compactness, invalid input, incomplete
+search, solver failure, or invalid proof yields `UNRESOLVED`.
 
-1. **Run full SCBO with robust c2** — show new DSE finds a different winner
-   (one with T_uniform ≤ 320K, leaving 28K margin for spatial variation)
-2. **Compare EDYP**: expect new winner EDYP ~ 250-280 (vs current 233.27)
-   This is the cost: ~10% worse EDYP for 0% flip rate
-3. **Real SAIF/VCD data**: replace synthetic Gaussian with real workload traces
-4. **Write paper**: "Spatial-Power-Robust Chiplet DSE" for ICCAD/DATE 2026
+## What has actually been validated
 
-## Files Created/Modified
+The sibling ChipletThermalEnvelope project has closed the synthetic semantic
+gate, not the physical paper gate:
 
-- `CertiTherm/theory/derive_R.py` — Compute R matrix via single-block perturbation
-- `CertiTherm/robust_dse/sample_worst_case.py` — Sample-based T_robust computation
-- `CertiTherm/robust_dse/robust_target.py` — `compute_T_robust()` + `c2_robust()` ready to patch
-- `CertiTherm/robust_dse/run_robust_dse_test.py` — Test framework
-- `CertiTherm/audit/spatial_power_injection.py` — Already built (Phase 1)
-- `CertiTherm/INSIGHTS.md` — This document
-- `~/.claude/skills/git-push-haoning/` — Auto-push skill (uses pre-configured token)
+- G0 bound the feasible scope and resource envelope for small exact cases;
+- the main G1 exact-rational oracle emits primal/dual LP certificates and
+  decision-changing witness tuples;
+- an independently written implementation and SciPy/HiGHS parity tests provide
+  separate checks;
+- adversarial replay rejects stale digests and forged primal, dual, and witness
+  objects;
+- the full remote regression passed before migration.
 
-## Data Saved
+These results establish that the semantics are implementable and replayable.
+They do **not** establish placed-power identifiability, DNN generality, minimum
+information, scalable runtime, or an EDA paper contribution.
 
-- `CertiTherm/results/decision_flip_centered5_final.csv` — Phase 1 audit (12 designs)
-- `CertiTherm/results/robust_dse_K8_8designs.json` — K=8 sample-based test
-- `CertiTherm/results/robust_dse_K15.json` — K=15 sample-based test
-- `CertiTherm/INSIGHTS.md` — This file
+## The strongest honest paper route
 
-## Memory: This Work's Innovation
+The paper should be framed as **observation-aware thermal decision
+verification for chiplet DSE**:
 
-The fundamental mistake of the existing DSE field: optimizing for uniform-power T
-budget when the actual T depends on spatial power which is not modeled.
-The fix is not "more accurate thermal model" — it's "DSE objective uses
-empirical worst case over a sample of spatial powers". This shifts DSE from
-"matches average" to "safe under any spatial realization".
+1. Define typed, physically obtainable power observations and their admissible
+   fine-power equivalence classes.
+2. Certify whether the architecture decision is invariant over each class; if
+   not, emit a sharp pair of observation-equivalent decision-flipping maps.
+3. Use certificate width and witness support to select an EDA-specific next
+   measurement only after the physical G2 gate succeeds.
 
-The deeper insight: **the 6-7K thermal budget margin IS the bug, not the feature**.
-DSE search algorithms use this margin to fit designs. The margin's size is
-exactly what makes them sensitive to spatial variation. CertiTherm removes
-this trap by forcing designs to have a larger effective margin.
+The first contribution is a problem/semantic contribution; the second is an
+exact and replayable method contribution; the third remains conditional. A
+generic active-learning, VOI, DDID, or CEGAR claim is out of scope because the
+generic ideas have substantial prior art.
+
+## The decisive next experiment
+
+The next positive result must come from content-bound placed-power cases. For
+at least two DNN families, two non-isomorphic architecture families, and two
+package regimes, the same aggregate observation must admit both:
+
+- a replayable certificate when all fine maps preserve one decision; and
+- a replayable witness pair when two fine maps preserve the observation but
+  change the chosen architecture.
+
+If neither occurs under realistic observation sets, narrow or kill the paper.
+Temperature deltas from unconstrained synthetic multipliers are no longer a
+success criterion.

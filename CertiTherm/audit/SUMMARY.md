@@ -1,5 +1,12 @@
 # CertiTherm Phase 1 Audit Summary
 
+> **LEGACY_INVALIDATED_FOR_CLAIMS (2026-07-19).** The numbers below are
+> preserved as historical pilot output. The generating injector used an
+> incorrect ptrace schema and did not conserve component-total power; failed
+> rows and cross-run inconsistencies also invalidate the reported rates and
+> temperature deltas. Do not cite this file as evidence. See
+> `INTEGRITY_AUDIT_20260719.md`.
+
 ## Experimental Setup
 
 - **Goal**: Test if uniform-power vs spatial-power changes architectural decisions
