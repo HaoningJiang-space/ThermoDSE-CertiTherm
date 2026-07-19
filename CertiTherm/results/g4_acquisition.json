@@ -1,6 +1,7 @@
 {
-  "current_status": "CERTIFIED_SAFE",
-  "lower_d": 322.8075740757427,
-  "upper_d": 334.6327484999995,
-  "no_measurement_needed": true
+  "classification": "LEGACY_INVALIDATED_FOR_CLAIMS",
+  "legacy_commit": "73a1afd67685bfc96873980f0837a3dfa08cdadb",
+  "legacy_result_sha256": "5d641b091f7cb3d52cc48e78f8f4701acc8fa3a3cb82589b9c11cbeabeedc3fa",
+  "reason": "The legacy JSON is a single-candidate CERTIFIED_SAFE early return on a truncated/padded ptrace; no acquisition or cross-candidate decision was evaluated.",
+  "replacement_status": "NO_CLAIM_GRADE_G4_RESULT"
 }

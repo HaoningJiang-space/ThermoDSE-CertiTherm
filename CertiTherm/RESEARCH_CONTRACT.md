@@ -55,8 +55,10 @@ status handling.
 - A finite synthetic sample maximum is not a worst-case bound.
 - G1 synthetic fixtures do not prove placed-power or DNN-general behavior.
 - Generic active learning, VOI, DDID, or CEGAR is not claimed as new.
-- Least-information/minimum-query optimality is not claimed before a formal
-  registered acquisition family and proof.
+- Least-information/minimum-query optimality is not claimed. G4 may report only
+  the cheapest witness-confirming action inside one content-bound registered
+  family and declared cost model; witness-pair confirmation is not universal
+  resolution over all possible measurement values.
 - Scalable runtime, zero false positives, or backend-independent physics is not
   claimed before the corresponding gate passes.
 
@@ -128,6 +130,12 @@ invent or select them from memory.
 | G2 physical witness/certificate | at least one replayable certificate and one decision-changing witness from content-bound placed-power cases | no decision relevance under realistic observations, or evidence provenance cannot be built |
 | G3 breadth and systems cost | registered 2×2×2 breadth, fair baselines, bounded overhead, explicit failures | result exists only for one synthetic pattern or one nearby design family |
 | G4 acquisition | fewer expensive queries than fixed refinement at matched correctness/coverage | benefit derives only from generic policy tuning without an EDA-specific observation mechanism |
+
+G4's implementation-level acceptance test is deliberately weaker than the gate:
+both stored witness values must produce certified, distinct cross-candidate
+outcomes after one registered measurement is appended. Closing the empirical
+gate additionally requires a matched fixed-refinement comparison over physical
+G3 cases; one successful witness pair is not enough.
 
 Passing G1 authorizes only G2. Passing a synthetic stress test never authorizes a
 paper claim.
