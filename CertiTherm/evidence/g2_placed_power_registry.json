@@ -1,0 +1,105 @@
+{
+  "schema_version": "certitherm.g2-physical-input-registry.v1",
+  "external_evidence": {
+    "repository": "https://github.com/HaoningJiang-space/ChipletThermalEnvelope.git",
+    "audit_commit": "d4e519d280dea5d9f4c1e92789a2e461f7efffd0",
+    "projection_commit": "35649d2823ebb01472e3b51a91c72e4ea4bd76c1",
+    "green_commit": "3cad3cfbbc11a7fa90c4cf5019145521e4aaf51d",
+    "oracle_commit": "d4e519d280dea5d9f4c1e92789a2e461f7efffd0",
+    "reuse_mode": "read-only semantic and numeric evidence import; no source copied"
+  },
+  "numeric_contract": {
+    "decision_tolerance_k": 2e-07,
+    "bound_parity_tolerance_k": 1e-06,
+    "temperature_replay_tolerance_k": 1e-08,
+    "power_replay_tolerance_w": 1e-10
+  },
+  "query": {
+    "query_id": "snax-gemm-m4-m2-placed-power-frontier",
+    "objective_name": "frozen_throughput_preference_ordinal",
+    "expected_status": "NON_IDENTIFIABLE",
+    "expected_outcomes": [
+      "snax_gemm_m2_t8",
+      "NO_FEASIBLE_DESIGN"
+    ]
+  },
+  "files": {
+    "m2_domain": {
+      "filename": "m2_placed_power_domain.npz",
+      "sha256": "7b75e8a93f30da8e71ee95fe1c577933b7bc16a3911c35a34cdeae6309275108"
+    },
+    "m4_domain": {
+      "filename": "m4_placed_power_domain.npz",
+      "sha256": "0933273695a6dd59f1501dbd2892f39f25bda97be8ef33c947c61847c4aa60e8"
+    },
+    "m2_green": {
+      "filename": "m2_green_matrices.npz",
+      "sha256": "b7412b02e7d46909af6c4f013bb79e5fcdaf9b7f479fd14357f2e462ec496b31"
+    },
+    "m4_green": {
+      "filename": "m4_green_matrices.npz",
+      "sha256": "813ef5765252ba90ef4c39c821bc21e1f887e4ac762d3264ecf5af7ff7134ba7"
+    },
+    "m2_oracle": {
+      "filename": "m2_oracle_bounds.npz",
+      "sha256": "254d7de720ffd344c0f4cfb7c9eab00977554769f5186a69bec9f6ef2463d32c"
+    },
+    "m4_oracle": {
+      "filename": "m4_oracle_bounds.npz",
+      "sha256": "fedd7d0daee8aa1d65e8b38313b08d34a8a05e771537aac9dad40a8814bdcd55"
+    },
+    "frontier_witnesses": {
+      "filename": "frontier_witnesses.npz",
+      "sha256": "e7feb2f9e18cf43aa0f2ed594847e88154ca703b836bf880284b58c31926383a"
+    },
+    "frontier_summary": {
+      "filename": "frontier_summary.tsv",
+      "sha256": "2b2255d30bcfb50ab5b8f8d945dcd9f3f3bb377dbf3dbd566455df543a09aa30"
+    },
+    "query_frontier": {
+      "filename": "query_frontier.tsv",
+      "sha256": "032fdf653fbf6ff55b778cdd97ff6d75147375c4e8650cc6f93c1ccb8c968d2c"
+    }
+  },
+  "candidates": [
+    {
+      "candidate_id": "snax_gemm_m4_t8",
+      "domain_file": "m4_domain",
+      "green_file": "m4_green",
+      "oracle_file": "m4_oracle",
+      "nonthermal_objective": 0.0,
+      "tie_break_rank": 0,
+      "expected_state": "CERTIFIED_INFEASIBLE",
+      "domain_digest": "06a13e1c83a0d146cf687dd3ce65d06509bef191c0d849bd23ba5d58e4a966b3",
+      "operator_digest": "1ec5d011866e5dc8c3a9f3388bab03506e91336c37d426875de2828464fa64b0",
+      "bounds_digest": "ea52bc199f17832b603b565eebb4622a7d5f8f8a26259a48a45637be05aa133c",
+      "query_payload_digest": "65bbe3652795da2187b6863bd424f9a9cfb370abacf84ec407c3993007145f2b"
+    },
+    {
+      "candidate_id": "snax_gemm_m2_t8",
+      "domain_file": "m2_domain",
+      "green_file": "m2_green",
+      "oracle_file": "m2_oracle",
+      "nonthermal_objective": 1.0,
+      "tie_break_rank": 1,
+      "expected_state": "NON_IDENTIFIABLE",
+      "domain_digest": "45cc19a3c53396c080f48086e33c6636eacf3204e2efe26b3f9d24d650415919",
+      "operator_digest": "91ec15395894327adb1589b91ee2688aa8f0f2bceb281f8f713a48e0ba936dc8",
+      "bounds_digest": "5d1733142a5c3b4f095240f3aae0d2a9338254c5571152ac1ea286a0e648ff52",
+      "query_payload_digest": "f7285017918cdbf646d36275761e223a12938eb4eebf0773bb40ef60b007c55c"
+    }
+  ],
+  "frontier": {
+    "file": "frontier_witnesses",
+    "summary_file": "frontier_summary",
+    "table_file": "query_frontier",
+    "region_digest": "bf38a03f03b1ba8cdc9532039ded97ae2181ea56fdbe128e7b97d085acb91c00",
+    "witness_digest": "267a2724889d01d1ac361dc792b15e73e04b7dc7a6d6b271beacd5b2268c9b97",
+    "frontier_digest": "91c3ff5757b1bcf12862ac0ad3643494605cff4fb0de3d67a3e31bc4e2f46083",
+    "lower_limit_k": 318.71649866819001,
+    "upper_limit_k": 318.71730724157533,
+    "lower_closed": true,
+    "upper_closed": false,
+    "representative_limit_k": 318.7169029548827
+  }
+}

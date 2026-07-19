@@ -26,6 +26,11 @@ from evidence import build_replay_artifact, replay_artifact
 from linear_oracle import canonical_sha256, solve_candidate_bounds
 from measurement import decide_with_extra_measurement
 from run_g2_query import load_query_bundle, run_registered_query
+from run_g2_physical_replay import (
+    PhysicalReplayError,
+    _read_registry,
+    _verify_registered_files,
+)
 
 
 def _observation(total: float, n: int, upper: float = 10.0, lower=None):
@@ -440,3 +445,44 @@ def test_registered_runner_writes_replayable_artifact_and_receipt(tmp_path):
     assert artifact["run"]["source_commit"] == "a" * 40
     assert receipt["status"] == "PASS"
     assert json.loads(receipt_path.read_text(encoding="utf-8"))["status"] == "PASS"
+
+
+def test_physical_registry_freezes_order_hashes_and_error_contract():
+    registry_path = (
+        Path(__file__).resolve().parents[1]
+        / "evidence"
+        / "g2_placed_power_registry.json"
+    )
+    registry = _read_registry(registry_path)
+    assert [item["candidate_id"] for item in registry["candidates"]] == [
+        "snax_gemm_m4_t8",
+        "snax_gemm_m2_t8",
+    ]
+    assert registry["numeric_contract"]["decision_tolerance_k"] == 2e-7
+    assert registry["query"]["expected_outcomes"] == [
+        "snax_gemm_m2_t8",
+        NO_FEASIBLE_DESIGN,
+    ]
+    assert all(
+        len(record["sha256"]) == 64 and not Path(record["filename"]).is_absolute()
+        for record in registry["files"].values()
+    )
+
+
+def test_physical_input_hash_mismatch_is_rejected(tmp_path):
+    payload = tmp_path / "input.bin"
+    payload.write_bytes(b"registered")
+    registry = {
+        "files": {
+            "only": {
+                "filename": "input.bin",
+                "sha256": "0" * 64,
+            }
+        }
+    }
+    try:
+        _verify_registered_files(registry, {"only": payload})
+    except PhysicalReplayError as exc:
+        assert "SHA-256 mismatch" in str(exc)
+    else:
+        raise AssertionError("tampered registered input was accepted")
