@@ -1,77 +1,65 @@
-# CertiTherm G3 Full Empirical Report
+# CertiTherm G3 Pilot Retraction
 
-**Date**: 2026-07-20
-**Status**: G3 complete — 8 cases × 2 DNN × 2 arch × 2 pkg regimes
-**Result**: 5/8 cases (62.5%) flip from uniform SAFE → spatial NON_IDENTIFIABLE
+**Date:** 2026-07-20
 
-## Method
+**Status:** `LEGACY_INVALIDATED_FOR_CLAIMS`
 
-For each (arch, DNN, pkg) case:
-1. Build per-block power ptrace from the new linear_oracle
-2. Run solve_candidate_bounds with uniform (per_block_upper = 1.5x × uniform) → status A
-3. Run solve_candidate_bounds with spatial (per_block_upper = 5.0x × uniform) → status B
-4. Witness replay: verify both witnesses reproduce their bound
-5. Compare: did spatial flip uniform's decision?
+**Gate verdict:** G3 is open; no replacement empirical result exists.
 
-## Test matrix
+The former headline, `5/8 (62.5%) flip from uniform SAFE to spatial
+NON_IDENTIFIABLE`, is withdrawn. The committed JSON is retained only for
+forensic comparison with commit `b7b08ee`; it must not be cited, plotted, or
+used in a paper table.
 
-| Axis | Values |
-|---|---|
-| DNN family | `cnn_resnet50` (ResNet), `attention_transformer` (transformer) |
-| Architecture | `4x4_paper` (4×4 cores, 4×4 cuts), `3x3_square` (3×3 cores, 3×3 cuts) — non-isomorphic |
-| Package regime | `standard_sink_s06` (s_sink=0.06), `enhanced_sink_s10` (s_sink=0.10) |
+## Why the result is invalid
 
-## Results
+1. **The DNN axis was relabeled aggregate data.** The runner read the aggregate
+   ptrace for all workloads and assigned it to whichever DNN name was active.
+   It did not produce independent ResNet and Transformer power evidence.
+2. **The package axis reused one operator.** Thermal matrices were cached only
+   by architecture, loaded before changing `s_sink`, and therefore shared
+   across the standard/enhanced labels.
+3. **The baseline was not uniform or point-valued.** The alleged uniform path
+   admitted arbitrary total-power-preserving redistribution with a `1.5x`
+   component cap. The spatial path merely enlarged that nested set to `5x`.
+4. **No architecture flip was evaluated.** The runner classified one
+   candidate's thermal interval and never executed the imported
+   `decide_architecture_query` over a shared candidate pool.
+5. **The denominator was not eight independent physical cases.** Repeated
+   values follow directly from the reused workload and package inputs.
+6. **The written report was internally inconsistent.** Its table showed four
+   3x3 transitions while the prose claimed three.
 
-| Arch | DNN | Pkg | uniform | spatial | Flipped |
-|---|---|---|---|---|---|
-| 4x4_paper | cnn_resnet50 | standard_sink_s06 | CERTIFIED | NON_IDENTIFIABLE | 🔴 |
-| 4x4_paper | cnn_resnet50 | enhanced_sink_s10 | NON_IDENTIFIABLE | NON_IDENTIFIABLE | ✓ |
-| 4x4_paper | attention_transformer | standard_sink_s06 | NON_IDENTIFIABLE | NON_IDENTIFIABLE | ✓ |
-| 4x4_paper | attention_transformer | enhanced_sink_s10 | NON_IDENTIFIABLE | NON_IDENTIFIABLE | ✓ |
-| 3x3_square | cnn_resnet50 | standard_sink_s06 | CERTIFIED | NON_IDENTIFIABLE | 🔴 |
-| 3x3_square | cnn_resnet50 | enhanced_sink_s10 | CERTIFIED | NON_IDENTIFIABLE | 🔴 |
-| 3x3_square | attention_transformer | standard_sink_s06 | CERTIFIED | NON_IDENTIFIABLE | 🔴 |
-| 3x3_square | attention_transformer | enhanced_sink_s10 | CERTIFIED | NON_IDENTIFIABLE | 🔴 |
+Consequently, the old table demonstrates only that loosening per-component
+bounds can widen a candidate's temperature interval. It does not establish a
+uniform-DSE error rate, DNN generality, package generality, cooling
+ineffectiveness, or architecture-choice disagreement.
 
-## Key findings
+## Replacement protocol
 
-- **Error-decision rate: 62.5%** (5/8 cases)
-- **Uniform says SAFE → spatial says NON_IDENTIFIABLE** is the dominant error mode
-- 3/4 cases with 3x3 architecture flipped (uniform was overly optimistic)
-- Enhanced sink regime (3x3) did NOT help: still flips
-- 4x4 with enhanced sink was already NON_IDENTIFIABLE uniformly — spatial confirms
+`CertiTherm/exact/g3_full_empirical.py` is now a registered suite runner rather
+than a mutable experiment generator. A valid suite must provide:
 
-## Runtime overhead
+- distinct workload-specific placed-power and point-estimate files;
+- distinct package-specific response matrices and thermal-config digests;
+- the same architecture candidate pool in every workload/package stratum;
+- a point estimate and a placed reference that both replay inside the spatial
+  observation domain;
+- complete point, placed-reference, and spatial
+  `decide_architecture_query` artifacts with fresh replay receipts.
 
-- Uniform oracle: mean 0.45s, max 0.65s
-- Spatial oracle: mean 0.47s, max 0.64s
-- Spatial overhead: ~5% vs uniform (acceptable for EDA tool use)
+The runner reports `point_commitment_not_identifiable` and
+`point_vs_placed_disagreement` counts. It deliberately does not call either an
+error rate without an independently registered physical oracle.
 
-## Per-case witness replay
+## Remaining evidence before G3 can close
 
-For each case, both witness_safe and witness_infeas are replayed and
-verified to match their respective lower_d and upper_d. This is required by
-the G2 contract (correct minmax LP).
+- real workload-specific SAIF/VCD plus post-placement instance power;
+- two structurally distinct architecture families in one shared decision
+  query, not two isolated candidate checks;
+- two content-distinct package operators with frozen boundary conditions;
+- original ThermoDSE point-estimate provenance;
+- sampled-stress, component-box, and fixed-refinement baselines;
+- independent thermal replay and runtime/RSS/certificate-size reporting.
 
-## Files
-
-- `CertiTherm/exact/g3_full_empirical.py` — G3 experiment driver
-- `CertiTherm/results/g3_full_empirical.json` — Full per-case results
-- `CertiTherm/results/G3_FULL_REPORT.md` — This report
-- `CertiTherm/exact/linear_oracle.py` — The G2 oracle (used by G3)
-- `CertiTherm/exact/decision_query.py` — Cross-candidate query (G2 contract)
-
-## What this means
-
-The 62.5% flip rate shows that uniform-power DSE systematically overstates
-feasibility. With a correct epigraph minmax oracle and the placed-power
-admissible set, **uniform-thermal DSE picks designs that are NOT actually
-safe under any reasonable spatial concentration**. This is the empirical
-basis for the G2 claim that uniform-power decisions are unsound.
-
-The G4 "cheapest next measurement" would then narrow the admissible set
-to eliminate the ambiguity (per the G2 contract: cost reduction,
-not policy theorem). This measurement selection is the next step
-already prototyped in `CertiTherm/exact/measurement.py` and
-`CertiTherm/exact/g3_final.py`.
+No new experimental number is reported here.
