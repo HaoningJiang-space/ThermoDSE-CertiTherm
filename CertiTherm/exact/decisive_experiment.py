@@ -86,7 +86,7 @@ def compute_pumped_observation(sim_path, sys_info, content_factor):
         'per_block_upper': [content_factor * v for v in values],
         'per_block_lower': [0.0] * len(values),
     }
-    return observation, header, area_mm2
+    return observation, header, area_mm2, values
 
 
 def compute_R_for_design(sys_info, sim_path, hotspot_path, run_sh_path, R_dir):
@@ -150,7 +150,7 @@ def main():
             for cf in args.content_factors:
                 print(f"  Content factor = {cf}")
                 # Get observation z_d
-                obs, header, area_mm2 = compute_pumped_observation(
+                obs, header, area_mm2, values = compute_pumped_observation(
                     args.sim_path, design['sys_info'], cf
                 )
 
@@ -161,15 +161,20 @@ def main():
                     observation=obs,
                     T_budget=args.T_budget, area_mm2=area_mm2,
                 )
+                # Compute peak T at witness for full replay verification
+                p_safe = res.get('witness_safe')
+                p_infeas = res.get('witness_infeas')
+                T_peak_at_p_safe = None
+                T_peak_at_p_infeas = None
+                if p_safe is not None:
+                    T_at_p_safe = meta['T_ambient'] + R @ np.array(p_safe)
+                    T_peak_at_p_safe = float(np.max(T_at_p_safe))
+                if p_infeas is not None:
+                    T_at_p_infeas = meta['T_ambient'] + R @ np.array(p_infeas)
+                    T_peak_at_p_infeas = float(np.max(T_at_p_infeas))
                 # Truncate witness arrays for storage
                 res_clean = {k: v for k, v in res.items()
                             if k not in ('witness_safe', 'witness_infeas')}
-                res_clean['witness_safe_n_blocks'] = (
-                    len(res['witness_safe']) if res.get('witness_safe') else 0
-                )
-                res_clean['witness_infeas_n_blocks'] = (
-                    len(res['witness_infeas']) if res.get('witness_infeas') else 0
-                )
                 res_clean['witness_safe_T'] = res.get('witness_safe_T')
                 res_clean['witness_infeas_T'] = res.get('witness_infeas_T')
                 res_clean['design'] = design['name']
@@ -177,6 +182,19 @@ def main():
                 res_clean['dnn_family'] = design['dnn_family']
                 res_clean['arch_family'] = design['arch_family']
                 res_clean['sys_info'] = design['sys_info']
+                # Add hashes and provenance for replay
+                res_clean['provenance'] = {
+                    'R_hash': hash(R.tobytes()),
+                    'R_shape': list(R.shape),
+                    'T_ambient': float(meta['T_ambient']),
+                    'observation_sum': float(sum(values)),
+                    'observation_len': len(values),
+                    'T_budget': float(args.T_budget),
+                    'n_chips_per_side': 4,
+                }
+                res_clean['witness_safe_T_computed'] = T_peak_at_p_safe if p_safe is not None else None
+                res_clean['witness_infeas_T_computed'] = T_peak_at_p_infeas if p_infeas is not None else None
+                res_clean['manifest_version'] = '2.0-minmax-LP'
                 all_results.append(res_clean)
 
                 status = res['status']

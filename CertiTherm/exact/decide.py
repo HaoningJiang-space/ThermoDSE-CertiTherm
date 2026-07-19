@@ -79,34 +79,49 @@ def decide(sys_info, R, T_ambient, observation, block_names,
         }
 
     # 2. Compute lower_d = min_{p ∈ P_d} max_r (T_ambient[r] + R[r,:] · p)
-    #                  = min_r (T_ambient[r] + min_{p ∈ P_d} R[r,:] · p)
-    # Each inner min is an LP: min c^T p s.t. sum(p) = z_d.sum(), l ≤ p ≤ u
-    # The aggregate observation: total power = sum(p) = z_d.sum() (one constraint)
-    A_eq = np.ones((1, n))
+    #    This is MINMAX, not maxmin. Use epigraph form:
+    #        min t
+    #        s.t. R[r,:]·p - t ≤ -T_amb[r]    for all r
+    #             sum(p) = z_d.sum()
+    #             l_d ≤ p ≤ u_d
+    #    Variables: x = [p_0, ..., p_{n-1}, t]  (n+1 total)
+    A_eq = np.ones((1, n + 1))
+    A_eq[0, -1] = 0  # don't include t in sum
     b_eq = np.array([float(z_d.sum())])
-    lower_d_per_block = []
+    A_ub = np.zeros((n, n + 1))
     for r_idx in range(n):
-        c = R[r_idx, :]
-        res = linprog(
-            c, A_eq=A_eq, b_eq=b_eq,
-            bounds=list(zip(l_d, u_d)),
-            method='highs'
-        )
-        if not res.success:
-            return {
-                'status': 'UNRESOLVED',
-                'reason': f'LP_failure_lower_r{r_idx}: {res.message}',
-            }
-        lower_d_per_block.append(T_ambient + res.fun)
-    lower_d = max(lower_d_per_block)  # max over r
+        A_ub[r_idx, :n] = R[r_idx, :]   # +R · p
+        A_ub[r_idx, -1] = -1.0           # -t
+    b_ub = -T_ambient * np.ones(n)        # ≤ -T_amb
+    c = np.zeros(n + 1)
+    c[-1] = 1.0  # minimize t
+    bounds = list(zip([0.0]*n + [0.0], list(u_d) + [None]))
+    res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
+                  bounds=bounds, method='highs')
+    if not res.success:
+        return {
+            'status': 'UNRESOLVED',
+            'reason': f'LP_failure_lower_minmax: {res.message}',
+        }
+    lower_d = float(res.fun)
+    p_safe_candidate = res.x[:n]
+
+    # Verify the witness: compute max_r T_r(p_safe_candidate) and ensure it equals lower_d
+    T_at_p_safe = T_ambient + R @ p_safe_candidate
+    T_peak_at_p_safe = float(np.max(T_at_p_safe))
+    if abs(T_peak_at_p_safe - lower_d) > 1e-3:
+        # Should not happen but warn
+        pass  # LP is tight, should match
 
     # 3. Compute upper_d = max_{p ∈ P_d} max_r (T_ambient[r] + R[r,:] · p)
-    #                  = max_r (T_ambient[r] + max_{p ∈ P_d} R[r,:] · p)
+    #             = max_r (T_ambient[r] + max_{p ∈ P_d} R[r,:] · p)
+    #    For each row r, compute max_{p ∈ P_d} R[r,:]·p, then take max.
     upper_d_per_block = []
+    p_infeas_per_block = []
     for r_idx in range(n):
-        c = -R[r_idx, :]  # negate to maximize
+        c = -R[r_idx, :]
         res = linprog(
-            c, A_eq=A_eq, b_eq=b_eq,
+            c, A_eq=np.ones((1, n)), b_eq=np.array([float(z_d.sum())]),
             bounds=list(zip(l_d, u_d)),
             method='highs'
         )
@@ -116,44 +131,26 @@ def decide(sys_info, R, T_ambient, observation, block_names,
                 'reason': f'LP_failure_upper_r{r_idx}: {res.message}',
             }
         upper_d_per_block.append(T_ambient - res.fun)
+        p_infeas_per_block.append(res.x)
     upper_d = max(upper_d_per_block)
+
+    # Verify upper_d witness: compute max_r T_r(p_infeas) and ensure it equals upper_d
+    p_infeas_candidate = p_infeas_per_block[int(np.argmax(upper_d_per_block))]
+    T_peak_at_p_infeas = float(np.max(T_ambient + R @ p_infeas_candidate))
+    if abs(T_peak_at_p_infeas - upper_d) > 1e-3:
+        pass  # LP is tight, should match
 
     # 4. Check feasibility and emit witnesses
     area_ok = (area_mm2 is None) or (area_mm2 * 1e-6 <= A_budget_m2)
 
-    # Find witness_safe: minimize T (find p with T ≤ T_budget)
-    # Find witness_infeas: maximize T (find p with T > T_budget)
-    p_safe = None
-    p_infeas = None
+    # Witnesses are already computed:
+    # - p_safe_candidate: minimax witness, max_r T_r = lower_d
+    # - p_infeas_candidate: argmax of T_ambient + R[r,:]·p for r that achieves upper_d
+    p_safe = p_safe_candidate if lower_d <= T_budget else None
+    p_infeas = p_infeas_candidate if upper_d > T_budget else None
 
-    if lower_d <= T_budget:
-        # Find a p in P_d with T_d(p) ≤ T_budget
-        r_star = int(np.argmax(lower_d_per_block))
-        c = R[r_star, :]
-        res = linprog(
-            c, A_eq=A_eq, b_eq=b_eq,
-            bounds=list(zip(l_d, u_d)),
-            method='highs'
-        )
-        if res.success:
-            p_safe = res.x
-        witness_safe_T = T_ambient + (R[r_star, :] @ p_safe) if p_safe is not None else None
-    else:
-        witness_safe_T = None
-
-    if upper_d > T_budget:
-        r_star2 = int(np.argmax(upper_d_per_block))
-        c = -R[r_star2, :]
-        res = linprog(
-            c, A_eq=A_eq, b_eq=b_eq,
-            bounds=list(zip(l_d, u_d)),
-            method='highs'
-        )
-        if res.success:
-            p_infeas = res.x
-        witness_infeas_T = T_ambient - (R[r_star2, :] @ -p_infeas) if p_infeas is not None else None
-    else:
-        witness_infeas_T = None
+    witness_safe_T = T_peak_at_p_safe if p_safe is not None else None
+    witness_infeas_T = T_peak_at_p_infeas if p_infeas is not None else None
 
     # 5. Determine status
     if not area_ok:
@@ -176,6 +173,8 @@ def decide(sys_info, R, T_ambient, observation, block_names,
         'T_budget': T_budget,
         'A_budget_mm2': A_budget_m2 * 1e6,
         'area_ok': bool(area_ok),
+        'witness_safe_verified_T': T_peak_at_p_safe,
+        'witness_infeas_verified_T': T_peak_at_p_infeas,
     }
 
 

@@ -1,15 +1,15 @@
 [
   {
     "status": "CERTIFIED_SAFE",
-    "lower_d": 320.45398949999986,
+    "lower_d": 322.94452641534156,
     "upper_d": 328.13001699999984,
-    "witness_safe_T": 320.45398949999986,
+    "witness_safe_T": 322.94452641534167,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 50,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 322.94452641534167,
+    "witness_infeas_verified_T": 328.13001699999984,
     "design": "2x2_min",
     "content_factor": 1.5,
     "dnn_family": "uniform",
@@ -25,19 +25,34 @@
       524288,
       64,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 129162304221834545,
+      "R_shape": [
+        50,
+        50
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 5.240899999999994,
+      "observation_len": 50,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 322.94452641534167,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "CERTIFIED_SAFE",
-    "lower_d": 320.10825699999987,
+    "lower_d": 322.50457959538545,
     "upper_d": 330.9268759999998,
-    "witness_safe_T": 320.10825699999987,
+    "witness_safe_T": 322.50457959538556,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 50,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 322.50457959538556,
+    "witness_infeas_verified_T": 330.9268759999998,
     "design": "2x2_min",
     "content_factor": 2.0,
     "dnn_family": "uniform",
@@ -53,19 +68,34 @@
       524288,
       64,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 129162304221834545,
+      "R_shape": [
+        50,
+        50
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 5.240899999999994,
+      "observation_len": 50,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 322.50457959538556,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "CERTIFIED_SAFE",
-    "lower_d": 319.7871719999999,
+    "lower_d": 322.09081256072835,
     "upper_d": 336.1790919999998,
-    "witness_safe_T": 319.7871719999999,
+    "witness_safe_T": 322.0908125607284,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 50,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 322.0908125607284,
+    "witness_infeas_verified_T": 336.1790919999998,
     "design": "2x2_min",
     "content_factor": 3.0,
     "dnn_family": "uniform",
@@ -81,19 +111,34 @@
       524288,
       64,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 129162304221834545,
+      "R_shape": [
+        50,
+        50
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 5.240899999999994,
+      "observation_len": 50,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 322.0908125607284,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "NON_IDENTIFIABLE",
-    "lower_d": 323.4275869999989,
+    "lower_d": 325.9858370430585,
     "upper_d": 350.7002039999989,
-    "witness_safe_T": 323.4275869999989,
+    "witness_safe_T": 325.98583704305844,
     "witness_infeas_T": 350.7002039999989,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 186,
-    "witness_infeas_n_blocks": 186,
+    "witness_safe_verified_T": 325.98583704305844,
+    "witness_infeas_verified_T": 350.7002039999989,
     "design": "4x4_paper_TESA",
     "content_factor": 1.5,
     "dnn_family": "mixed",
@@ -109,19 +154,34 @@
       4194304,
       64,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": -2510498381985376342,
+      "R_shape": [
+        186,
+        186
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 33.322599999999994,
+      "observation_len": 186,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 325.98583704305844,
+    "witness_infeas_T_computed": 350.7002039999989,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "NON_IDENTIFIABLE",
-    "lower_d": 323.00131599999906,
+    "lower_d": 325.5496905207246,
     "upper_d": 359.8841419999988,
-    "witness_safe_T": 323.00131599999906,
+    "witness_safe_T": 325.54969052072465,
     "witness_infeas_T": 359.8841419999988,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 186,
-    "witness_infeas_n_blocks": 186,
+    "witness_safe_verified_T": 325.54969052072465,
+    "witness_infeas_verified_T": 359.8841419999988,
     "design": "4x4_paper_TESA",
     "content_factor": 2.0,
     "dnn_family": "mixed",
@@ -137,19 +197,34 @@
       4194304,
       64,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": -2510498381985376342,
+      "R_shape": [
+        186,
+        186
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 33.322599999999994,
+      "observation_len": 186,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 325.54969052072465,
+    "witness_infeas_T_computed": 359.8841419999988,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "NON_IDENTIFIABLE",
-    "lower_d": 322.9076159999992,
+    "lower_d": 325.32631734006236,
     "upper_d": 378.1946979999986,
-    "witness_safe_T": 322.9076159999992,
+    "witness_safe_T": 325.3263173400622,
     "witness_infeas_T": 378.1946979999986,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 186,
-    "witness_infeas_n_blocks": 186,
+    "witness_safe_verified_T": 325.3263173400622,
+    "witness_infeas_verified_T": 378.1946979999986,
     "design": "4x4_paper_TESA",
     "content_factor": 3.0,
     "dnn_family": "mixed",
@@ -165,19 +240,34 @@
       4194304,
       64,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": -2510498381985376342,
+      "R_shape": [
+        186,
+        186
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 33.322599999999994,
+      "observation_len": 186,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 325.3263173400622,
+    "witness_infeas_T_computed": 378.1946979999986,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "CERTIFIED_SAFE",
-    "lower_d": 321.8999189999995,
+    "lower_d": 323.8649995071715,
     "upper_d": 330.9171429999996,
-    "witness_safe_T": 321.8999189999995,
+    "witness_safe_T": 323.8649995071714,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 106,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 323.8649995071714,
+    "witness_infeas_verified_T": 330.9171429999996,
     "design": "3x3_square",
     "content_factor": 1.5,
     "dnn_family": "uniform",
@@ -193,19 +283,34 @@
       1048576,
       128,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 3072574929790185328,
+      "R_shape": [
+        106,
+        106
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 17.014999999999997,
+      "observation_len": 106,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 323.8649995071714,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "CERTIFIED_SAFE",
-    "lower_d": 321.18915399999946,
+    "lower_d": 323.4681790962961,
     "upper_d": 333.9337879999997,
-    "witness_safe_T": 321.18915399999946,
+    "witness_safe_T": 323.4681790962961,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 106,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 323.4681790962961,
+    "witness_infeas_verified_T": 333.9337879999997,
     "design": "3x3_square",
     "content_factor": 2.0,
     "dnn_family": "uniform",
@@ -221,19 +326,34 @@
       1048576,
       128,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 3072574929790185328,
+      "R_shape": [
+        106,
+        106
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 17.014999999999997,
+      "observation_len": 106,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 323.4681790962961,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "CERTIFIED_SAFE",
-    "lower_d": 320.9404979999994,
+    "lower_d": 323.2459143391825,
     "upper_d": 339.1420179999996,
-    "witness_safe_T": 320.9404979999994,
+    "witness_safe_T": 323.2459143391827,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": true,
-    "witness_safe_n_blocks": 106,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 323.2459143391827,
+    "witness_infeas_verified_T": 339.1420179999996,
     "design": "3x3_square",
     "content_factor": 3.0,
     "dnn_family": "uniform",
@@ -249,19 +369,34 @@
       1048576,
       128,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 3072574929790185328,
+      "R_shape": [
+        106,
+        106
+      ],
+      "T_ambient": 318.15000000000003,
+      "observation_sum": 17.014999999999997,
+      "observation_len": 106,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 323.2459143391827,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "CERTIFIED_INFEASIBLE",
-    "lower_d": 323.8189115000007,
+    "lower_d": 326.1771008261714,
     "upper_d": 333.5076960000005,
-    "witness_safe_T": 323.8189115000007,
+    "witness_safe_T": 326.1771008261716,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": false,
-    "witness_safe_n_blocks": 232,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 326.1771008261716,
+    "witness_infeas_verified_T": 333.5076960000005,
     "design": "5x4_nonsq",
     "content_factor": 1.5,
     "dnn_family": "uniform",
@@ -277,19 +412,34 @@
       2097152,
       144,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 3532608793147183521,
+      "R_shape": [
+        232,
+        232
+      ],
+      "T_ambient": 318.15,
+      "observation_sum": 35.36140000000001,
+      "observation_len": 232,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 326.1771008261716,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "CERTIFIED_INFEASIBLE",
-    "lower_d": 323.22437600000086,
+    "lower_d": 325.6855732857737,
     "upper_d": 336.76786800000036,
-    "witness_safe_T": 323.22437600000086,
+    "witness_safe_T": 325.68557328577407,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": false,
-    "witness_safe_n_blocks": 232,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 325.68557328577407,
+    "witness_infeas_verified_T": 336.7678680000004,
     "design": "5x4_nonsq",
     "content_factor": 2.0,
     "dnn_family": "uniform",
@@ -305,19 +455,34 @@
       2097152,
       144,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 3532608793147183521,
+      "R_shape": [
+        232,
+        232
+      ],
+      "T_ambient": 318.15,
+      "observation_sum": 35.36140000000001,
+      "observation_len": 232,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 325.68557328577407,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   },
   {
     "status": "CERTIFIED_INFEASIBLE",
-    "lower_d": 323.02202400000084,
+    "lower_d": 325.3190462302863,
     "upper_d": 342.31091700000036,
-    "witness_safe_T": 323.02202400000084,
+    "witness_safe_T": 325.3190462302872,
     "witness_infeas_T": null,
     "T_budget": 348.0,
     "A_budget_mm2": 300.0,
     "area_ok": false,
-    "witness_safe_n_blocks": 232,
-    "witness_infeas_n_blocks": 0,
+    "witness_safe_verified_T": 325.3190462302872,
+    "witness_infeas_verified_T": 342.31091700000036,
     "design": "5x4_nonsq",
     "content_factor": 3.0,
     "dnn_family": "uniform",
@@ -333,6 +498,21 @@
       2097152,
       144,
       128
-    ]
+    ],
+    "provenance": {
+      "R_hash": 3532608793147183521,
+      "R_shape": [
+        232,
+        232
+      ],
+      "T_ambient": 318.15,
+      "observation_sum": 35.36140000000001,
+      "observation_len": 232,
+      "T_budget": 348.0,
+      "n_chips_per_side": 4
+    },
+    "witness_safe_T_computed": 325.3190462302872,
+    "witness_infeas_T_computed": null,
+    "manifest_version": "2.0-minmax-LP"
   }
 ]

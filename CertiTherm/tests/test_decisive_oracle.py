@@ -111,6 +111,81 @@ class TestDecideOracle(unittest.TestCase):
         # Let me use T_budget=321 instead
         pass
 
+    def test_minmax_formulation_2cell(self):
+        """The 2-cell counterexample that exposed the maxmin bug.
+
+        R = [[0,1],[1,0]], T_amb=0, sum(p)=2, p in [0,10]^2.
+        T(p) = max(p0, p1). Min over p of T(p) = 1 (at p0=p1=1).
+        Max over p of T(p) = 2 (at p=(2,0) or p=(0,2)).
+        Expected: lower_d = 1.0, upper_d = 2.0.
+        """
+        R = np.array([
+            [0, 1],
+            [1, 0],
+        ])
+        res = decide(
+            sys_info=[1, 1], R=R, T_ambient=0.0, block_names=['b0', 'b1'],
+            observation={
+                'per_block_power': [1.0, 1.0],
+                'per_block_upper': [10.0, 10.0],
+                'per_block_lower': [0.0, 0.0],
+            },
+            T_budget=1.5, area_mm2=10.0,
+        )
+        # minmax result, NOT maxmin
+        self.assertAlmostEqual(res['lower_d'], 1.0, places=3)
+        self.assertAlmostEqual(res['upper_d'], 2.0, places=3)
+        # Witness replay: verify p_safe actually has max_r T_r = lower_d
+        if res.get('witness_safe_T'):
+            self.assertAlmostEqual(res['witness_safe_T'], 1.0, places=3)
+        if res.get('witness_infeas_T'):
+            self.assertAlmostEqual(res['witness_infeas_T'], 2.0, places=3)
+
+    def test_minmax_formulation_diagonal_R(self):
+        """Diagonal R: R = [[1]], T_amb=0, p in [0,10].
+        T(p) = p. With sum(p)=2: lower=2, upper=2.
+        """
+        R = np.array([[1.0]])
+        res = decide(
+            sys_info=[1, 1], R=R, T_ambient=0.0, block_names=['b0'],
+            observation={
+                'per_block_power': [2.0],
+                'per_block_upper': [10.0],
+                'per_block_lower': [0.0],
+            },
+            T_budget=5.0, area_mm2=10.0,
+        )
+        self.assertAlmostEqual(res['lower_d'], 2.0, places=3)
+        self.assertAlmostEqual(res['upper_d'], 2.0, places=3)
+        # CERTIFIED_SAFE since 2 <= 5
+        self.assertEqual(res['status'], 'CERTIFIED_SAFE')
+
+    def test_minmax_3cell_nontrivial(self):
+        """3-cell: R = I, T_amb=10, p in [0,5], sum=3.
+        T(p) = max(p_i) + 10.
+        At p=(1,1,1): T=11. At p=(3,0,0): T=13.
+        So lower=11, upper=13.
+        """
+        R = np.array([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ])
+        res = decide(
+            sys_info=[1, 1], R=R, T_ambient=10.0, block_names=['b0', 'b1', 'b2'],
+            observation={
+                'per_block_power': [1.0, 1.0, 1.0],  # sum=3
+                'per_block_upper': [5.0, 5.0, 5.0],
+                'per_block_lower': [0.0, 0.0, 0.0],
+            },
+            T_budget=12.0, area_mm2=10.0,
+        )
+        # lower = 11, upper = 13
+        self.assertAlmostEqual(res['lower_d'], 11.0, places=3)
+        self.assertAlmostEqual(res['upper_d'], 13.0, places=3)
+        # lower ≤ 12 < upper, so NON_IDENTIFIABLE
+        self.assertEqual(res['status'], 'NON_IDENTIFIABLE')
+
     def test_certified_infeasible(self):
         # When T_lower > T_budget, definitely infeasible
         # Use a hot R matrix with high uniform T
@@ -147,31 +222,28 @@ class TestDecideOracle(unittest.TestCase):
 
     def test_observation_sum_constraint(self):
         # Verify that z_d.sum() constraint is correctly applied
-        # The LP must use sum(p) = z_d.sum(), not per-block equality
         R = np.array([[1.0, 0.0], [0.0, 1.0]])
         # Uniform 0.5W per block, total 1.0W
-        # Without constraint: T = 318 + 0.5 = 318.5
-        # With constraint (sum=1.0): T = 318 + 0.5 = 318.5 (same for this R)
+        # T_uniform = 318 + 0.5 = 318.5
+        # With very loose bounds, T_upper = 318 + max(p0+p1) = 318 + 1.0 = 319
+        # T_lower: must satisfy sum(p)=1, p_i ≥ 0. Minimax over p of max(p0, p1) = 0.5 (at p=(0.5, 0.5))
+        # So T_lower = 318 + 0.5 = 318.5
+        # T_budget=320 > T_upper=319, so CERTIFIED_SAFE
         res = decide(
             sys_info=[1, 1], R=R, T_ambient=318.0,
             block_names=['b0', 'b1'],
             observation={
                 'per_block_power': [0.5, 0.5],
-                'per_block_upper': [10.0, 10.0],  # very loose
+                'per_block_upper': [10.0, 10.0],
                 'per_block_lower': [0.0, 0.0],
             },
             T_budget=320.0, area_mm2=100.0,
         )
-        # T_uniform = 318 + 0.5 = 318.5 (block 0 is hotter)
-        # T_upper with very loose bounds: T_ambient + max sum of R[i,:] = 318 + max(p0+p1) = 318 + 1.0 = 319
-        # T_lower = 318 (min: p0=p1=0 doesn't work, sum=1 forces one to be 1)
-        # Actually for r=0: min p0 s.t. p0+p1=1, p_i in [0,10]: min = 0 (p0=0, p1=1)
-        # For r=1: min p1 s.t. p0+p1=1: min = 0
-        # T_lower = max(318+0, 318+0) = 318
-        # So lower=318, upper=319, T_budget=320: CERTIFIED_SAFE
+        # T_upper = 319, T_lower = 318.5, T_budget = 320
+        # upper < budget, so CERTIFIED_SAFE
         self.assertEqual(res['status'], 'CERTIFIED_SAFE')
-        self.assertEqual(res['lower_d'], 318.0)
-        self.assertEqual(res['upper_d'], 319.0)
+        self.assertAlmostEqual(res['lower_d'], 318.5, places=3)
+        self.assertAlmostEqual(res['upper_d'], 319.0, places=3)
 
 
 if __name__ == "__main__":
