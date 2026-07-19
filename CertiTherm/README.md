@@ -1,6 +1,6 @@
 # CertiTherm: Spatial Power Identifiability for Chiplet DSE
 
-> **Evidence status (2026-07-20): G2 NARROWLY CORRECTED; G3 REMAINS OPEN.** The committed
+> **Evidence status (2026-07-20): G2 NARROWLY CORRECTED; G3/G4 REMAIN OPEN.** The committed
 > Gaussian/corner/checker and finite-sample results are retained as legacy
 > debugging artifacts, but are not valid paper evidence. Their generator used
 > the wrong ThermoDSE ptrace column order, did not conserve obtainable
@@ -72,7 +72,7 @@ information is needed and *where*?
 | 3 | Build power-conserving synthetic stress pilot | CODE-FIXED; results not rerun |
 | 4 | Run decision-flip audit | LEGACY RESULTS INVALIDATED; physical rerun required |
 | 5 | Exact identifiability classifier + replayable certificates | CORRECTED G2 PATH MIGRATED; G3 BREADTH OPEN |
-| 6 | EDA-specific information acquisition | DEFERRED; G3 breadth and fair baselines come first |
+| 6 | EDA-specific information acquisition | INTERFACE REPAIRED; tests and physical G3 input not executed |
 
 ## Related work (avoid overlap)
 
@@ -94,3 +94,4 @@ information is needed and *where*?
 - `RESEARCH_CONTRACT.md` — frozen problem, nonclaims, evidence matrix, and gate plan
 - `audit/INTEGRITY_AUDIT_20260719.md` — claim/code/result consistency audit
 - `results/README.md` — artifact disposition and reuse rules
+- `evidence/G4_ACQUISITION_SCHEMA.md` — registered cross-query acquisition contract
