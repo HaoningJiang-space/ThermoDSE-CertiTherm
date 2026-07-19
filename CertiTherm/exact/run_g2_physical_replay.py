@@ -421,6 +421,48 @@ def _frontier_summary(path: Path) -> Mapping[str, str]:
     return rows[0]
 
 
+def _frontier_rows(path: Path) -> list[Mapping[str, str]]:
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+    except OSError as exc:
+        raise PhysicalReplayError(f"cannot read frontier table: {exc}") from exc
+    if not rows:
+        raise PhysicalReplayError("frontier table must contain at least one region")
+    return rows
+
+
+def _validate_registered_query_regions(
+    registry: Mapping[str, Any], paths: Mapping[str, Path]
+) -> None:
+    frontier_record = registry["frontier"]
+    rows = _frontier_rows(paths[str(frontier_record["table_file"])])
+    by_digest = {row.get("region_digest"): row for row in rows}
+    for query_name in ("query", "certified_query"):
+        query = registry[query_name]
+        region_digest = query["frontier_region_digest"]
+        if region_digest not in by_digest:
+            raise PhysicalReplayError(
+                f"{query_name} region is absent from the registered frontier"
+            )
+        row = by_digest[region_digest]
+        row_status = str(row.get("query_state", "")).upper().replace("-", "_")
+        if row_status != query["expected_status"]:
+            raise PhysicalReplayError(f"{query_name} frontier state mismatch")
+        row_outcomes = tuple(
+            value for value in str(row.get("possible_outcomes", "")).split(",") if value
+        )
+        if row_outcomes != tuple(query["expected_outcomes"]):
+            raise PhysicalReplayError(f"{query_name} frontier outcomes mismatch")
+        expected_limit = float(
+            frontier_record["representative_limit_k"]
+            if query_name == "query"
+            else query["thermal_limit_k"]
+        )
+        if float(row["representative_limit_k"]) != expected_limit:
+            raise PhysicalReplayError(f"{query_name} representative limit mismatch")
+
+
 def _make_external_tuple(
     outcome: str,
     ordered_candidates: Sequence[Mapping[str, Any]],
@@ -588,6 +630,7 @@ def run_physical_replay(
             "sha256": sha256_file(registry_path),
         },
     )
+    _validate_registered_query_regions(registry, paths)
 
     candidates = []
     references: dict[str, dict[str, Any]] = {}
@@ -609,6 +652,29 @@ def run_physical_replay(
         registry["query"]["expected_outcomes"]
     ):
         raise PhysicalReplayError("current reachable outcomes differ from registry")
+
+    certified_record = registry["certified_query"]
+    certified_limit = float(certified_record["thermal_limit_k"])
+    certified_query_id = str(certified_record["query_id"])
+    certified_started = time.perf_counter()
+    certified_result = decide_architecture_query(
+        certified_query_id, candidates, thermal_limit_k=certified_limit
+    )
+    certified_wall_time = time.perf_counter() - certified_started
+    if certified_result.get("status") != certified_record["expected_status"]:
+        raise PhysicalReplayError(
+            "current certified-query status differs from the registered frontier"
+        )
+    if tuple(certified_result.get("reachable_outcomes", ())) != tuple(
+        certified_record["expected_outcomes"]
+    ):
+        raise PhysicalReplayError(
+            "current certified-query outcome differs from the registered frontier"
+        )
+    if not all(
+        replay.get("valid") for replay in certified_result.get("tuple_replays", ())
+    ):
+        raise PhysicalReplayError("current universal certificate fails direct replay")
 
     parity_tolerance = float(
         registry["numeric_contract"]["bound_parity_tolerance_k"]
@@ -672,19 +738,21 @@ def run_physical_replay(
     external_witness_replays = _cross_check_frontier(
         registry, paths, candidates, references, result
     )
+    environment = {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "numpy": np.__version__,
+        "scipy": scipy.__version__,
+        "hostname": platform.node(),
+    }
+    peak_rss_kb = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     run = {
         "source_commit": source_commit,
         "command": argv,
-        "environment": {
-            "python": platform.python_version(),
-            "platform": platform.platform(),
-            "numpy": np.__version__,
-            "scipy": scipy.__version__,
-            "hostname": platform.node(),
-        },
+        "environment": environment,
         "exit_status": 0,
         "wall_time_s": solve_wall_time,
-        "peak_rss_kb": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
+        "peak_rss_kb": peak_rss_kb,
         "input_files": input_files,
     }
     artifact = build_replay_artifact(
@@ -702,10 +770,33 @@ def run_physical_replay(
             f"fresh artifact replay failed: {artifact_receipt.get('reason')}"
         )
 
+    certified_run = {
+        **run,
+        "wall_time_s": certified_wall_time,
+    }
+    certified_artifact = build_replay_artifact(
+        query_id=certified_query_id,
+        candidates=candidates,
+        thermal_limit_k=certified_limit,
+        result=certified_result,
+        run=certified_run,
+    )
+    certified_artifact_path = output_dir / "g2_physical_certified_artifact.json"
+    write_replay_artifact(certified_artifact_path, certified_artifact)
+    certified_artifact_receipt = replay_artifact(certified_artifact)
+    if certified_artifact_receipt.get("status") != "PASS":
+        raise PhysicalReplayError(
+            "fresh universal-certificate artifact replay failed: "
+            f"{certified_artifact_receipt.get('reason')}"
+        )
+
     cross_receipt = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "status": "PASS",
-        "artifact_replay": artifact_receipt,
+        "artifact_replays": {
+            "decision_witness": artifact_receipt,
+            "universal_certificate": certified_artifact_receipt,
+        },
         "external_witness_replays": external_witness_replays,
     }
     receipt_path = output_dir / "g2_physical_replay_receipt.json"
@@ -721,6 +812,19 @@ def run_physical_replay(
         "query_status": result["status"],
         "reachable_outcomes": result["reachable_outcomes"],
         "query_digest": result["query_digest"],
+        "universal_certificate": {
+            "query_id": certified_query_id,
+            "thermal_limit_k": certified_limit,
+            "query_status": certified_result["status"],
+            "certified_outcome": certified_result["certified_outcome"],
+            "reachable_outcomes": certified_result["reachable_outcomes"],
+            "query_digest": certified_result["query_digest"],
+            "witness_tuple_digests": [
+                value["tuple_digest"]
+                for value in certified_result["witness_tuples"]
+            ],
+            "direct_replays": certified_result["tuple_replays"],
+        },
         "candidate_summaries": candidate_summaries,
         "external_witness_replays": external_witness_replays,
     }
@@ -736,14 +840,20 @@ def run_physical_replay(
             "sha256": sha256_file(artifact_path),
             "artifact_sha256": artifact["artifact_sha256"],
         },
+        "certified_artifact": {
+            "filename": certified_artifact_path.name,
+            "sha256": sha256_file(certified_artifact_path),
+            "artifact_sha256": certified_artifact["artifact_sha256"],
+        },
         "replay_receipt": {
             "filename": receipt_path.name,
             "sha256": sha256_file(receipt_path),
         },
         "run": {
-            "wall_time_s": solve_wall_time,
-            "peak_rss_kb": run["peak_rss_kb"],
-            "environment": run["environment"],
+            "decision_witness_wall_time_s": solve_wall_time,
+            "universal_certificate_wall_time_s": certified_wall_time,
+            "peak_rss_kb": peak_rss_kb,
+            "environment": environment,
         },
     }
     manifest["manifest_sha256"] = canonical_sha256(manifest)

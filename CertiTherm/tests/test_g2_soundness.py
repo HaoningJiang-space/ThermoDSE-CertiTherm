@@ -463,6 +463,10 @@ def test_physical_registry_freezes_order_hashes_and_error_contract():
         "snax_gemm_m2_t8",
         NO_FEASIBLE_DESIGN,
     ]
+    assert registry["certified_query"]["expected_status"] == CERTIFIED
+    assert registry["certified_query"]["expected_outcomes"] == [
+        "snax_gemm_m2_t8"
+    ]
     assert all(
         len(record["sha256"]) == 64 and not Path(record["filename"]).is_absolute()
         for record in registry["files"].values()

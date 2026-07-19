@@ -17,10 +17,21 @@
   "query": {
     "query_id": "snax-gemm-m4-m2-placed-power-frontier",
     "objective_name": "frozen_throughput_preference_ordinal",
+    "frontier_region_digest": "bf38a03f03b1ba8cdc9532039ded97ae2181ea56fdbe128e7b97d085acb91c00",
     "expected_status": "NON_IDENTIFIABLE",
     "expected_outcomes": [
       "snax_gemm_m2_t8",
       "NO_FEASIBLE_DESIGN"
+    ]
+  },
+  "certified_query": {
+    "query_id": "snax-gemm-m4-m2-placed-power-certified-m2",
+    "objective_name": "frozen_throughput_preference_ordinal",
+    "frontier_region_digest": "fd601216f8be06f970fc903f48f22f6e5b9fec13f908dd60f828a67408f5aef7",
+    "thermal_limit_k": 318.73104198263934,
+    "expected_status": "CERTIFIED",
+    "expected_outcomes": [
+      "snax_gemm_m2_t8"
     ]
   },
   "files": {
