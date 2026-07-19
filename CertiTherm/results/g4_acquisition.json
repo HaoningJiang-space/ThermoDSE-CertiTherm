@@ -1,0 +1,7 @@
+{
+  "classification": "LEGACY_INVALIDATED_FOR_CLAIMS",
+  "legacy_commit": "73a1afd67685bfc96873980f0837a3dfa08cdadb",
+  "legacy_result_sha256": "5d641b091f7cb3d52cc48e78f8f4701acc8fa3a3cb82589b9c11cbeabeedc3fa",
+  "reason": "The legacy JSON is a single-candidate CERTIFIED_SAFE early return on a truncated/padded ptrace; no acquisition or cross-candidate decision was evaluated.",
+  "replacement_status": "NO_CLAIM_GRADE_G4_RESULT"
+}
