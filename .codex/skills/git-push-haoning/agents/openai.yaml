@@ -1,0 +1,4 @@
+interface:
+  display_name: "Haoning Git Publisher"
+  short_description: "Safely manage and publish CertiTherm Git work"
+  default_prompt: "Use $git-push-haoning to prepare, validate, and push my CertiTherm branch safely."
