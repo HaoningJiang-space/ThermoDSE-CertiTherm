@@ -1,0 +1,14 @@
+# Run data
+results_repro/*.log
+CertiTherm/data/*.ptrace
+CertiTherm/data/*.npy
+tmp*/ptrace/
+tmp*/outputs/
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+ThermoDSE/
