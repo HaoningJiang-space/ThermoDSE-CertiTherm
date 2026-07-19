@@ -1,353 +1,858 @@
+"""Registered G3 breadth runner for CertiTherm.
+
+The former script generated eight labels by reusing an aggregate ptrace,
+sharing one thermal operator across package labels, and comparing nested
+uncertainty sets.  That path is intentionally removed.  This module consumes
+content-bound physical bundles and evaluates complete architecture-selection
+queries for three matched variants:
+
+* the original DSE point estimate, represented by a singleton power domain;
+* a placed-power reference, also represented by a singleton domain; and
+* the registered spatial observation-equivalence class.
+
+No workload trace, HotSpot configuration, or response matrix is generated or
+mutated here.  Missing physical evidence is an input error, never a synthetic
+fallback.
 """
-CertiTherm G3 full empirical: 2 DNN families × 2 arch families × 2 package regimes.
 
-Uses the new linear_oracle.solve_candidate_bounds for both uniform and
-content-bound (spatial) CertiTherm. Computes per-DNN ptrace from the
-chiplet_evaluator monitor.
+from __future__ import annotations
 
-For each (arch, DNN, package) case, compares:
-  - Uniform oracle: lower_d_uniform, upper_d_uniform
-  - Spatial oracle (CertiTherm): lower_d_spatial, upper_d_spatial
-
-Reports:
-  - Error-decision rate: cases where spatial flips feasibility but uniform says safe
-  - Cost: per-DNN vs per-candidate ptrace
-  - Runtime: oracle call time
-  - Witness replay: verify both witnesses reproduce bounds
-"""
-import os
-import sys
-import json
-import time
 import argparse
 import itertools
+import json
+from pathlib import Path
+import platform
+import re
+import resource
+import subprocess
+import sys
+import time
+from typing import Any, Mapping, Sequence
+
 import numpy as np
+import scipy
 
-sys.path.insert(0, '/home/ynwang/jhn/DSE')
-sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
-sys.path.insert(0, '/home/ynwang/jhn/DSE/CertiTherm/exact')
+try:
+    from .decision_query import CERTIFIED, NON_IDENTIFIABLE, decide_architecture_query
+    from .evidence import build_replay_artifact, replay_artifact, sha256_file
+    from .linear_oracle import (
+        canonical_sha256,
+        normalize_problem,
+        replay_power_witness,
+    )
+    from .run_g2_query import load_query_bundle
+except ImportError:  # pragma: no cover - direct script/test-path execution.
+    from decision_query import CERTIFIED, NON_IDENTIFIABLE, decide_architecture_query
+    from evidence import build_replay_artifact, replay_artifact, sha256_file
+    from linear_oracle import canonical_sha256, normalize_problem, replay_power_witness
+    from run_g2_query import load_query_bundle
 
-from linear_oracle import solve_candidate_bounds, replay_power_witness, normalize_problem
-from decision_query import (
-    CERTIFIED, NON_IDENTIFIABLE, NO_FEASIBLE_DESIGN,
-    decide_architecture_query,
+
+SUITE_SCHEMA_VERSION = "certitherm.g3-suite.v1"
+SUITE_ARTIFACT_SCHEMA_VERSION = "certitherm.g3-suite-artifact.v1"
+SUITE_REPLAY_SCHEMA_VERSION = "certitherm.g3-suite-replay.v1"
+POINT_POWER_SEMANTICS = "original_thermodse_point_estimate"
+PHYSICAL_EVIDENCE_CLASS = "physical_placed_power"
+_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+_VARIANTS = (
+    "point_estimate",
+    "placed_reference",
+    "spatial_equivalence",
 )
 
-# 2 DNN families (per-network ptrace)
-# Note: actual latency_dict keys are PascalCase (ResNet, GoogLeNet, UNet,
-# mobilenetV2, yolov2, transformer)
-DNN_FAMILIES = {
-    'cnn_resnet50': ['ResNet'],
-    'attention_transformer': ['transformer'],
-}
 
-# 2 non-isomorphic arch families
-ARCHITECTURES = {
-    '4x4_paper': [4, 4, 4, 4, 0.0005, 112, 128, 4194304, 64, 128],
-    '3x3_square': [3, 3, 3, 3, 0.001, 128, 128, 1048576, 128, 128],
-}
-
-# 2 package regimes (vary s_sink in HotSpot config)
-PACKAGE_REGIMES = {
-    'standard_sink_s06': {'s_sink': 0.06},
-    'enhanced_sink_s10': {'s_sink': 0.10},
-}
+class G3InputError(ValueError):
+    """Raised when a suite cannot support the registered G3 comparison."""
 
 
-def get_per_dnn_ptrace(sim_path, sys_info, dnn_names, hotspot_path):
-    """Run chiplet_evaluator and return per-DNN ptrace arrays.
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
 
-    The monitor's latency_dict is cleared after each network's processing
-    in evaluate(). We capture per-DNN ptrace by monkey-patching
-    init_exe_info: immediately after each network's dicts are initialized,
-    we read the DNN power and write the ptrace.
-    """
-    from core.chiplet_eva import chiplet_evaluator
-    from core.statistic import coreidx2idx, Statistic
 
-    ev = chiplet_evaluator(
-        hotspot_path=hotspot_path,
-        sim_path=sim_path,
-        sys_info=sys_info,
-        thermal_map=False, baseline1=False, baseline2=False, baseline3=False,
-        wkld_idpdt=False, clock_freq=1.8e9,
-    )
-    ev.generate_hardware()
-
-    # Read the AGGREGATE ptrace written by gen_all_ptrace_3D
-    # It contains the sum of all 7 DNNs. We need per-DNN, but the aggregate
-    # at least has the right total power per block.
-    ptrace_path = os.path.join(sim_path, 'ptrace', 'cores_3D.ptrace')
-    if not os.path.exists(ptrace_path):
-        # Run evaluate to generate aggregate ptrace
-        ev.evaluate()
-    with open(ptrace_path) as f:
-        header = f.readline().strip().split('\t')
-        all_values = [float(x) for x in f.readline().strip().split('\t')]
-
-    # Now we need per-DNN. The actual approach: use the block power distribution
-    # from the aggregate (single DNN capture) and label it by chosen DNN family.
-    # We can't get true per-DNN ptrace without re-running chiplet_evaluator
-    # with each DNN separately.
-    # For a proper per-DNN capture, we must re-initialize with each DNN:
-    per_dnn = {}
-    orig_init = Statistic.init_exe_info
-    orig_cost = Statistic.cost_times
-    orig_clear = Statistic.clear
-    orig_gen_all = Statistic.gen_all_ptrace_3D
-
-    captured = {}
-    def wrapped_init(self, nn_name, tot):
-        result = orig_init(self, nn_name, tot)
-        # After init, latency_dict has the new entry but values are zero.
-        # We need to wait for cost_times to fill in. The flow is:
-        # init_exe_info → eva.evaluate → cost_times
-        # We can't easily intercept this. Use a simpler approach:
-        # after init, immediately call cost_times with the value from
-        # the original aggregate.
-        return result
-
-    # Use the simpler approach: just return aggregate ptrace for the first DNN
-    # and label it. Per-DNN requires re-running, which is slow.
-    # For the G3 demonstration, we use per-DNN by:
-    # 1. Running ev.evaluate() once with each DNN
-    # 2. Reading the ptrace from each gen_all_ptrace_3D call
-    # This is done by intercepting gen_all_ptrace_3D.
-
-    per_dnn_captures = {}
-    def wrapped_gen_all(self, isRunBaseline3=False, gen_path='../tmp/ptrace'):
-        result = orig_gen_all(self, isRunBaseline3, gen_path=gen_path)
-        ptrace_file = os.path.join(gen_path, 'cores_3D.ptrace')
-        if os.path.exists(ptrace_file):
-            with open(ptrace_file) as f:
-                values = [float(x) for x in f.read().strip().split('\n')[1].split('\t')]
-            # This is the per-network ptrace (the most recent one called before clear)
-            return result
-        return result
-
-    def wrapped_clear(self):
-        # Before clearing, capture the most recent ptrace
-        return orig_clear(self)
-
-    Statistic.gen_all_ptrace_3D = wrapped_gen_all
-    Statistic.clear = wrapped_clear
-
+def _read_json(path: Path) -> Mapping[str, Any]:
     try:
-        ev.evaluate()
-    finally:
-        Statistic.gen_all_ptrace_3D = orig_gen_all
-        Statistic.clear = orig_clear
-
-    # The aggregate ptrace (sum of all DNNs) is the only thing accessible
-    # after evaluate() because monitor.clear() has been called.
-    # For G3, use this aggregate as a representative ptrace for both DNN families.
-    per_dnn[dnn_names[0]] = np.array(all_values)
-
-    return per_dnn, ev
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise G3InputError(f"cannot read {path}: {exc}") from exc
+    if not isinstance(value, Mapping):
+        raise G3InputError(f"{path.name} must contain a JSON object")
+    return value
 
 
-def get_R_for_design(sys_info, sim_path, hotspot_path, run_sh_path, R_dir):
-    """Get or compute R matrix for a design."""
-    R_path = os.path.join(R_dir, f'R_{sys_info[0]}x{sys_info[1]}.npy')
-    meta_path = R_path.replace('.npy', '_meta.json')
-    if os.path.exists(R_path) and os.path.exists(meta_path):
-        R = np.load(R_path)
-        with open(meta_path) as f:
-            meta = json.load(f)
-        return R, meta
-    from R_matrix import compute_full_R_matrix
-    print(f"  Computing R for {sys_info[:4]}...")
-    R, T_amb, blocks, _ = compute_full_R_matrix(
-        sys_info, sim_path, hotspot_path, run_sh_path
-    )
-    if R is None:
-        return None, None
-    os.makedirs(R_dir, exist_ok=True)
-    np.save(R_path, R)
-    with open(meta_path, 'w') as f:
-        json.dump({
-            'sys_info': sys_info, 'T_ambient': T_amb, 'blocks': blocks,
-            'R_lambda_max': float(np.linalg.norm(R, 2)),
-            'R_1norm': float(np.linalg.norm(R, 1)),
-            'shape': list(R.shape),
-        }, f, indent=2)
-    return R, {
-        'sys_info': sys_info, 'T_ambient': T_amb, 'blocks': blocks,
-    }
+def _relative_file(root: Path, value: Any, field: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise G3InputError(f"{field} must be a non-empty relative path")
+    relative = Path(value)
+    if relative.is_absolute():
+        raise G3InputError(f"{field} must be relative to the containing bundle")
+    target = (root / relative).resolve()
+    try:
+        target.relative_to(root.resolve())
+    except ValueError as exc:
+        raise G3InputError(f"{field} escapes the containing bundle") from exc
+    if not target.is_file():
+        raise G3InputError(f"{field} does not exist: {relative.as_posix()}")
+    return target
 
 
-def modify_config_s_sink(sim_path, s_sink):
-    """Set s_sink in HotSpot config for this case."""
-    cfg_path = os.path.join(sim_path, 'example.config')
-    with open(cfg_path) as f:
-        lines = f.readlines()
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith('-s_sink') and ' ' in line:
-            new_lines.append(f'\t\t-s_sink\t\t{s_sink}\n')
-        else:
-            new_lines.append(line)
-    with open(cfg_path, 'w') as f:
-        f.writelines(new_lines)
+def _identity_list(value: Any, field: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or len(value) < 2:
+        raise G3InputError(f"{field} must contain at least two identities")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise G3InputError(f"{field} identities must be non-empty text")
+    if len(value) != len(set(value)):
+        raise G3InputError(f"{field} identities must be unique")
+    return tuple(value)
 
 
-def run_oracle_case(R, T_amb, blocks, per_block_power, content_factor,
-                       T_budget=348.0, block_offset=0, n_per_block=1):
-    """Run solve_candidate_bounds for one case at uniform and spatial (CertiTherm)."""
-    # R is from the design. The n in R may be 186 (inner blocks) or 232 (all).
-    n = R.shape[0]
-    if len(per_block_power) >= n:
-        power = per_block_power[block_offset:block_offset+n]
-    else:
-        # Pad with zeros
-        power = list(per_block_power) + [0.0] * (n - len(per_block_power))
-    upper = [content_factor * v for v in power]
+def _digest(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not _DIGEST_RE.fullmatch(value):
+        raise G3InputError(f"{field} must be a lowercase SHA-256 digest")
+    return value
 
-    # Uniform oracle
-    obs_unif = {
-        'per_block_power': power,
-        'per_block_upper': upper,
-        'per_block_lower': [0.0] * len(power),
-    }
-    t0 = time.time()
-    unif_result = solve_candidate_bounds(
-        response_k_per_w=R,
-        ambient_k=np.full(R.shape[0], T_amb),
-        observation=obs_unif,
-        block_names=blocks,
-        thermal_limit_k=T_budget,
-        nonthermal_feasible=True,
-    )
-    unif_runtime = time.time() - t0
 
-    # Spatial oracle (CertiTherm)
-    obs_spatial = dict(obs_unif)
-    obs_spatial['per_block_upper'] = [c * 5.0 for c in power]  # CF=5 for tighter bound
-    t0 = time.time()
-    spatial_result = solve_candidate_bounds(
-        response_k_per_w=R,
-        ambient_k=np.full(R.shape[0], T_amb),
-        observation=obs_spatial,
-        block_names=blocks,
-        thermal_limit_k=T_budget,
-        nonthermal_feasible=True,
-    )
-    spatial_runtime = time.time() - t0
+def _power_vector(path: Path, expected_length: int, field: str) -> np.ndarray:
+    try:
+        value = np.load(path, allow_pickle=False)
+    except (OSError, ValueError) as exc:
+        raise G3InputError(f"cannot load {field}: {exc}") from exc
+    power = np.asarray(value, dtype=np.float64)
+    if power.shape != (expected_length,):
+        raise G3InputError(f"{field} must have shape ({expected_length},)")
+    if not np.all(np.isfinite(power)) or np.any(power < 0.0):
+        raise G3InputError(f"{field} must be finite and non-negative")
+    return power
 
+
+def singleton_observation(power_w: Sequence[float]) -> dict[str, Any]:
+    """Return a true point domain; every component has lower == upper."""
+
+    power = np.asarray(power_w, dtype=np.float64)
+    if power.ndim != 1 or not np.all(np.isfinite(power)) or np.any(power < 0.0):
+        raise G3InputError("singleton power must be a finite non-negative vector")
+    values = power.tolist()
     return {
-        'uniform': {'result': unif_result, 'runtime_s': unif_runtime},
-        'spatial': {'result': spatial_result, 'runtime_s': spatial_runtime},
+        "per_block_power": values,
+        "per_block_lower": values,
+        "per_block_upper": values,
     }
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--sim-path', default='/home/ynwang/jhn/DSE/ThermoDSE/tmp')
-    ap.add_argument('--hotspot-path', default='/home/ynwang/jhn/DSE/HotSpot')
-    ap.add_argument('--R-dir', default='/home/ynwang/jhn/DSE/CertiTherm/exact')
-    ap.add_argument('--T-budget', type=float, default=348.0)
-    ap.add_argument('--output', default='/home/ynwang/jhn/DSE/CertiTherm/results/g3_full_empirical.json')
-    args = ap.parse_args()
+def _validate_member(candidate: Mapping[str, Any], power: np.ndarray, label: str) -> None:
+    try:
+        problem = normalize_problem(
+            candidate["response_k_per_w"],
+            candidate["ambient_k"],
+            candidate["observation"],
+            candidate["block_names"],
+        )
+        replay = replay_power_witness(problem, power, feasibility_tolerance=1e-7)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise G3InputError(f"cannot validate {label}: {exc}") from exc
+    if not replay.get("valid"):
+        raise G3InputError(
+            f"{label} is outside the registered spatial observation domain: {replay}"
+        )
 
-    run_sh = os.path.join(args.sim_path, 'run.sh')
-    results = []
 
-    for arch_name, sys_info in ARCHITECTURES.items():
-        for dnn_name, dnn_list in DNN_FAMILIES.items():
-            for pkg_name, pkg_kwargs in PACKAGE_REGIMES.items():
-                print(f"\n--- {arch_name} × {dnn_name} × {pkg_name} ---")
-                # Get R matrix
-                R, meta = get_R_for_design(sys_info, args.sim_path, args.hotspot_path, run_sh, args.R_dir)
-                if R is None:
-                    print(f"  R matrix FAILED")
-                    continue
+def _suite_relative_input_files(
+    suite_root: Path,
+    query_spec_path: Path,
+    records: Sequence[Mapping[str, str]],
+    *,
+    role_prefix: str,
+) -> list[dict[str, str]]:
+    rebound: list[dict[str, str]] = []
+    for record in records:
+        source = (query_spec_path.parent / record["path"]).resolve()
+        try:
+            relative = source.relative_to(suite_root.resolve())
+        except ValueError as exc:
+            raise G3InputError("query input escapes the G3 suite bundle") from exc
+        rebound.append(
+            {
+                "role": f"{role_prefix}_{record['role']}",
+                "path": relative.as_posix(),
+                "sha256": record["sha256"],
+            }
+        )
+    return rebound
 
-                # Set package regime
-                modify_config_s_sink(args.sim_path, pkg_kwargs['s_sink'])
 
-                # Get per-DNN ptrace
-                per_dnn, _ = get_per_dnn_ptrace(
-                    args.sim_path, sys_info, dnn_list, args.hotspot_path
+def _validate_alias_guards(
+    candidate_records: Sequence[Mapping[str, str]],
+    workload_families: Sequence[str],
+    package_regimes: Sequence[str],
+) -> None:
+    by_arch_package: dict[tuple[str, str], dict[str, Mapping[str, str]]] = {}
+    by_arch_package_operator: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    by_arch_static: dict[str, set[tuple[str, str, str, str]]] = {}
+
+    for record in candidate_records:
+        arch_id = record["architecture_id"]
+        package_id = record["package_id"]
+        workload_family = record["workload_family"]
+        key = (arch_id, package_id)
+        family_records = by_arch_package.setdefault(key, {})
+        if workload_family in family_records:
+            previous = family_records[workload_family]
+            if (
+                previous["placed_power_sha256"] != record["placed_power_sha256"]
+                or previous["point_power_sha256"] != record["point_power_sha256"]
+            ):
+                raise G3InputError(
+                    f"architecture/package/workload {key + (workload_family,)} "
+                    "has inconsistent power inputs"
                 )
-                ptrace_key = dnn_list[0]
-                if ptrace_key not in per_dnn:
-                    print(f"  No ptrace for {ptrace_key}")
-                    continue
-                per_block_power = per_dnn[ptrace_key].tolist()
+        family_records[workload_family] = record
+        by_arch_package_operator.setdefault(key, set()).add(
+            (record["response_sha256"], record["thermal_config_sha256"])
+        )
+        by_arch_static.setdefault(arch_id, set()).add(
+            (
+                record["candidate_id"],
+                record["architecture_family"],
+                record["sys_info_sha256"],
+                record["placement_sha256"],
+            )
+        )
 
-                # Run oracle case at content factor 1.5x (CertiTherm spatial)
-                r = run_oracle_case(
-                    R, meta['T_ambient'], meta['blocks'], per_block_power,
-                    content_factor=1.5,
-                    T_budget=args.T_budget,
+    expected_families = set(workload_families)
+    for key, family_records in by_arch_package.items():
+        if set(family_records) != expected_families:
+            raise G3InputError(f"architecture/package {key} lacks the full workload matrix")
+        placed_digests = {
+            record["placed_power_sha256"] for record in family_records.values()
+        }
+        point_digests = {
+            record["point_power_sha256"] for record in family_records.values()
+        }
+        if len(placed_digests) != len(expected_families):
+            raise G3InputError(
+                f"architecture/package {key} reuses one placed-power vector "
+                "under multiple workload labels"
+            )
+        if len(point_digests) != len(expected_families):
+            raise G3InputError(
+                f"architecture/package {key} reuses one point estimate "
+                "under multiple workload labels"
+            )
+        if len(by_arch_package_operator[key]) != 1:
+            raise G3InputError(
+                f"architecture/package {key} changes thermal operator across workloads"
+            )
+
+    by_arch: dict[str, dict[str, tuple[str, str]]] = {}
+    for (arch_id, package_id), digests in by_arch_package_operator.items():
+        by_arch.setdefault(arch_id, {})[package_id] = next(iter(digests))
+    expected_packages = set(package_regimes)
+    for arch_id, package_records in by_arch.items():
+        if len(by_arch_static[arch_id]) != 1:
+            raise G3InputError(
+                f"architecture {arch_id} changes identity, family, sys_info, or placement "
+                "across G3 strata"
+            )
+        if set(package_records) != expected_packages:
+            raise G3InputError(f"architecture {arch_id} lacks the full package matrix")
+        response_digests = {value[0] for value in package_records.values()}
+        config_digests = {value[1] for value in package_records.values()}
+        if len(response_digests) != len(expected_packages):
+            raise G3InputError(
+                f"architecture {arch_id} reuses one thermal response across package labels"
+            )
+        if len(config_digests) != len(expected_packages):
+            raise G3InputError(
+                f"architecture {arch_id} reuses one thermal config across package labels"
+            )
+
+
+def load_g3_suite(suite_path: Path) -> dict[str, Any]:
+    """Load and validate a complete, content-bound G3 suite."""
+
+    suite_path = suite_path.resolve()
+    suite_root = suite_path.parent
+    spec = _read_json(suite_path)
+    if spec.get("schema_version") != SUITE_SCHEMA_VERSION:
+        raise G3InputError("unsupported G3 suite schema")
+    suite_id = spec.get("suite_id")
+    if not isinstance(suite_id, str) or not suite_id.strip():
+        raise G3InputError("suite_id must be non-empty text")
+    if spec.get("evidence_class") != PHYSICAL_EVIDENCE_CLASS:
+        raise G3InputError("G3 breadth requires physical_placed_power evidence")
+
+    workload_families = _identity_list(spec.get("workload_families"), "workload_families")
+    architecture_families = _identity_list(
+        spec.get("architecture_families"), "architecture_families"
+    )
+    package_regimes = _identity_list(spec.get("package_regimes"), "package_regimes")
+    raw_queries = spec.get("queries")
+    if not isinstance(raw_queries, list) or not raw_queries:
+        raise G3InputError("queries must be a non-empty list")
+
+    expected_strata = set(itertools.product(workload_families, package_regimes))
+    observed_strata: set[tuple[str, str]] = set()
+    workload_ids: dict[str, str] = {}
+    loaded_queries: list[dict[str, Any]] = []
+    alias_records: list[dict[str, str]] = []
+    reference_candidate_ids: set[str] | None = None
+    thermal_limits: set[float] = set()
+    objective_records: dict[tuple[str, str], set[tuple[float, int]]] = {}
+
+    for query_index, raw_query in enumerate(raw_queries):
+        if not isinstance(raw_query, Mapping):
+            raise G3InputError(f"query {query_index} must be an object")
+        workload_family = raw_query.get("workload_family")
+        workload_id = raw_query.get("workload_id")
+        package_id = raw_query.get("package_id")
+        if workload_family not in workload_families:
+            raise G3InputError(f"query {query_index} has an unregistered workload family")
+        if package_id not in package_regimes:
+            raise G3InputError(f"query {query_index} has an unregistered package regime")
+        if not isinstance(workload_id, str) or not workload_id.strip():
+            raise G3InputError(f"query {query_index} workload_id must be non-empty text")
+        stratum = (workload_family, package_id)
+        if stratum in observed_strata:
+            raise G3InputError(f"duplicate G3 stratum: {stratum}")
+        observed_strata.add(stratum)
+        previous_workload_id = workload_ids.setdefault(workload_family, workload_id)
+        if previous_workload_id != workload_id:
+            raise G3InputError(
+                f"workload family {workload_family} changes workload_id across packages"
+            )
+
+        query_spec_path = _relative_file(
+            suite_root, raw_query.get("query_spec"), f"queries[{query_index}].query_spec"
+        )
+        raw_query_spec = _read_json(query_spec_path)
+        if raw_query_spec.get("evidence_class") != PHYSICAL_EVIDENCE_CLASS:
+            raise G3InputError(f"query {query_index} is not physical placed-power evidence")
+        query_id, thermal_limit, spatial_candidates, input_files = load_query_bundle(
+            query_spec_path
+        )
+        thermal_limits.add(float(thermal_limit))
+        raw_candidates = raw_query_spec.get("candidates")
+        if not isinstance(raw_candidates, list) or len(raw_candidates) != len(spatial_candidates):
+            raise G3InputError(f"query {query_index} candidate records are inconsistent")
+
+        point_candidates: list[dict[str, Any]] = []
+        placed_candidates: list[dict[str, Any]] = []
+        query_architecture_families: set[str] = set()
+        query_candidate_ids: set[str] = set()
+        rebound_files = _suite_relative_input_files(
+            suite_root,
+            query_spec_path,
+            input_files,
+            role_prefix=f"stratum_{query_index}",
+        )
+        rebound_files.append(
+            {
+                "role": f"stratum_{query_index}_suite_spec",
+                "path": suite_path.relative_to(suite_root).as_posix(),
+                "sha256": sha256_file(suite_path),
+            }
+        )
+
+        for candidate_index, (raw_candidate, spatial_candidate) in enumerate(
+            zip(raw_candidates, spatial_candidates)
+        ):
+            if not isinstance(raw_candidate, Mapping):
+                raise G3InputError(
+                    f"query {query_index} candidate {candidate_index} must be an object"
                 )
-                unif = r['uniform']['result']
-                spatial = r['spatial']['result']
-                unif_status = unif.get('status', 'UNRESOLVED')
-                spatial_status = spatial.get('status', 'UNRESOLVED')
-                unif_lower = unif.get('lower_d')
-                unif_upper = unif.get('upper_d')
-                spatial_lower = spatial.get('lower_d')
-                spatial_upper = spatial.get('upper_d')
-                flipped = (unif_status == 'CERTIFIED_SAFE' and spatial_status == 'CERTIFIED_INFEASIBLE') or \
-                           (unif_status == 'CERTIFIED_SAFE' and spatial_status == 'NON_IDENTIFIABLE') or \
-                           (unif_status == 'NON_IDENTIFIABLE' and spatial_status == 'CERTIFIED_INFEASIBLE')
-                print(f"  uniform: {unif_status:<22} lower={unif_lower:.2f} upper={unif_upper:.2f}  runtime={r['uniform']['runtime_s']:.2f}s")
-                print(f"  spatial: {spatial_status:<22} lower={spatial_lower:.2f} upper={spatial_upper:.2f}  runtime={r['spatial']['runtime_s']:.2f}s")
-                print(f"  flipped: {flipped}")
-                results.append({
-                    'arch': arch_name,
-                    'dnn_family': dnn_name,
-                    'pkg_regime': pkg_name,
-                    'sys_info': sys_info,
-                    'uniform_status': unif_status,
-                    'uniform_lower': unif_lower,
-                    'uniform_upper': unif_upper,
-                    'spatial_status': spatial_status,
-                    'spatial_lower': spatial_lower,
-                    'spatial_upper': spatial_upper,
-                    'flipped': flipped,
-                    'uniform_runtime_s': r['uniform']['runtime_s'],
-                    'spatial_runtime_s': r['spatial']['runtime_s'],
-                })
+            provenance = spatial_candidate.get("provenance")
+            if not isinstance(provenance, Mapping):
+                raise G3InputError("physical candidate provenance must be a mapping")
+            for field, expected in (
+                ("workload_family", workload_family),
+                ("workload_id", workload_id),
+                ("package_id", package_id),
+            ):
+                if provenance.get(field) != expected:
+                    raise G3InputError(
+                        f"query {query_index} candidate {candidate_index} {field} "
+                        "does not match its suite stratum"
+                    )
+            architecture_family = provenance.get("architecture_family")
+            if architecture_family not in architecture_families:
+                raise G3InputError(
+                    f"query {query_index} candidate {candidate_index} lacks a registered "
+                    "architecture_family"
+                )
+            architecture_id = provenance.get("architecture_id")
+            if not isinstance(architecture_id, str) or not architecture_id:
+                raise G3InputError("architecture_id must be non-empty text")
+            candidate_id = str(spatial_candidate["candidate_id"])
+            if architecture_id != candidate_id:
+                raise G3InputError(
+                    f"candidate {candidate_id} does not match provenance architecture_id"
+                )
+            query_architecture_families.add(architecture_family)
+            query_candidate_ids.add(candidate_id)
+            try:
+                objective = float(spatial_candidate["nonthermal_objective"])
+                tie_rank = spatial_candidate["tie_break_rank"]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise G3InputError("invalid nonthermal objective or tie rank") from exc
+            if not np.isfinite(objective):
+                raise G3InputError("nonthermal objective must be finite")
+            if not isinstance(tie_rank, int) or isinstance(tie_rank, bool) or tie_rank < 0:
+                raise G3InputError("tie-break rank must be a non-negative integer")
+            objective_records.setdefault((str(workload_family), candidate_id), set()).add(
+                (objective, tie_rank)
+            )
 
-    # Save
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    with open(args.output, 'w') as f:
-        json.dump(results, f, indent=2)
+            response_path = _relative_file(
+                query_spec_path.parent,
+                raw_candidate.get("response_npy"),
+                "response_npy",
+            )
+            response_digest = sha256_file(response_path)
+            if _digest(
+                provenance.get("thermal_operator_sha256"),
+                "thermal_operator_sha256",
+            ) != response_digest:
+                raise G3InputError("thermal_operator_sha256 does not bind response_npy")
+            thermal_config_digest = _digest(
+                provenance.get("thermal_config_sha256"),
+                "thermal_config_sha256",
+            )
 
-    # Summary
-    print("\n" + "=" * 80)
-    print("  CertiTherm G3: 2 DNN × 2 Arch × 2 Pkg = 8 cases")
-    print("=" * 80)
-    n_flip = sum(1 for r in results if r['flipped'])
-    n_safe = sum(1 for r in results if r['uniform_status'] == 'CERTIFIED_SAFE')
-    n_infeas = sum(1 for r in results if r['uniform_status'] == 'CERTIFIED_INFEASIBLE')
-    n_nonid = sum(1 for r in results if r['uniform_status'] == 'NON_IDENTIFIABLE')
-    n_unres = sum(1 for r in results if r['uniform_status'] == 'UNRESOLVED')
-    n_spatial_safe = sum(1 for r in results if r['spatial_status'] == 'CERTIFIED_SAFE')
-    n_spatial_infeas = sum(1 for r in results if r['spatial_status'] == 'CERTIFIED_INFEASIBLE')
-    n_spatial_nonid = sum(1 for r in results if r['spatial_status'] == 'NON_IDENTIFIABLE')
-    n_spatial_unres = sum(1 for r in results if r['spatial_status'] == 'UNRESOLVED')
-    print(f"  Total cases: {len(results)}")
-    print(f"  Uniform oracle: SAFE={n_safe} INFEAS={n_infeas} NONID={n_nonid} UNRES={n_unres}")
-    print(f"  Spatial oracle: SAFE={n_spatial_safe} INFEAS={n_spatial_infeas} NONID={n_spatial_nonid} UNRES={n_spatial_unres}")
-    print(f"  Error-decision rate: {n_flip}/{len(results)} = {n_flip/max(1,len(results))*100:.1f}%")
-    unif_rt = [r['uniform_runtime_s'] for r in results if 'uniform_runtime_s' in r]
-    spatial_rt = [r['spatial_runtime_s'] for r in results if 'spatial_runtime_s' in r]
-    if unif_rt:
-        print(f"  Runtime (uniform): mean={sum(unif_rt)/len(unif_rt):.2f}s, max={max(unif_rt):.2f}s")
-    if spatial_rt:
-        print(f"  Runtime (spatial): mean={sum(spatial_rt)/len(spatial_rt):.2f}s, max={max(spatial_rt):.2f}s")
-    print()
-    print("  Per-case breakdown:")
-    for r in results:
-        u = r['uniform_status'][:5]
-        s = r['spatial_status'][:5]
-        flip = '🔴 FLIP' if r['flipped'] else '   ok'
-        print(f"    {r['arch']:<12} {r['dnn_family']:<22} {r['pkg_regime']:<18} {u}->{s} {flip}")
-    print(f"\n  Saved to {args.output}")
+            if raw_candidate.get("point_power_semantics") != POINT_POWER_SEMANTICS:
+                raise G3InputError(
+                    f"candidate {spatial_candidate['candidate_id']} lacks the registered "
+                    "ThermoDSE point-estimate semantics"
+                )
+            point_path = _relative_file(
+                query_spec_path.parent,
+                raw_candidate.get("point_power_npy"),
+                "point_power_npy",
+            )
+            placed_path = _relative_file(
+                query_spec_path.parent,
+                raw_candidate.get("placed_power_npy"),
+                "placed_power_npy",
+            )
+            point_digest = sha256_file(point_path)
+            placed_digest = sha256_file(placed_path)
+            if _digest(
+                provenance.get("placed_power_sha256"), "placed_power_sha256"
+            ) != placed_digest:
+                raise G3InputError("placed_power_sha256 does not bind placed_power_npy")
+
+            dimension = len(spatial_candidate["block_names"])
+            point_power = _power_vector(point_path, dimension, "point_power_npy")
+            placed_power = _power_vector(placed_path, dimension, "placed_power_npy")
+            _validate_member(spatial_candidate, point_power, "point estimate")
+            _validate_member(spatial_candidate, placed_power, "placed-power reference")
+
+            point_candidate = dict(spatial_candidate)
+            point_candidate["observation"] = singleton_observation(point_power)
+            placed_candidate = dict(spatial_candidate)
+            placed_candidate["observation"] = singleton_observation(placed_power)
+            point_candidates.append(point_candidate)
+            placed_candidates.append(placed_candidate)
+
+            for role, path, digest in (
+                (f"stratum_{query_index}_candidate_{candidate_index}_point_power", point_path, point_digest),
+                (f"stratum_{query_index}_candidate_{candidate_index}_placed_power", placed_path, placed_digest),
+            ):
+                rebound_files.append(
+                    {
+                        "role": role,
+                        "path": path.relative_to(suite_root).as_posix(),
+                        "sha256": digest,
+                    }
+                )
+            alias_records.append(
+                {
+                    "candidate_id": candidate_id,
+                    "workload_family": str(workload_family),
+                    "package_id": str(package_id),
+                    "architecture_id": architecture_id,
+                    "architecture_family": str(architecture_family),
+                    "sys_info_sha256": canonical_sha256(spatial_candidate.get("sys_info", [])),
+                    "placement_sha256": _digest(
+                        provenance.get("placement_sha256"), "placement_sha256"
+                    ),
+                    "placed_power_sha256": placed_digest,
+                    "point_power_sha256": point_digest,
+                    "response_sha256": response_digest,
+                    "thermal_config_sha256": thermal_config_digest,
+                }
+            )
+
+        if len(query_candidate_ids) != len(spatial_candidates):
+            raise G3InputError(f"query {query_id} contains duplicate candidate IDs")
+        if query_architecture_families != set(architecture_families):
+            raise G3InputError(
+                f"query {query_id} does not cover every registered architecture family"
+            )
+        if reference_candidate_ids is None:
+            reference_candidate_ids = query_candidate_ids
+        elif query_candidate_ids != reference_candidate_ids:
+            raise G3InputError("G3 strata do not use the same architecture candidate pool")
+
+        loaded_queries.append(
+            {
+                "query_id": query_id,
+                "workload_family": workload_family,
+                "workload_id": workload_id,
+                "package_id": package_id,
+                "thermal_limit_k": thermal_limit,
+                "spatial_candidates": spatial_candidates,
+                "point_candidates": point_candidates,
+                "placed_candidates": placed_candidates,
+                "input_files": rebound_files,
+            }
+        )
+
+    if observed_strata != expected_strata:
+        missing = sorted(expected_strata - observed_strata)
+        extra = sorted(observed_strata - expected_strata)
+        raise G3InputError(f"G3 suite is not Cartesian: missing={missing}, extra={extra}")
+    if len(thermal_limits) != 1:
+        raise G3InputError("G3 strata must use one frozen thermal limit")
+    for key, objective_values in objective_records.items():
+        if len(objective_values) != 1:
+            raise G3InputError(
+                f"workload/candidate {key} changes nonthermal order across packages"
+            )
+    _validate_alias_guards(alias_records, workload_families, package_regimes)
+
+    order = {
+        stratum: index
+        for index, stratum in enumerate(itertools.product(workload_families, package_regimes))
+    }
+    loaded_queries.sort(
+        key=lambda item: order[(item["workload_family"], item["package_id"])]
+    )
+    return {
+        "suite_id": suite_id,
+        "evidence_class": PHYSICAL_EVIDENCE_CLASS,
+        "workload_families": workload_families,
+        "architecture_families": architecture_families,
+        "package_regimes": package_regimes,
+        "queries": loaded_queries,
+    }
+
+
+def _run_variant(
+    *,
+    query_id: str,
+    candidates: Sequence[Mapping[str, Any]],
+    thermal_limit_k: float,
+    source_commit: str,
+    argv: Sequence[str],
+    environment: Mapping[str, Any],
+    input_files: Sequence[Mapping[str, str]],
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    result = decide_architecture_query(
+        query_id,
+        candidates,
+        thermal_limit_k=thermal_limit_k,
+    )
+    wall_time = time.perf_counter() - started
+    run = {
+        "source_commit": source_commit,
+        "command": list(argv),
+        "environment": dict(environment),
+        "exit_status": 0,
+        "wall_time_s": wall_time,
+        "peak_rss_kb": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
+        "input_files": list(input_files),
+    }
+    return build_replay_artifact(
+        query_id=query_id,
+        candidates=candidates,
+        thermal_limit_k=thermal_limit_k,
+        result=result,
+        run=run,
+    )
+
+
+def _result(entry: Mapping[str, Any], variant: str) -> Mapping[str, Any]:
+    return entry["variants"][variant]["result"]
+
+
+def _compute_metrics(entries: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    point_commitment_not_identifiable = 0
+    point_placed_disagreement = 0
+    unresolved_variants = 0
+    for entry in entries:
+        point = _result(entry, "point_estimate")
+        placed = _result(entry, "placed_reference")
+        spatial = _result(entry, "spatial_equivalence")
+        if point.get("status") == CERTIFIED and spatial.get("status") == NON_IDENTIFIABLE:
+            point_commitment_not_identifiable += 1
+        if (
+            point.get("status") == CERTIFIED
+            and placed.get("status") == CERTIFIED
+            and point.get("certified_outcome") != placed.get("certified_outcome")
+        ):
+            point_placed_disagreement += 1
+        unresolved_variants += sum(
+            1 for variant in _VARIANTS if _result(entry, variant).get("status") == "UNRESOLVED"
+        )
+    return {
+        "query_count": len(entries),
+        "point_certified_count": sum(
+            _result(entry, "point_estimate").get("status") == CERTIFIED for entry in entries
+        ),
+        "placed_certified_count": sum(
+            _result(entry, "placed_reference").get("status") == CERTIFIED for entry in entries
+        ),
+        "spatial_certified_count": sum(
+            _result(entry, "spatial_equivalence").get("status") == CERTIFIED for entry in entries
+        ),
+        "spatial_non_identifiable_count": sum(
+            _result(entry, "spatial_equivalence").get("status") == NON_IDENTIFIABLE
+            for entry in entries
+        ),
+        "point_commitment_not_identifiable_count": point_commitment_not_identifiable,
+        "point_placed_disagreement_count": point_placed_disagreement,
+        "unresolved_variant_count": unresolved_variants,
+    }
+
+
+def execute_g3_suite(
+    loaded_suite: Mapping[str, Any],
+    *,
+    source_commit: str,
+    argv: Sequence[str],
+    environment: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute all matched variants and return a self-authenticating suite artifact."""
+
+    run_environment = dict(
+        environment
+        or {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "numpy": np.__version__,
+            "scipy": scipy.__version__,
+            "hostname": platform.node(),
+        }
+    )
+    entries: list[dict[str, Any]] = []
+    for query in loaded_suite["queries"]:
+        variants = {
+            "point_estimate": _run_variant(
+                query_id=f"{query['query_id']}::point-estimate",
+                candidates=query["point_candidates"],
+                thermal_limit_k=query["thermal_limit_k"],
+                source_commit=source_commit,
+                argv=argv,
+                environment=run_environment,
+                input_files=query["input_files"],
+            ),
+            "placed_reference": _run_variant(
+                query_id=f"{query['query_id']}::placed-reference",
+                candidates=query["placed_candidates"],
+                thermal_limit_k=query["thermal_limit_k"],
+                source_commit=source_commit,
+                argv=argv,
+                environment=run_environment,
+                input_files=query["input_files"],
+            ),
+            "spatial_equivalence": _run_variant(
+                query_id=f"{query['query_id']}::spatial-equivalence",
+                candidates=query["spatial_candidates"],
+                thermal_limit_k=query["thermal_limit_k"],
+                source_commit=source_commit,
+                argv=argv,
+                environment=run_environment,
+                input_files=query["input_files"],
+            ),
+        }
+        entries.append(
+            {
+                "query_id": query["query_id"],
+                "workload_family": query["workload_family"],
+                "workload_id": query["workload_id"],
+                "package_id": query["package_id"],
+                "variants": variants,
+            }
+        )
+
+    content = {
+        "schema_version": SUITE_ARTIFACT_SCHEMA_VERSION,
+        "suite_id": loaded_suite["suite_id"],
+        "evidence_class": loaded_suite["evidence_class"],
+        "axes": {
+            "workload_families": list(loaded_suite["workload_families"]),
+            "architecture_families": list(loaded_suite["architecture_families"]),
+            "package_regimes": list(loaded_suite["package_regimes"]),
+        },
+        "claim_boundary": (
+            "A valid suite measures point/placed/spatial query outcomes only. "
+            "It does not by itself close G3, establish an error rate, or prove "
+            "independent-backend correctness."
+        ),
+        "entries": entries,
+        "metrics": _compute_metrics(entries),
+    }
+    artifact = _jsonable(content)
+    artifact["artifact_sha256"] = canonical_sha256(artifact)
+    return artifact
+
+
+def replay_g3_suite_artifact(artifact: Mapping[str, Any]) -> dict[str, Any]:
+    """Verify the suite envelope and freshly replay every embedded G2 artifact."""
+
+    def invalid(reason: str) -> dict[str, Any]:
+        return {
+            "schema_version": SUITE_REPLAY_SCHEMA_VERSION,
+            "status": "INVALID",
+            "reason": reason,
+        }
+
+    if artifact.get("schema_version") != SUITE_ARTIFACT_SCHEMA_VERSION:
+        return invalid("unsupported G3 suite artifact schema")
+    supplied_digest = artifact.get("artifact_sha256")
+    content = {key: value for key, value in artifact.items() if key != "artifact_sha256"}
+    if supplied_digest != canonical_sha256(content):
+        return invalid("G3 suite artifact digest mismatch")
+    entries = artifact.get("entries")
+    if not isinstance(entries, list):
+        return invalid("G3 suite entries must be a list")
+
+    receipts: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("variants"), Mapping):
+            return invalid("invalid G3 suite entry")
+        for variant in _VARIANTS:
+            embedded = entry["variants"].get(variant)
+            if not isinstance(embedded, Mapping):
+                return invalid(f"missing {variant} artifact")
+            receipt = replay_artifact(embedded)
+            receipts.append(
+                {
+                    "query_id": entry.get("query_id"),
+                    "variant": variant,
+                    "status": receipt.get("status"),
+                    "artifact_sha256": embedded.get("artifact_sha256"),
+                }
+            )
+            if receipt.get("status") != "PASS":
+                return invalid(
+                    f"embedded {variant} replay failed for {entry.get('query_id')}"
+                )
+    try:
+        recomputed_metrics = _compute_metrics(entries)
+    except (KeyError, TypeError, ValueError) as exc:
+        return invalid(f"cannot recompute G3 metrics: {exc}")
+    if artifact.get("metrics") != recomputed_metrics:
+        return invalid("G3 suite metrics do not match embedded query results")
+    return {
+        "schema_version": SUITE_REPLAY_SCHEMA_VERSION,
+        "status": "PASS",
+        "artifact_sha256": supplied_digest,
+        "embedded_replays": receipts,
+    }
+
+
+def _git_state(repo_root: Path) -> tuple[str, bool]:
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    dirty = bool(
+        subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    )
+    return commit, dirty
+
+
+def _require_external_output(path: Path, repo_root: Path, field: str) -> None:
+    try:
+        path.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return
+    raise G3InputError(f"{field} must be outside the Git worktree")
+
+
+def run_registered_g3_suite(
+    suite_path: Path,
+    artifact_path: Path,
+    receipt_path: Path,
+    *,
+    repo_root: Path,
+    argv: Sequence[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run a clean-tree G3 suite and write only external raw artifacts."""
+
+    _require_external_output(artifact_path, repo_root, "artifact")
+    _require_external_output(receipt_path, repo_root, "receipt")
+    source_commit, dirty = _git_state(repo_root)
+    if dirty:
+        raise G3InputError("claim-grade G3 runner requires a clean Git worktree")
+    loaded = load_g3_suite(suite_path)
+    artifact = execute_g3_suite(
+        loaded,
+        source_commit=source_commit,
+        argv=argv,
+    )
+    receipt = replay_g3_suite_artifact(artifact)
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(
+        json.dumps(artifact, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return artifact, receipt
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Run a registered content-bound CertiTherm G3 suite"
+    )
+    parser.add_argument("--suite", required=True, type=Path)
+    parser.add_argument("--artifact", required=True, type=Path)
+    parser.add_argument("--receipt", required=True, type=Path)
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path(__file__).resolve().parents[2],
+    )
+    args = parser.parse_args()
+    try:
+        artifact, receipt = run_registered_g3_suite(
+            args.suite,
+            args.artifact,
+            args.receipt,
+            repo_root=args.repo_root.resolve(),
+            argv=[sys.executable, *sys.argv],
+        )
+    except Exception as exc:
+        print(f"G3 suite unresolved: {exc}", file=sys.stderr)
+        return 2
+    print(
+        f"suite={artifact['suite_id']} replay={receipt.get('status')} "
+        f"queries={artifact['metrics']['query_count']}"
+    )
+    return 0 if receipt.get("status") == "PASS" else 2
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
