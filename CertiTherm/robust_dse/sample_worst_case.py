@@ -1,175 +1,198 @@
+"""Power-conserving sampled spatial-stress pilot for CertiTherm.
+
+The maximum over finitely many synthetic samples is an empirical stress
+statistic.  It is not a supremum, a PAC worst-case bound, or a thermal safety
+certificate.  Claim-bearing certification belongs to the exact
+identifiability path; this module supplies only a comparison baseline.
 """
-CertiTherm Robust DSE: Sample-based worst-case bound
 
-Innovation: Instead of using uniform-power peak T (the current default that
-causes 17% flip rate), sample K spatial power patterns and use max T over
-samples as the "robust peak T". This makes DSE robust by construction.
+from __future__ import annotations
 
-Theorem (PAC bound for worst-case peak T):
-Let p_1, ..., p_K be iid samples from a spatial power distribution P
-with max-concentration σ_W. Then with probability ≥ 1-δ over samples:
-  T_max_sample = max_i T_actual(p_i) ≥ sup_{p ∈ P} T_actual(p) - ε
-  where ε = σ_W × P_total × ||R||_1 / K (1-norm of thermal resistance, decreasing in K)
-
-Algorithm:
-1. For each candidate design, sample K=10 spatial power patterns
-2. Run HotSpot for each, get peak T
-3. T_robust = max T over samples
-4. Feasible if T_robust ≤ T_budget AND area ≤ A_budget
-
-Compared to current DSE:
-- Current: T_check = T_uniform (1 HotSpot run)
-- Robust: T_check = T_robust = max(T_uniform, T_spatial_1, ..., T_spatial_K)
-  (K+1 HotSpot runs, ~K× more compute)
-- Tradeoff: K× more compute per evaluation, but 0% flip rate
-
-This is sample-efficient (K=10) and provably safe (PAC bound).
-"""
-import os
-import sys
 import argparse
-import numpy as np
 import json
+import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
 
-sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
-sys.path.insert(0, '/home/ynwang/jhn/DSE/CertiTherm/audit')
+import numpy as np
 
-from spatial_power_injection import inject_spatial_power, make_pattern
+try:
+    from ..audit.spatial_power_injection import inject_spatial_power
+    from .robust_target import _run_hotspot_peak
+except ImportError:  # direct script execution from the legacy directory
+    from spatial_power_injection import inject_spatial_power
+    from robust_target import _run_hotspot_peak
+
+
+def _unresolved(sys_info, reason, *, area_mm2=None, expected=0, observed=0):
+    return {
+        'schema_version': 'certitherm.sampled-spatial-stress.v1',
+        'status': 'UNRESOLVED',
+        'unresolved_reason': reason,
+        'sys_info': list(sys_info),
+        'area_mm2': area_mm2,
+        'T_uniform': None,
+        'T_sample_max': None,
+        'T_samples': [],
+        'sample_count_expected': expected,
+        'sample_count_observed': observed,
+        'stress_semantics': 'POWER_CONSERVING_SYNTHETIC_NOT_A_CERTIFICATE',
+    }
 
 
 def sample_worst_case_T(
-    sys_info, sim_path, hotspot_path, run_sh_path,
-    K=10, mode='centered', max_strength=5.0,
-    peak_T_budget=348.0, area_budget_m2=3e-4,
+    sys_info,
+    sim_path,
+    hotspot_path,
+    run_sh_path,
+    K=10,
+    mode='centered',
+    max_strength=5.0,
+    peak_T_budget=348.0,
+    area_budget_m2=3e-4,
+    seed=42,
 ):
-    """
-    Sample K spatial power patterns, run HotSpot for each, return robust peak T.
+    """Return a fail-closed sampled stress receipt.
 
-    Returns: dict with uniform_T, max_T_over_K, robust_feasible, area
+    The legacy function name is retained for callers.  The receipt deliberately
+    uses ``T_sample_max`` and never presents the statistic as a bound.
     """
-    # 1. Compute area + run full evaluation (which generates aggregated ptrace
-    #    across all 7 networks — the "uniform" reference).
-    from core.chiplet_eva import chiplet_evaluator
-    ev = chiplet_evaluator(
-        hotspot_path=hotspot_path,
-        sim_path=sim_path,
-        sys_info=sys_info,
-        thermal_map=False,
-        baseline1=False, baseline2=False, baseline3=False,
-        wkld_idpdt=False,
-        clock_freq=1.8e9,
-    )
-    ev.generate_hardware()
-    delay, energy, die_yield = ev.evaluate()  # KEY: this writes the aggregated ptrace
-    area = ev.sys_h * ev.sys_w + ev.IO_die_area_each * 8
 
-    # 2. Run uniform power, get T_uniform
+    if not isinstance(K, int) or isinstance(K, bool) or K <= 0:
+        raise ValueError('K must be a positive integer')
+    try:
+        from core.chiplet_eva import chiplet_evaluator
+
+        evaluator = chiplet_evaluator(
+            hotspot_path=hotspot_path,
+            sim_path=sim_path,
+            sys_info=sys_info,
+            thermal_map=False,
+            baseline1=False,
+            baseline2=False,
+            baseline3=False,
+            wkld_idpdt=False,
+            clock_freq=1.8e9,
+        )
+        evaluator.generate_hardware()
+        evaluator.evaluate()
+        area = evaluator.sys_h * evaluator.sys_w + evaluator.IO_die_area_each * 8
+    except Exception as error:
+        return _unresolved(
+            sys_info,
+            f'EVALUATOR_FAILURE:{type(error).__name__}',
+            expected=K,
+        )
+
     ptrace_path = os.path.join(sim_path, 'ptrace', 'cores_3D.ptrace')
-    backup_ptrace = '/tmp/cores_3D_uniform_backup.ptrace'
-    import shutil
-    if os.path.exists(backup_ptrace):
-        shutil.copy(backup_ptrace, ptrace_path)
+    if not os.path.isfile(ptrace_path):
+        return _unresolved(
+            sys_info,
+            'MISSING_UNIFORM_PTRACE',
+            area_mm2=area * 1e6,
+            expected=K,
+        )
 
-    uniform_steady = os.path.join(sim_path, 'outputs', 'gcc.steady')
-    if os.path.exists(uniform_steady):
-        os.remove(uniform_steady)
-    import subprocess
-    subprocess.run(
-        ['bash', run_sh_path,
-         os.path.join(sim_path, 'example.config'),
-         os.path.join(sim_path, 'floorplan', 'output_3D.flp'),
-         ptrace_path, '0.020', sim_path],
-        check=False, capture_output=True, text=True, timeout=120
+    rng = np.random.default_rng(seed)
+    temporary_root = os.environ.get('TMPDIR', '/tmp')
+    with tempfile.TemporaryDirectory(
+        prefix='certitherm-stress-', dir=temporary_root
+    ) as directory:
+        backup_ptrace = os.path.join(directory, 'uniform.ptrace')
+        shutil.copy2(ptrace_path, backup_ptrace)
+        samples = []
+        try:
+            uniform_temperature = _run_hotspot_peak(
+                sim_path, run_sh_path, ptrace_path
+            )
+            if uniform_temperature is None:
+                return _unresolved(
+                    sys_info,
+                    'UNIFORM_THERMAL_RUN_FAILURE',
+                    area_mm2=area * 1e6,
+                    expected=K,
+                )
+            for sample_index in range(K):
+                strength = rng.uniform(0.5 * max_strength, max_strength)
+                spatial_ptrace = os.path.join(
+                    directory, f'spatial-{sample_index}.ptrace'
+                )
+                inject_spatial_power(
+                    backup_ptrace,
+                    spatial_ptrace,
+                    cxlen=sys_info[0],
+                    cylen=sys_info[1],
+                    mode=mode,
+                    strength=strength,
+                    seed=seed + sample_index * 17,
+                    conservation='per_component',
+                )
+                shutil.copy2(spatial_ptrace, ptrace_path)
+                temperature = _run_hotspot_peak(
+                    sim_path, run_sh_path, ptrace_path
+                )
+                if temperature is None:
+                    return _unresolved(
+                        sys_info,
+                        'SPATIAL_THERMAL_RUN_FAILURE',
+                        area_mm2=area * 1e6,
+                        expected=K,
+                        observed=len(samples),
+                    )
+                samples.append(temperature)
+        finally:
+            shutil.copy2(backup_ptrace, ptrace_path)
+
+    sample_max = max([uniform_temperature, *samples])
+    uniform_feasible = (
+        uniform_temperature <= peak_T_budget and area <= area_budget_m2
     )
-
-    T_uniform = None
-    if os.path.exists(uniform_steady):
-        with open(uniform_steady) as f:
-            for line in f:
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    try:
-                        t = float(parts[1])
-                        if T_uniform is None or t > T_uniform:
-                            T_uniform = t
-                    except ValueError:
-                        pass
-
-    # 3. Sample K spatial power patterns, run HotSpot for each
-    xx, yy, cx, cy = sys_info[0], sys_info[1], sys_info[2], sys_info[3]
-    cxlen, cylen = xx, yy  # number of chiplet cells in each dim
-    sampled_T = []
-    for k in range(K):
-        # Random strength in [0.5*max_strength, max_strength] for diversity
-        strength = np.random.uniform(0.5 * max_strength, max_strength)
-        # Random seed for diversity across samples
-        seed = 42 + k * 17
-        spatial_ptrace = os.path.join(sim_path, 'ptrace', f'cores_3D_spatial_k{k}.ptrace')
-        inject_spatial_power(
-            backup_ptrace, spatial_ptrace,
-            cxlen=cxlen, cylen=cylen, mode=mode,
-            strength=strength, seed=seed,
-        )
-        # Replace uniform with spatial
-        shutil.copy(spatial_ptrace, ptrace_path)
-        if os.path.exists(uniform_steady):
-            os.remove(uniform_steady)
-        subprocess.run(
-            ['bash', run_sh_path,
-             os.path.join(sim_path, 'example.config'),
-             os.path.join(sim_path, 'floorplan', 'output_3D.flp'),
-             ptrace_path, '0.020', sim_path],
-            check=False, capture_output=True, text=True, timeout=120
-        )
-        if os.path.exists(uniform_steady):
-            with open(uniform_steady) as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        try:
-                            t = float(parts[1])
-                            if len(sampled_T) <= k:
-                                sampled_T.append(t)
-                            elif t > sampled_T[k]:
-                                sampled_T[k] = t
-                        except ValueError:
-                            pass
-
-    # 4. Restore uniform ptrace
-    if os.path.exists(backup_ptrace):
-        shutil.copy(backup_ptrace, ptrace_path)
-
-    # 5. Compute robust peak T
-    T_robust = max([T_uniform] + sampled_T) if T_uniform is not None else None
-    robust_feasible = (T_robust is not None and T_robust <= peak_T_budget
-                       and area <= area_budget_m2)
-    uniform_feasible = (T_uniform is not None and T_uniform <= peak_T_budget
-                        and area <= area_budget_m2)
-
+    sampled_feasible = sample_max <= peak_T_budget and area <= area_budget_m2
     return {
-        'sys_info': sys_info,
+        'schema_version': 'certitherm.sampled-spatial-stress.v1',
+        'status': 'RESOLVED_STRESS_PILOT',
+        'unresolved_reason': None,
+        'sys_info': list(sys_info),
         'area_mm2': area * 1e6,
-        'T_uniform': T_uniform,
-        'T_robust': T_robust,
-        'T_samples': sampled_T,
+        'T_uniform': uniform_temperature,
+        'T_sample_max': sample_max,
+        'T_samples': samples,
+        'sample_count_expected': K,
+        'sample_count_observed': len(samples),
         'uniform_feasible': uniform_feasible,
-        'robust_feasible': robust_feasible,
-        'flip_with_robust': uniform_feasible != robust_feasible,
+        'sampled_feasible': sampled_feasible,
+        'flip_under_sampled_stress': uniform_feasible != sampled_feasible,
+        'stress_semantics': 'POWER_CONSERVING_SYNTHETIC_NOT_A_CERTIFICATE',
+        'seed': seed,
+        'mode': mode,
+        'maximum_pattern_strength': max_strength,
     }
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--sim-path', default='/home/ynwang/jhn/DSE/ThermoDSE/tmp')
-    ap.add_argument('--hotspot-path', default='/home/ynwang/jhn/DSE/HotSpot')
-    ap.add_argument('--K', type=int, default=10, help='Number of spatial samples per design')
-    ap.add_argument('--mode', default='centered')
-    ap.add_argument('--output', default='/home/ynwang/jhn/DSE/CertiTherm/results/robust_dse_eval.json')
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser()
+    repository = Path(__file__).resolve().parents[2]
+    parser.add_argument(
+        '--thermodse-root',
+        default=os.environ.get('THERMODSE_ROOT', str(repository / 'ThermoDSE')),
+    )
+    parser.add_argument('--sim-path', default=None)
+    parser.add_argument('--hotspot-path', required=True)
+    parser.add_argument('--K', type=int, default=10)
+    parser.add_argument('--mode', default='centered')
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument(
+        '--output',
+        default=str(repository / 'CertiTherm' / 'results' / 'sampled_stress_eval.json'),
+    )
+    arguments = parser.parse_args()
+    thermodse_root = Path(arguments.thermodse_root).resolve()
+    sys.path.insert(0, str(thermodse_root))
+    sim_path = arguments.sim_path or str(thermodse_root / 'tmp')
+    run_sh = os.path.join(sim_path, 'run.sh')
 
-    run_sh = os.path.join(args.sim_path, 'run.sh')
-
-    # The 12 test designs from Phase 1
     test_designs = [
         [7, 3, 1, 1, 0.0014, 144, 128, 524288, 144, 128],
         [6, 2, 6, 2, 0.0005, 128, 256, 4194304, 128, 128],
@@ -180,51 +203,28 @@ def main():
         [2, 2, 1, 1, 0.0005, 64, 64, 524288, 64, 128],
         [3, 3, 3, 3, 0.001, 128, 128, 1048576, 128, 128],
     ]
-
-    print(f"Sample-based robust DSE evaluation: K={args.K} samples per design")
-    print(f"Mode: {args.mode}, T_budget: 348K, A_budget: 300 mm²")
-    print()
-
-    results = []
-    for i, sys_info in enumerate(test_designs):
-        print(f"[{i+1}/{len(test_designs)}] sys_info={sys_info[:4]}...")
-        r = sample_worst_case_T(
-            sys_info, args.sim_path, args.hotspot_path, run_sh,
-            K=args.K, mode=args.mode,
+    results = [
+        sample_worst_case_T(
+            design,
+            sim_path,
+            arguments.hotspot_path,
+            run_sh,
+            K=arguments.K,
+            mode=arguments.mode,
+            seed=arguments.seed,
         )
-        if r['T_robust'] is None:
-            print(f"  FAILED to get T")
-            continue
-        flip = r['flip_with_robust']
-        flip_str = "FLIP!" if flip else "no flip"
-        print(f"  T_uniform={r['T_uniform']:.1f}K, T_robust={r['T_robust']:.1f}K, "
-              f"area={r['area_mm2']:.0f}mm², uniform_feas={r['uniform_feasible']}, "
-              f"robust_feas={r['robust_feasible']}  [{flip_str}]")
-        results.append(r)
-
-    # Summary
-    print(f"\n=== ROBUST DSE SUMMARY (K={args.K}, mode={args.mode}) ===")
-    n_unif_feas = sum(1 for r in results if r['uniform_feasible'])
-    n_robust_feas = sum(1 for r in results if r['robust_feasible'])
-    n_flips = sum(1 for r in results if r['flip_with_robust'])
-    print(f"Uniform-feasible: {n_unif_feas}/{len(results)}")
-    print(f"Robust-feasible:  {n_robust_feas}/{len(results)}")
-    print(f"Flips:            {n_flips}/{len(results)}")
-    if results:
-        deltas = [r['T_robust'] - r['T_uniform'] for r in results]
-        print(f"\nT_robust - T_uniform stats:")
-        print(f"  Mean:  {np.mean(deltas):+.2f} K")
-        print(f"  Max:   {np.max(deltas):+.2f} K")
-        print(f"  Min:   {np.min(deltas):+.2f} K")
-
-    # Save
-    out_dir = os.path.dirname(args.output)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-    with open(args.output, 'w') as f:
-        json.dump(results, f, indent=2)
-    print(f"\nSaved to {args.output}")
+        for design in test_designs
+    ]
+    output = Path(arguments.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(results, indent=2, sort_keys=True, allow_nan=False) + '\n',
+        encoding='utf-8',
+    )
+    unresolved = sum(result['status'] == 'UNRESOLVED' for result in results)
+    print(json.dumps({'output': str(output), 'unresolved': unresolved}))
+    return 0 if unresolved == 0 else 2
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    raise SystemExit(main())
