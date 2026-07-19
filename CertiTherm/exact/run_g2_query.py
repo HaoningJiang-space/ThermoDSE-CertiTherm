@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover - direct CLI execution.
     )
 
 
-QUERY_SPEC_SCHEMA_VERSION = "certitherm.g2-query-spec.v1"
+QUERY_SPEC_SCHEMA_VERSION = "certitherm.g2-query-spec.v2"
 OBSERVATION_SCHEMA_VERSION = "certitherm.placed-power-observation.v1"
 
 _PHYSICAL_PROVENANCE_FIELDS = (
@@ -134,8 +134,19 @@ def load_query_bundle(spec_path: Path) -> tuple[str, float, list[dict[str, Any]]
         blocks = metadata.get("blocks")
         if not isinstance(blocks, list) or blocks != observation_record.get("block_names"):
             raise ValueError(f"candidate {index} thermal and observation block identities disagree")
-        if response.shape != (len(blocks), len(blocks)):
-            raise ValueError(f"candidate {index} response shape disagrees with block identities")
+        if response.ndim != 2 or response.shape[0] == 0 or response.shape[1] != len(blocks):
+            raise ValueError(
+                f"candidate {index} response columns disagree with block identities"
+            )
+        temperature_points = metadata.get("temperature_points")
+        if temperature_points is not None and (
+            not isinstance(temperature_points, list)
+            or len(temperature_points) != response.shape[0]
+            or len(temperature_points) != len(set(temperature_points))
+        ):
+            raise ValueError(
+                f"candidate {index} temperature-point identities disagree with response rows"
+            )
         if evidence_class == "physical_placed_power":
             _validate_physical_provenance(observation_record.get("provenance"))
 
@@ -150,6 +161,13 @@ def load_query_bundle(spec_path: Path) -> tuple[str, float, list[dict[str, Any]]
             "area_mm2": raw.get("area_mm2"),
             "A_budget_m2": raw.get("A_budget_m2", 3e-4),
             "sys_info": metadata.get("sys_info", []),
+            "numerical_temperature_error_k": raw.get(
+                "numerical_temperature_error_k",
+                metadata.get("numerical_temperature_error_k", 0.0),
+            ),
+            "decision_tolerance_k": raw.get(
+                "decision_tolerance_k", metadata.get("decision_tolerance_k", 0.0)
+            ),
             "provenance": observation_record.get("provenance", {}),
             "evidence_class": evidence_class,
         }
@@ -268,4 +286,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

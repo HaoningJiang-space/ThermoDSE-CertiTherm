@@ -17,6 +17,7 @@ try:
     from .linear_oracle import (
         UNRESOLVED,
         canonical_sha256,
+        decision_input_digest,
         normalize_problem,
         replay_power_witness,
     )
@@ -25,14 +26,15 @@ except ImportError:  # pragma: no cover - direct script/test-path execution.
     from linear_oracle import (
         UNRESOLVED,
         canonical_sha256,
+        decision_input_digest,
         normalize_problem,
         replay_power_witness,
     )
 
 
-QUERY_SCHEMA_VERSION = "certitherm.architecture-selection-query.v1"
-QUERY_RESULT_SCHEMA_VERSION = "certitherm.architecture-selection-result.v1"
-TUPLE_SCHEMA_VERSION = "certitherm.decision-witness-tuple.v1"
+QUERY_SCHEMA_VERSION = "certitherm.architecture-selection-query.v2"
+QUERY_RESULT_SCHEMA_VERSION = "certitherm.architecture-selection-result.v2"
+TUPLE_SCHEMA_VERSION = "certitherm.decision-witness-tuple.v2"
 
 CERTIFIED = "CERTIFIED"
 NON_IDENTIFIABLE = "NON_IDENTIFIABLE"
@@ -93,6 +95,24 @@ def _area_ok(candidate: Mapping[str, Any]) -> bool:
     return area_value * 1e-6 <= budget_value + 1e-12
 
 
+def _decision_uncertainty(candidate: Mapping[str, Any]) -> tuple[float, float]:
+    try:
+        numerical_error = float(candidate.get("numerical_temperature_error_k", 0.0))
+        decision_tolerance = float(candidate.get("decision_tolerance_k", 0.0))
+    except (TypeError, ValueError) as exc:
+        raise QueryInputError("candidate temperature-error fields must be numeric") from exc
+    if (
+        not np.isfinite(numerical_error)
+        or numerical_error < 0.0
+        or not np.isfinite(decision_tolerance)
+        or decision_tolerance < 0.0
+    ):
+        raise QueryInputError(
+            "candidate temperature-error fields must be finite and non-negative"
+        )
+    return numerical_error, decision_tolerance
+
+
 def _ordered_candidates(candidates: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     if not isinstance(candidates, Sequence) or isinstance(candidates, (str, bytes)) or not candidates:
         raise QueryInputError("query must contain at least one candidate")
@@ -124,7 +144,6 @@ def replay_architecture_tuple(
     *,
     thermal_limit_k: float,
     feasibility_tolerance: float = 1e-7,
-    decision_tolerance_k: float = 1e-6,
 ) -> dict[str, Any]:
     """Replay a complete cross-candidate tuple without invoking an optimizer."""
 
@@ -176,14 +195,35 @@ def replay_architecture_tuple(
                     "reason": f"candidate {candidate_id} power replay failed",
                     "candidate_replay": replay,
                 }
+            area_ok = _area_ok(candidate)
+            numerical_error, decision_tolerance = _decision_uncertainty(candidate)
+            expected_input_digest = decision_input_digest(
+                problem,
+                thermal_limit_k=limit,
+                nonthermal_feasible=area_ok,
+                numerical_temperature_error_k=numerical_error,
+                decision_tolerance_k=decision_tolerance,
+            )
             entry_digest = by_id[candidate_id].get("candidate_input_digest")
-            if entry_digest != problem.input_digest:
+            if entry_digest != expected_input_digest:
                 return {
                     "valid": False,
                     "reason": f"candidate {candidate_id} digest mismatch",
                 }
-            thermally_feasible = float(replay["peak_temperature_k"]) <= limit + decision_tolerance_k
-            feasible = bool(_area_ok(candidate) and thermally_feasible)
+            decision_margin = numerical_error + decision_tolerance
+            peak = float(replay["peak_temperature_k"])
+            thermally_feasible = peak + decision_margin <= limit
+            thermally_infeasible = peak - decision_margin > limit
+            feasible = bool(area_ok and thermally_feasible)
+            infeasible = bool((not area_ok) or thermally_infeasible)
+            if not feasible and not infeasible:
+                return {
+                    "valid": False,
+                    "reason": (
+                        f"candidate {candidate_id} witness lies inside the "
+                        "registered temperature-error band"
+                    ),
+                }
         except (QueryInputError, TypeError, ValueError) as exc:
             return {"valid": False, "reason": f"candidate {candidate_id}: {exc}"}
         candidate_replays.append(
@@ -191,7 +231,9 @@ def replay_architecture_tuple(
                 "candidate_id": candidate_id,
                 "peak_temperature_k": replay["peak_temperature_k"],
                 "thermally_feasible": thermally_feasible,
-                "nonthermal_feasible": _area_ok(candidate),
+                "thermally_infeasible": thermally_infeasible,
+                "decision_margin_k": decision_margin,
+                "nonthermal_feasible": area_ok,
                 "selected_feasible": feasible,
             }
         )
@@ -277,6 +319,10 @@ def decide_architecture_query(
             T_budget=limit,
             A_budget_m2=candidate.get("A_budget_m2", 3e-4),
             area_mm2=candidate.get("area_mm2"),
+            numerical_temperature_error_k=candidate.get(
+                "numerical_temperature_error_k", 0.0
+            ),
+            decision_tolerance_k=candidate.get("decision_tolerance_k", 0.0),
         )
         candidate_results.append(result)
         candidate_summaries.append(

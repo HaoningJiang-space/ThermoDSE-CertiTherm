@@ -36,8 +36,18 @@ def _observation(total: float, n: int, upper: float = 10.0, lower=None):
     }
 
 
-def _candidate(candidate_id, objective, rank, response, observation, *, area_mm2=1.0):
-    n = len(response)
+def _candidate(
+    candidate_id,
+    objective,
+    rank,
+    response,
+    observation,
+    *,
+    area_mm2=1.0,
+    numerical_temperature_error_k=0.0,
+    decision_tolerance_k=0.0,
+):
+    n = np.asarray(response).shape[1]
     return {
         "candidate_id": candidate_id,
         "nonthermal_objective": objective,
@@ -48,6 +58,8 @@ def _candidate(candidate_id, objective, rank, response, observation, *, area_mm2
         "block_names": [f"{candidate_id}_b{i}" for i in range(n)],
         "area_mm2": area_mm2,
         "A_budget_m2": 3e-4,
+        "numerical_temperature_error_k": numerical_temperature_error_k,
+        "decision_tolerance_k": decision_tolerance_k,
     }
 
 
@@ -137,6 +149,52 @@ def test_thermal_limit_equality_is_feasible():
     assert result["can_be_infeasible"] is False
 
 
+def test_rectangular_operator_supports_more_power_variables_than_thermal_points():
+    response = np.asarray([[1.0, 0.0, 0.0], [0.0, 1.0, 1.0]])
+    result = solve_candidate_bounds(
+        response,
+        [0.0, 0.0],
+        _observation(1.0, 3, upper=1.0),
+        ["p0", "p1", "p2"],
+        thermal_limit_k=0.75,
+    )
+    assert result["status"] == "NON_IDENTIFIABLE"
+    assert abs(result["lower_d"] - 0.5) < 1e-8
+    assert abs(result["upper_d"] - 1.0) < 1e-8
+    assert len(result["witness_lower"]) == 3
+
+
+def test_two_sided_temperature_error_band_fails_closed_near_limit():
+    unresolved = solve_candidate_bounds(
+        [[1.0]],
+        0.0,
+        _observation(1.0, 1, upper=1.0),
+        ["p0"],
+        thermal_limit_k=1.0,
+        numerical_temperature_error_k=0.1,
+    )
+    safe = solve_candidate_bounds(
+        [[1.0]],
+        0.0,
+        _observation(1.0, 1, upper=1.0),
+        ["p0"],
+        thermal_limit_k=1.11,
+        numerical_temperature_error_k=0.1,
+    )
+    infeasible = solve_candidate_bounds(
+        [[1.0]],
+        0.0,
+        _observation(1.0, 1, upper=1.0),
+        ["p0"],
+        thermal_limit_k=0.89,
+        numerical_temperature_error_k=0.1,
+    )
+    assert unresolved["status"] == "UNRESOLVED"
+    assert unresolved["reason"] == "UNRESOLVED_NUMERICAL_DECISION_BAND"
+    assert safe["status"] == "CERTIFIED_SAFE"
+    assert infeasible["status"] == "CERTIFIED_INFEASIBLE"
+
+
 def test_replay_disagreement_fails_closed():
     with mock.patch.object(
         linear_oracle,
@@ -196,6 +254,36 @@ def test_query_can_reach_no_feasible_design():
     )
     assert result["status"] == NON_IDENTIFIABLE
     assert result["reachable_outcomes"] == ["B", NO_FEASIBLE_DESIGN]
+
+
+def test_query_and_tuple_replay_apply_candidate_error_margins():
+    always_hot = _candidate(
+        "A",
+        1.0,
+        0,
+        [[1.0]],
+        _observation(1.0, 1, upper=1.0),
+        numerical_temperature_error_k=0.1,
+    )
+    ambiguous = _candidate(
+        "B",
+        2.0,
+        1,
+        np.eye(2),
+        _observation(1.0, 2, upper=1.0),
+        numerical_temperature_error_k=0.1,
+    )
+    result = decide_architecture_query(
+        "error-aware-b-or-none", [always_hot, ambiguous], thermal_limit_k=0.75
+    )
+    assert result["status"] == NON_IDENTIFIABLE
+    assert result["reachable_outcomes"] == ["B", NO_FEASIBLE_DESIGN]
+    assert all(item["valid"] for item in result["tuple_replays"])
+    assert all(
+        replay["decision_margin_k"] == 0.1
+        for item in result["tuple_replays"]
+        for replay in item["candidate_replays"]
+    )
 
 
 def test_forged_or_stale_tuple_digest_is_rejected():
@@ -289,7 +377,7 @@ def _write_bundle(tmp_path: Path, *, evidence_class="synthetic_fixture", provena
         json.dumps(observation_record), encoding="utf-8"
     )
     spec = {
-        "schema_version": "certitherm.g2-query-spec.v1",
+        "schema_version": "certitherm.g2-query-spec.v2",
         "query_id": "bundle-smoke",
         "thermal_limit_k": 0.75,
         "evidence_class": evidence_class,

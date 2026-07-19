@@ -22,7 +22,7 @@ import scipy
 from scipy.optimize import linprog
 
 
-ORACLE_SCHEMA_VERSION = "certitherm.linear-candidate-oracle.v1"
+ORACLE_SCHEMA_VERSION = "certitherm.linear-candidate-oracle.v2"
 
 CERTIFIED_SAFE = "CERTIFIED_SAFE"
 CERTIFIED_INFEASIBLE = "CERTIFIED_INFEASIBLE"
@@ -95,6 +95,10 @@ class NormalizedProblem:
     def dimension(self) -> int:
         return len(self.block_names)
 
+    @property
+    def thermal_points(self) -> int:
+        return self.response_k_per_w.shape[0]
+
 
 def normalize_problem(
     response_k_per_w: Any,
@@ -107,15 +111,17 @@ def normalize_problem(
     """Validate and canonicalize one compact candidate problem."""
 
     response = np.asarray(response_k_per_w, dtype=np.float64)
-    if response.ndim != 2 or response.shape[0] == 0 or response.shape[0] != response.shape[1]:
-        raise OracleInputError("thermal response must be a non-empty square matrix")
+    if response.ndim != 2 or response.shape[0] == 0 or response.shape[1] == 0:
+        raise OracleInputError("thermal response must be a non-empty 2-D matrix")
     if not np.all(np.isfinite(response)):
         raise OracleInputError("thermal response contains a non-finite value")
-    n = response.shape[0]
+    thermal_points, n = response.shape
 
     names = tuple(block_names)
     if len(names) != n or any(not isinstance(name, str) or not name.strip() for name in names):
-        raise OracleInputError("block identities must be non-empty text and match the response")
+        raise OracleInputError(
+            "block identities must be non-empty text and match the response columns"
+        )
     if len(names) != len(set(names)):
         raise OracleInputError("block identities must be unique")
 
@@ -130,9 +136,9 @@ def normalize_problem(
 
     ambient_array = np.asarray(ambient_k, dtype=np.float64)
     if ambient_array.ndim == 0:
-        ambient = np.full(n, float(ambient_array), dtype=np.float64)
+        ambient = np.full(thermal_points, float(ambient_array), dtype=np.float64)
     else:
-        ambient = _finite_vector(ambient_array, n, "ambient_k")
+        ambient = _finite_vector(ambient_array, thermal_points, "ambient_k")
     if not np.all(np.isfinite(ambient)) or np.any(ambient < 0.0):
         raise OracleInputError("ambient temperature must be finite and non-negative")
 
@@ -238,6 +244,30 @@ def replay_power_witness(
     }
 
 
+def decision_input_digest(
+    problem: NormalizedProblem,
+    *,
+    thermal_limit_k: float,
+    nonthermal_feasible: bool,
+    numerical_temperature_error_k: float,
+    decision_tolerance_k: float,
+) -> str:
+    """Bind the normalized LP and every value that can change its decision."""
+
+    return canonical_sha256(
+        {
+            "schema_version": ORACLE_SCHEMA_VERSION,
+            "problem_input_digest": problem.input_digest,
+            "thermal_limit_k": float(thermal_limit_k),
+            "nonthermal_feasible": bool(nonthermal_feasible),
+            "numerical_temperature_error_k": float(
+                numerical_temperature_error_k
+            ),
+            "decision_tolerance_k": float(decision_tolerance_k),
+        }
+    )
+
+
 def _unresolved(reason: str, detail: str, *, input_digest: str | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {
         "schema_version": ORACLE_SCHEMA_VERSION,
@@ -258,10 +288,11 @@ def solve_candidate_bounds(
     *,
     thermal_limit_k: float,
     nonthermal_feasible: bool = True,
+    numerical_temperature_error_k: float = 0.0,
     validation_tolerance: float = 1e-10,
     feasibility_tolerance: float = 1e-7,
     replay_tolerance_k: float = 1e-6,
-    decision_tolerance_k: float = 1e-6,
+    decision_tolerance_k: float = 0.0,
 ) -> dict[str, Any]:
     """Solve and replay exact lower/upper peaks for one candidate.
 
@@ -277,10 +308,15 @@ def solve_candidate_bounds(
         for name, value in (
             ("feasibility_tolerance", feasibility_tolerance),
             ("replay_tolerance_k", replay_tolerance_k),
-            ("decision_tolerance_k", decision_tolerance_k),
         ):
             if not np.isfinite(value) or value <= 0:
                 raise OracleInputError(f"{name} must be positive and finite")
+        for name, value in (
+            ("numerical_temperature_error_k", numerical_temperature_error_k),
+            ("decision_tolerance_k", decision_tolerance_k),
+        ):
+            if not np.isfinite(value) or value < 0:
+                raise OracleInputError(f"{name} must be finite and non-negative")
         if not isinstance(nonthermal_feasible, (bool, np.bool_)):
             raise OracleInputError("nonthermal_feasible must be boolean")
         problem = normalize_problem(
@@ -294,6 +330,7 @@ def solve_candidate_bounds(
         return _unresolved("UNRESOLVED_INVALID_INPUT", str(exc))
 
     n = problem.dimension
+    thermal_points = problem.thermal_points
     bounds = list(zip(problem.lower_w.tolist(), problem.upper_w.tolist()))
 
     # Explicitly distinguish an empty admissible set from an optimizer failure.
@@ -317,7 +354,9 @@ def solve_candidate_bounds(
     epigraph_a_ub = np.vstack(
         [
             np.column_stack([problem.a_ub, np.zeros(problem.a_ub.shape[0])]),
-            np.column_stack([problem.response_k_per_w, -np.ones(n)]),
+            np.column_stack(
+                [problem.response_k_per_w, -np.ones(thermal_points)]
+            ),
         ]
     )
     epigraph_b_ub = np.concatenate([problem.b_ub, -problem.ambient_k])
@@ -348,7 +387,7 @@ def solve_candidate_bounds(
     # upper = max_r max_p ambient[r] + R[r,:] p.
     upper_values: list[float] = []
     upper_witnesses: list[np.ndarray] = []
-    for row_index in range(n):
+    for row_index in range(thermal_points):
         try:
             upper_solution = linprog(
                 -problem.response_k_per_w[row_index],
@@ -404,24 +443,42 @@ def solve_candidate_bounds(
             input_digest=problem.input_digest,
         )
 
-    can_be_feasible = bool(nonthermal_feasible and lower_k <= limit + decision_tolerance_k)
-    can_be_infeasible = bool((not nonthermal_feasible) or upper_k > limit + decision_tolerance_k)
+    decision_margin_k = float(numerical_temperature_error_k + decision_tolerance_k)
+    can_be_feasible = bool(
+        nonthermal_feasible and lower_k + decision_margin_k <= limit
+    )
+    can_be_infeasible = bool(
+        (not nonthermal_feasible) or upper_k - decision_margin_k > limit
+    )
     if not nonthermal_feasible:
         status = CERTIFIED_INFEASIBLE
-    elif upper_k <= limit + decision_tolerance_k:
+    elif upper_k + decision_margin_k <= limit:
         status = CERTIFIED_SAFE
-    elif lower_k > limit + decision_tolerance_k:
+    elif lower_k - decision_margin_k > limit:
         status = CERTIFIED_INFEASIBLE
-    else:
+    elif can_be_feasible and can_be_infeasible:
         status = NON_IDENTIFIABLE
+    else:
+        status = UNRESOLVED
 
-    return {
+    input_digest = decision_input_digest(
+        problem,
+        thermal_limit_k=limit,
+        nonthermal_feasible=bool(nonthermal_feasible),
+        numerical_temperature_error_k=numerical_temperature_error_k,
+        decision_tolerance_k=decision_tolerance_k,
+    )
+
+    result = {
         "schema_version": ORACLE_SCHEMA_VERSION,
         "status": status,
-        "input_digest": problem.input_digest,
+        "input_digest": input_digest,
+        "problem_input_digest": problem.input_digest,
         "lower_d": lower_k,
         "upper_d": upper_k,
         "thermal_limit_k": limit,
+        "numerical_temperature_error_k": float(numerical_temperature_error_k),
+        "decision_margin_k": decision_margin_k,
         "nonthermal_feasible": bool(nonthermal_feasible),
         "can_be_feasible": can_be_feasible,
         "can_be_infeasible": can_be_infeasible,
@@ -450,4 +507,14 @@ def solve_candidate_bounds(
             "numpy_version": np.__version__,
         },
     }
-
+    if status == UNRESOLVED:
+        result.update(
+            {
+                "reason": "UNRESOLVED_NUMERICAL_DECISION_BAND",
+                "detail": (
+                    "thermal limit intersects the registered two-sided "
+                    "temperature-error band"
+                ),
+            }
+        )
+    return result

@@ -18,8 +18,8 @@ except ImportError:  # pragma: no cover - direct CLI execution.
     from linear_oracle import canonical_sha256
 
 
-ARTIFACT_SCHEMA_VERSION = "certitherm.g2-replay-artifact.v1"
-REPLAY_SCHEMA_VERSION = "certitherm.g2-replay-receipt.v1"
+ARTIFACT_SCHEMA_VERSION = "certitherm.g2-replay-artifact.v2"
+REPLAY_SCHEMA_VERSION = "certitherm.g2-replay-receipt.v2"
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -239,4 +239,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

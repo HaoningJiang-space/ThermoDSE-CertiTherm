@@ -10,14 +10,14 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 try:  # Script execution and test-path execution are both supported.
-    from .linear_oracle import UNRESOLVED, solve_candidate_bounds
+    from .linear_oracle import ORACLE_SCHEMA_VERSION, UNRESOLVED, solve_candidate_bounds
 except ImportError:  # pragma: no cover - exercised by direct CLI execution.
-    from linear_oracle import UNRESOLVED, solve_candidate_bounds
+    from linear_oracle import ORACLE_SCHEMA_VERSION, UNRESOLVED, solve_candidate_bounds
 
 
 def _invalid_area(detail: str) -> dict[str, Any]:
     return {
-        "schema_version": "certitherm.linear-candidate-oracle.v1",
+        "schema_version": ORACLE_SCHEMA_VERSION,
         "status": UNRESOLVED,
         "reason": "UNRESOLVED_INVALID_INPUT",
         "detail": detail,
@@ -33,6 +33,8 @@ def decide(
     T_budget: float = 348.0,
     A_budget_m2: float = 3e-4,
     area_mm2: float | None = None,
+    numerical_temperature_error_k: float = 0.0,
+    decision_tolerance_k: float = 0.0,
 ) -> dict[str, Any]:
     """Return candidate thermal bounds with compatibility field names.
 
@@ -63,6 +65,8 @@ def decide(
         block_names,
         thermal_limit_k=T_budget,
         nonthermal_feasible=area_ok,
+        numerical_temperature_error_k=numerical_temperature_error_k,
+        decision_tolerance_k=decision_tolerance_k,
     )
     result["A_budget_mm2"] = area_budget * 1e6
     result["area_mm2"] = area_value
