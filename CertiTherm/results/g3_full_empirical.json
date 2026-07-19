@@ -1,4 +1,9 @@
-[
+{
+  "schema_version": "certitherm.invalidated-result.v1",
+  "status": "LEGACY_INVALIDATED_FOR_CLAIMS",
+  "source_commit": "b7b08eeb518589ac03d3a92f38fe2b72cbf96d86",
+  "reason": "Aggregate workload relabeling, package-operator aliasing, nested uncertainty-set comparison, and candidate-level rather than architecture-query semantics.",
+  "records": [
   {
     "arch": "4x4_paper",
     "dnn_family": "cnn_resnet50",
@@ -207,4 +212,5 @@
     "uniform_runtime_s": 0.29091739654541016,
     "spatial_runtime_s": 0.33939671516418457
   }
-]
+  ]
+}

@@ -119,3 +119,17 @@ package regimes, the same aggregate observation must admit both:
 If neither occurs under realistic observation sets, narrow or kill the paper.
 Temperature deltas from unconstrained synthetic multipliers are no longer a
 success criterion.
+
+## G3 repair boundary (2026-07-20)
+
+The later eight-row G3 pilot is also excluded from claims. It reused one
+aggregate ptrace under two DNN labels, reused architecture-only thermal
+operators under two package labels, and compared `1.5x` and `5x` nested
+component-bound sets. Candidate safety becoming ambiguous under a larger set
+is not an architecture-selection flip and is not an error rate.
+
+The replacement G3 object is four workload-family × package queries, each over
+the same architecture candidate pool. Every candidate binds separate point,
+placed-reference, and spatial-domain evidence. All three variants execute the
+same cross-candidate selection semantics. Until those content-bound physical
+bundles exist and replay, G3 remains open and all breadth cells are `TBD`.

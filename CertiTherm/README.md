@@ -1,12 +1,17 @@
 # CertiTherm: Spatial Power Identifiability for Chiplet DSE
 
-> **Evidence status (2026-07-19): RESET AFTER INTEGRITY AUDIT.** The committed
+> **Evidence status (2026-07-20): G2 NARROWLY CORRECTED; G3 REMAINS OPEN.** The committed
 > Gaussian/corner/checker and finite-sample results are retained as legacy
 > debugging artifacts, but are not valid paper evidence. Their generator used
 > the wrong ThermoDSE ptrace column order, did not conserve obtainable
 > component-total power, could reuse stale cross-design state, and contained a
-> fail-open thermal constraint. See `audit/INTEGRITY_AUDIT_20260719.md` and
-> `results/README.md`. No physical or paper-level CertiTherm claim has passed.
+> fail-open thermal constraint. The later `5/8` G3 pilot is also withdrawn
+> because it relabeled aggregate workload data, reused package operators, and
+> compared nested uncertainty sets rather than architecture queries. The
+> corrected G2 query supports only its registered narrow certificate/witness;
+> no breadth or paper-level G3 claim has passed. See
+> `audit/INTEGRITY_AUDIT_20260719.md`, `results/G2_CORRECTION_REPORT.md`, and
+> `results/G3_FULL_REPORT.md`.
 
 ## Core thesis (independent of ThermoDSE 2026)
 
@@ -63,11 +68,11 @@ information is needed and *where*?
 | Step | Action | Status |
 |---|---|---|
 | 1 | Set up content-bound audit harness | RESET; legacy harness is not claim-grade |
-| 2 | Bind obtainable aggregate-power observations | OPEN-G2 |
+| 2 | Bind obtainable aggregate-power observations | NARROW G2 REGISTERED QUERY CLOSED |
 | 3 | Build power-conserving synthetic stress pilot | CODE-FIXED; results not rerun |
 | 4 | Run decision-flip audit | LEGACY RESULTS INVALIDATED; physical rerun required |
-| 5 | Exact identifiability classifier + replayable certificates | G1 synthetic oracle validated in sibling project; migration pending |
-| 6 | EDA-specific information acquisition | BLOCKED until G2 physical certificate and witness exist |
+| 5 | Exact identifiability classifier + replayable certificates | CORRECTED G2 PATH MIGRATED; G3 BREADTH OPEN |
+| 6 | EDA-specific information acquisition | DEFERRED; G3 breadth and fair baselines come first |
 
 ## Related work (avoid overlap)
 
