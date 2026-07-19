@@ -1,6 +1,6 @@
 # G4 optional acquisition extension: current status
 
-Status: **implementation repair in progress; no claim-grade G4 result**  
+Status: **implementation authored but unexecuted; no claim-grade G4 result**
 Date: 2026-07-20
 
 The previously pushed G4 pilot at commit
@@ -21,7 +21,9 @@ This establishes witness-pair confirmation for a registered action.  It does
 not establish global policy optimality or resolution for every possible
 measurement value.
 
-No numerical G4 result is currently permitted in the paper.  Promotion
+The cross-query implementation and adversarial tests now exist on
+`round/g4-cross-query-acquisition`, but they were deliberately not executed in
+this repair turn. No numerical G4 result is currently permitted in the paper. Promotion
 requires a clean-tree run on a registered, non-identifiable G3 spatial query,
 an external artifact, a passing fresh replay receipt, full-dimensional physical
 inputs, and an executed test record.
