@@ -1,5 +1,5 @@
 """
-CertiTherm G3: EDA-specific measurement selection.
+Experimental post-G2 measurement-selection prototype (not a passed gate).
 
 For a NON_IDENTIFIABLE design (lower_d ≤ T_budget < upper_d), the algorithm
 selects the cheapest measurement m(p) that, when added to the observation
@@ -19,18 +19,16 @@ Cost model: 1 cost unit = 1 sensor / 1 measurement channel.
 Algorithm:
 1. For a given NON_IDENTIFIABLE design, evaluate each candidate measurement
 2. For each: compute P_d' (post-measurement admissible set) and re-evaluate
-3. Select the cheapest that achieves lower_d' > T_budget or upper_d' ≤ T_budget
+3. Report whether either registered witness value resolves the current pair.
+
+This is not a proof that every possible measurement outcome resolves the
+query, nor a minimum-information theorem. It is retained as a G4 prototype and
+must not be used until the physical cross-candidate G2 gate passes.
 """
-import os
-import sys
 import json
 import argparse
+import os
 import numpy as np
-from scipy.optimize import linprog
-
-sys.path.insert(0, '/home/ynwang/jhn/DSE')
-sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
-sys.path.insert(0, '/home/ynwang/jhn/DSE/CertiTherm/exact')
 
 from decide import decide, decide_simple
 
@@ -251,68 +249,55 @@ def decide_with_extra_measurement(R, T_ambient, blocks, observation, T_budget,
     Like decide() but with an extra linear equality constraint w^T p = m*.
     This restricts the admissible set P_d further.
     """
-    n = R.shape[0]
-    A_eq = np.ones((1, n))
-    b_eq = np.array([float(sum(observation['per_block_power']))])
+    n = np.asarray(R).shape[0]
+    restricted = dict(observation)
+    measurement = restricted.pop('measurement_w_p', None)
 
-    if 'measurement_w_p' in observation:
-        w_extra, m_star = observation['measurement_w_p']
-        w_extra = np.array(w_extra, dtype=float)
-        A_eq = np.vstack([A_eq, w_extra.reshape(1, -1)])
-        b_eq = np.concatenate([b_eq, [float(m_star)]])
-
-    l_d = np.array(observation.get('per_block_lower', [0.0] * n))
-    if 'per_block_upper' in observation:
-        u_d = np.array(observation['per_block_upper'])
+    if 'A_eq' in restricted or 'b_eq' in restricted:
+        if 'A_eq' not in restricted or 'b_eq' not in restricted:
+            return {
+                'status': 'UNRESOLVED',
+                'reason': 'UNRESOLVED_INVALID_INPUT',
+                'detail': 'A_eq and b_eq must be supplied together',
+            }
+        A_eq = np.asarray(restricted['A_eq'], dtype=float)
+        b_eq = np.asarray(restricted['b_eq'], dtype=float)
+    elif 'per_block_power' in restricted:
+        powers = np.asarray(restricted['per_block_power'], dtype=float)
+        A_eq = np.ones((1, n), dtype=float)
+        b_eq = np.array([float(np.sum(powers))], dtype=float)
     else:
-        u_d = np.full(n, 5.0)
+        return {
+            'status': 'UNRESOLVED',
+            'reason': 'UNRESOLVED_INVALID_INPUT',
+            'detail': 'an obtainable equality observation is required',
+        }
 
-    # Compute lower_d
-    lower_d_per_block = []
-    for r_idx in range(n):
-        c = R[r_idx, :]
+    if measurement is not None:
         try:
-            res = linprog(c, A_eq=A_eq, b_eq=b_eq,
-                          bounds=list(zip(l_d, u_d)),
-                          method='highs')
-            if not res.success:
-                return {'status': 'UNRESOLVED', 'reason': f'LP_lower_r{r_idx}: {res.message}'}
-            lower_d_per_block.append(T_ambient + res.fun)
-        except Exception as e:
-            return {'status': 'UNRESOLVED', 'reason': str(e)}
-    lower_d = max(lower_d_per_block)
+            w_extra, measured_power = measurement
+            w_extra = np.asarray(w_extra, dtype=float).reshape(1, -1)
+            A_eq = np.vstack([A_eq, w_extra])
+            b_eq = np.concatenate([b_eq, [float(measured_power)]])
+        except (TypeError, ValueError) as exc:
+            return {
+                'status': 'UNRESOLVED',
+                'reason': 'UNRESOLVED_INVALID_INPUT',
+                'detail': str(exc),
+            }
 
-    # Compute upper_d
-    upper_d_per_block = []
-    for r_idx in range(n):
-        c = -R[r_idx, :]
-        try:
-            res = linprog(c, A_eq=A_eq, b_eq=b_eq,
-                          bounds=list(zip(l_d, u_d)),
-                          method='highs')
-            if not res.success:
-                return {'status': 'UNRESOLVED', 'reason': f'LP_upper_r{r_idx}: {res.message}'}
-            upper_d_per_block.append(T_ambient - res.fun)
-        except Exception as e:
-            return {'status': 'UNRESOLVED', 'reason': str(e)}
-    upper_d = max(upper_d_per_block)
-
-    # Status
-    area_ok = (area_mm2 is None) or (area_mm2 * 1e-6 <= A_budget_m2)
-    if not area_ok:
-        status = 'CERTIFIED_INFEASIBLE'
-    elif upper_d <= T_budget:
-        status = 'CERTIFIED_SAFE'
-    elif lower_d > T_budget:
-        status = 'CERTIFIED_INFEASIBLE'
-    else:
-        status = 'NON_IDENTIFIABLE'
-
-    return {
-        'status': status,
-        'lower_d': float(lower_d),
-        'upper_d': float(upper_d),
-    }
+    restricted['A_eq'] = A_eq
+    restricted['b_eq'] = b_eq
+    return decide(
+        sys_info=[1, 1],
+        R=R,
+        T_ambient=T_ambient,
+        observation=restricted,
+        block_names=blocks,
+        T_budget=T_budget,
+        A_budget_m2=A_budget_m2,
+        area_mm2=area_mm2,
+    )
 
 
 def main():

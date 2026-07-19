@@ -1,13 +1,8 @@
-"""
-CertiTherm decisive experiment: prove that decision-flipping witnesses
-exist for content-bound placed-power cases.
+"""Legacy synthetic content-factor pilot.
 
-This is the G2 (gating) experiment from RESEARCH_CONTRACT.md.
-If decision-flipping witnesses exist for at least:
-  - 2 DNN families (e.g., ResNet, Transformer)
-  - 2 non-isomorphic architecture families (e.g., 2x2 vs 4x4 cores)
-  - 2 package regimes (e.g., content factor 1.5x vs 3.0x)
-then CertiTherm direction is validated.
+This script does not implement the frozen cross-candidate G2 query and can
+never pass G2.  Claim-grade runs must use ``run_g2_query.py`` with a registered
+placed-power bundle.  The pilot remains useful for debugging candidate bounds.
 """
 import os
 import sys
@@ -22,6 +17,7 @@ sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
 sys.path.insert(0, '/home/ynwang/jhn/DSE/CertiTherm/exact')
 
 from decide import decide
+from linear_oracle import canonical_sha256
 from R_matrix import compute_full_R_matrix, parse_steady_peak
 
 
@@ -132,8 +128,8 @@ def main():
     run_sh = os.path.join(args.sim_path, 'run.sh')
 
     print("=" * 80)
-    print("  CertiTherm DECISIVE EXPERIMENT")
-    print("  G2 gate: prove decision-flipping witnesses exist for content-bound cases")
+    print("  CertiTherm SYNTHETIC CONTENT-FACTOR PILOT")
+    print("  This run cannot pass the physical cross-candidate G2 gate")
     print("=" * 80)
 
     all_results = []
@@ -144,7 +140,13 @@ def main():
                 design['sys_info'], args.sim_path, args.hotspot_path, run_sh, args.R_dir
             )
             if R is None:
-                print(f"  R matrix computation FAILED, skipping")
+                print(f"  R matrix computation FAILED")
+                all_results.append({
+                    'status': 'UNRESOLVED',
+                    'reason': 'R_matrix_computation_failed',
+                    'design': design['name'],
+                    'evidence_class': 'synthetic_fixture',
+                })
                 continue
 
             for cf in args.content_factors:
@@ -172,9 +174,8 @@ def main():
                 if p_infeas is not None:
                     T_at_p_infeas = meta['T_ambient'] + R @ np.array(p_infeas)
                     T_peak_at_p_infeas = float(np.max(T_at_p_infeas))
-                # Truncate witness arrays for storage
-                res_clean = {k: v for k, v in res.items()
-                            if k not in ('witness_safe', 'witness_infeas')}
+                # Keep complete observations and witnesses in raw pilot output.
+                res_clean = dict(res)
                 res_clean['witness_safe_T'] = res.get('witness_safe_T')
                 res_clean['witness_infeas_T'] = res.get('witness_infeas_T')
                 res_clean['design'] = design['name']
@@ -182,19 +183,26 @@ def main():
                 res_clean['dnn_family'] = design['dnn_family']
                 res_clean['arch_family'] = design['arch_family']
                 res_clean['sys_info'] = design['sys_info']
-                # Add hashes and provenance for replay
+                # Stable content digests; Python's process-random hash() is forbidden.
                 res_clean['provenance'] = {
-                    'R_hash': hash(R.tobytes()),
+                    'R_sha256': canonical_sha256({
+                        'shape': list(R.shape),
+                        'dtype': str(R.dtype),
+                        'values': R,
+                    }),
                     'R_shape': list(R.shape),
                     'T_ambient': float(meta['T_ambient']),
+                    'observation_sha256': canonical_sha256(obs),
                     'observation_sum': float(sum(values)),
                     'observation_len': len(values),
                     'T_budget': float(args.T_budget),
                     'n_chips_per_side': 4,
                 }
+                res_clean['observation'] = obs
                 res_clean['witness_safe_T_computed'] = T_peak_at_p_safe if p_safe is not None else None
                 res_clean['witness_infeas_T_computed'] = T_peak_at_p_infeas if p_infeas is not None else None
-                res_clean['manifest_version'] = '2.0-minmax-LP'
+                res_clean['record_schema_version'] = 'certitherm.synthetic-candidate-pilot.v1'
+                res_clean['evidence_class'] = 'synthetic_fixture'
                 all_results.append(res_clean)
 
                 status = res['status']
@@ -207,6 +215,13 @@ def main():
             print(f"  FAILED: {e}")
             import traceback
             traceback.print_exc()
+            all_results.append({
+                'status': 'UNRESOLVED',
+                'reason': 'pilot_exception',
+                'detail': str(e),
+                'design': design['name'],
+                'evidence_class': 'synthetic_fixture',
+            })
 
     # Save results
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
@@ -222,9 +237,9 @@ def main():
     n_non_id = sum(1 for r in all_results if r.get('status') == 'NON_IDENTIFIABLE')
     n_cert_safe = sum(1 for r in all_results if r.get('status') == 'CERTIFIED_SAFE')
     n_unresolved = sum(1 for r in all_results if r.get('status') == 'UNRESOLVED')
-    n_arch = len(set(r['arch_family'] for r in all_results))
-    n_dnn = len(set(r['dnn_family'] for r in all_results))
-    n_cf = len(set(r['content_factor'] for r in all_results))
+    n_arch = len({r['arch_family'] for r in all_results if 'arch_family' in r})
+    n_dnn = len({r['dnn_family'] for r in all_results if 'dnn_family' in r})
+    n_cf = len({r['content_factor'] for r in all_results if 'content_factor' in r})
 
     print(f"  Total runs: {n_total}")
     print(f"  NON_IDENTIFIABLE: {n_non_id} (decision-flip witnesses found)")
@@ -234,12 +249,8 @@ def main():
     print(f"  DNN families covered:  {n_dnn}")
     print(f"  Content factors:      {n_cf}")
 
-    if n_non_id >= 1 and n_arch >= 2 and n_cf >= 2:
-        print(f"\n  G2 GATE: PASSED")
-        print(f"  Decision-flipping witnesses exist for ≥1 DNN, ≥2 arch families, ≥2 package regimes")
-    else:
-        print(f"\n  G2 GATE: not yet met")
-        print(f"  Need: ≥1 NON_IDENTIFIABLE + ≥2 arch families + ≥2 content factors")
+    print(f"\n  G2 GATE: NOT EVALUATED BY THIS SYNTHETIC PILOT")
+    print("  Use run_g2_query.py with real placed-power observations and multiple candidates")
 
 
 if __name__ == "__main__":
