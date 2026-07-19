@@ -156,6 +156,8 @@ def select_cheapest_resolving_measurement(
             'cheapest_measurement': None,
             'cost': 0,
             'new_status': current['status'],
+            'current_lower': current.get('lower_d'),
+            'current_upper': current.get('upper_d'),
         }
 
     # 2. Enumerate candidate measurements

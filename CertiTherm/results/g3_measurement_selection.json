@@ -1,0 +1,42 @@
+{
+  "current_status": "NON_IDENTIFIABLE",
+  "no_measurement_needed": false,
+  "current_lower": 325.9858370430585,
+  "current_upper": 350.7002039999989,
+  "cheapest_measurement": {
+    "k": 1,
+    "cost": 1,
+    "blocks": [
+      "ubuf_2"
+    ],
+    "r1": {
+      "status": "CERTIFIED_SAFE",
+      "lower_d": 324.77999503852215,
+      "upper_d": 337.195856260765
+    },
+    "r2": {
+      "status": "CERTIFIED_INFEASIBLE",
+      "lower_d": 348.74429199999895,
+      "upper_d": 350.7002039999989
+    }
+  },
+  "all_resolving": [
+    {
+      "k": 1,
+      "cost": 1,
+      "blocks": [
+        "ubuf_2"
+      ],
+      "r1": {
+        "status": "CERTIFIED_SAFE",
+        "lower_d": 324.77999503852215,
+        "upper_d": 337.195856260765
+      },
+      "r2": {
+        "status": "CERTIFIED_INFEASIBLE",
+        "lower_d": 348.74429199999895,
+        "upper_d": 350.7002039999989
+      }
+    }
+  ]
+}
