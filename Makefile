@@ -7,7 +7,8 @@ HOTSPOT_BIN := $(HOTSPOT_BUILD)/hotspot
 bootstrap:
 	git submodule sync --recursive
 	git submodule update --init --recursive
-	python3 -m venv .venv
+	python3 -m pip install --user virtualenv==20.26.6
+	python3 -m virtualenv --python=python3 .venv
 	$(PYTHON) -m pip install --upgrade pip
 	$(PYTHON) -m pip install -r requirements.lock
 	mkdir -p $(HOTSPOT_BUILD)
