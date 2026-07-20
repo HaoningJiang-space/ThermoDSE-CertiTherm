@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from CertiTherm.experiments import _ordered_architectures
-from CertiTherm.measurements import build_measurement_library, coarse_power_space
+from CertiTherm.experiments import _bounded_power, _ordered_architectures
+from CertiTherm.measurements import (
+    build_measurement_library,
+    coarse_power_space,
+    content_upper_bounds,
+)
 
 
 def _capture(path, latency: float, energy: float, die_yield: float) -> None:
@@ -74,3 +78,16 @@ def test_coarse_observation_reveals_only_total_power() -> None:
     np.testing.assert_array_equal(polytope.a_eq, np.ones((1, 3)))
     np.testing.assert_array_equal(polytope.b_eq, np.array([6.0]))
     np.testing.assert_array_equal(polytope.upper_w, np.full(3, 6.0))
+
+
+def test_content_bounds_and_calibration_vectors_preserve_registered_domain() -> None:
+    blocks = ("alu_0", "alu_1", "sram_0", "sram_1")
+    placed = np.array([1.0, 2.0, 0.5, 1.5])
+    upper = content_upper_bounds(blocks, placed)
+    np.testing.assert_array_equal(upper, np.array([3.0, 3.0, 2.0, 2.0]))
+    power = _bounded_power(
+        float(np.sum(placed)), upper, np.array([0.2, 1.0, 3.0, 0.4])
+    )
+    assert np.isclose(np.sum(power), np.sum(placed))
+    assert np.all(power >= 0)
+    assert np.all(power <= upper)

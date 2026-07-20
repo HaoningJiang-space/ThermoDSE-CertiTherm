@@ -1,5 +1,10 @@
 # G3 Real 2x2x2 Consolidated Report
 
+> **Historical result — not active evidence.** The 3D-ICE equivalence claim is
+> withdrawn because the adapter used an uncalibrated `POWER_SCALE=16`. Use Git
+> tag `legacy-g1-g4-archived` for the historical code; do not cite this report
+> as current evidence.
+
 Date: 2026-07-20  
 Repository: `HaoningJiang-space/ThermoDSE-CertiTherm`
 
@@ -169,9 +174,3 @@ See: `CertiTherm/evidence/g3_2x2x2_real_archive/manifest.json`
 - `G3-C baseline/system cost`: **PASS**（2026-07-20，四基线对比 + 成本表，replay PASS）
 - `G3 full`: **PASS**（A+B+C 全部通过；claim boundary 见 G3_BASELINE_REPORT.md）
 - `G4 acquisition`: **PASS**（2026-07-20，matched 3-policy comparison 58/77 vs 360 channels @ 2/2 matched correctness，replay PASS；单动作注册检查为穷尽性阴性，见 G4_REPORT.md）
-# Historical result — not active evidence
-
-> This pre-DSOS report is retained for auditability. Its 3D-ICE equivalence
-> claim is withdrawn because the adapter used an uncalibrated
-> `POWER_SCALE=16`. Use Git tag `legacy-g1-g4-archived` to reproduce the
-> historical code; do not cite this report as current evidence.

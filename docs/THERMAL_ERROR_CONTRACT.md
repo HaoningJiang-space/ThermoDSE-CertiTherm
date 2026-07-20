@@ -12,10 +12,11 @@ impulse superposition \(T_0+Rp\):
 \]
 
 The development gate uses both ResNet-50 and Transformer placed-power
-vectors. For each it also registers a uniform vector and three deterministic
-spatial permutations with seeds 17, 23, and 41. All vectors conserve the
-captured total power; their numeric SHA-256 digests and per-model residuals
-are written to each operator's calibration TSV.
+vectors. For each it also registers a bounded-uniform vector and three
+deterministic bounded-simplex vectors with seeds 17, 23, and 41. All vectors
+conserve captured total power and obey the same content-derived per-block
+upper bounds as the DSE query; their numeric SHA-256 digests and per-model
+residuals are written to each operator's calibration TSV.
 
 An operator is admitted only if every replay obeys
 \(\epsilon(p)\le0.01\) K. The full calibration table is written before a

@@ -3,8 +3,11 @@
 Status: frozen for `method-freeze-v1`.
 
 CertiTherm begins with one workload-level fact: total chip power. Individual
-block powers remain free and nonnegative subject to that total. Every
-additional action is a linear aggregate over the same placed-power vector.
+block powers remain free and nonnegative subject to that total and
+content-derived per-block capacity bounds. A capacity equals the captured
+total budget of that hardware module type; it is an inequality, not a hidden
+module-total observation. Every additional action is a linear aggregate over
+the same placed-power vector.
 
 | Class | Vector | Normalized cost | EDA interpretation |
 |---|---|---:|---|

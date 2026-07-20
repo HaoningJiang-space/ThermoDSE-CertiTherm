@@ -20,7 +20,11 @@ import numpy as np
 
 from .core import CandidateSpace, PowerPolytope
 from .hotspot import build_family, load_family, replay_power, save_family
-from .measurements import build_measurement_library, coarse_power_space
+from .measurements import (
+    build_measurement_library,
+    coarse_power_space,
+    content_upper_bounds,
+)
 from .policies import dual_price_greedy, sequential_early_stop, uncertainty_width_order
 from .synthesis import synthesize_ordered_query
 
@@ -33,6 +37,11 @@ MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 MODEL_ERROR_LIMIT_K = 0.01
 CALIBRATION_SEEDS = (17, 23, 41)
+CALIBRATION_VECTOR_IDS = (
+    "placed",
+    "bounded-uniform",
+    *(f"bounded-random-{seed}" for seed in CALIBRATION_SEEDS),
+)
 QUERY_METHOD_TIMEOUT_S = 1800
 _T = TypeVar("_T")
 
@@ -191,6 +200,37 @@ def _capture(
     return capture
 
 
+def _bounded_power(
+    total_w: float, upper_w: np.ndarray, weights: np.ndarray
+) -> np.ndarray:
+    """Deterministically project positive weights onto a bounded simplex."""
+
+    upper, weights = np.asarray(upper_w, dtype=float), np.asarray(weights, dtype=float)
+    if (
+        upper.shape != weights.shape
+        or total_w <= 0
+        or total_w > float(np.sum(upper))
+        or np.any(upper < 0)
+        or np.any(weights <= 0)
+    ):
+        raise ValueError("invalid bounded-simplex calibration inputs")
+    low, high = 0.0, total_w / float(np.min(weights))
+    for _ in range(80):
+        scale = (low + high) / 2
+        if float(np.sum(np.minimum(upper, scale * weights))) < total_w:
+            low = scale
+        else:
+            high = scale
+    power = np.minimum(upper, high * weights)
+    residual = total_w - float(np.sum(power))
+    available = np.flatnonzero(power < upper)
+    if available.size:
+        power[available[0]] += residual
+    elif abs(residual) > 1e-10:
+        raise RuntimeError("bounded-simplex projection did not conserve power")
+    return power
+
+
 def _operator(
     arch: dict[str, str],
     package: dict[str, str],
@@ -201,12 +241,12 @@ def _operator(
     captures = tuple(captures)
     calibration_path = target.with_suffix(".calibration.tsv")
     expected_rows = len(captures) * (2 + len(CALIBRATION_SEEDS)) * len(MODELS)
-    if (
-        target.is_file()
-        and calibration_path.is_file()
-        and len(_rows(calibration_path)) == expected_rows
-    ):
-        return target
+    if target.is_file() and calibration_path.is_file():
+        cached = _rows(calibration_path)
+        if len(cached) == expected_rows and {
+            row["vector_id"] for row in cached
+        } == set(CALIBRATION_VECTOR_IDS):
+            return target
     target.unlink(missing_ok=True)
     calibration_path.unlink(missing_ok=True)
     work = output / "work" / f"operator--{arch['architecture_id']}--{package['package_id']}"
@@ -230,12 +270,26 @@ def _operator(
     for capture_index, capture in enumerate(captures):
         with np.load(capture, allow_pickle=False) as data:
             placed_power = np.asarray(data["placed_power_w"], dtype=float)
-        vectors = [("placed", placed_power), ("uniform", np.full(
-            placed_power.size, np.sum(placed_power) / placed_power.size
-        ))]
+        upper = content_upper_bounds(blocks, placed_power)
+        vectors = [
+            ("placed", placed_power),
+            (
+                "bounded-uniform",
+                _bounded_power(
+                    float(np.sum(placed_power)), upper, np.ones(upper.size)
+                ),
+            ),
+        ]
         for seed in CALIBRATION_SEEDS:
             vectors.append(
-                (f"permutation-{seed}", np.random.default_rng(seed).permutation(placed_power))
+                (
+                    f"bounded-random-{seed}",
+                    _bounded_power(
+                        float(np.sum(placed_power)),
+                        upper,
+                        np.random.default_rng(seed).lognormal(size=upper.size),
+                    ),
+                )
             )
         for vector_id, power in vectors:
             digest = hashlib.sha256(np.asarray(power, dtype="<f8").tobytes()).hexdigest()
@@ -299,7 +353,12 @@ def _power_space(
         blocks = tuple(data["block_ids"].tolist())
         placed = np.asarray(data["placed_power_w"], dtype=float)
         floorplan_text = str(data["floorplan_text"])
-    return coarse_power_space(placed), blocks, placed, floorplan_text
+    return (
+        coarse_power_space(placed, content_upper_bounds(blocks, placed)),
+        blocks,
+        placed,
+        floorplan_text,
+    )
 
 
 def _write_tsv(path: Path, rows: Iterable[dict[str, object]]) -> None:

@@ -3,14 +3,36 @@
 from __future__ import annotations
 
 import re
-from typing import Mapping, Sequence
+from typing import Mapping, Optional, Sequence
 
 import numpy as np
 
 from .core import MeasurementAction, PowerPolytope
 
 
-def coarse_power_space(placed_power_w: np.ndarray) -> PowerPolytope:
+def _module_labels(blocks: Sequence[str]) -> list[str]:
+    return [re.sub(r"\d+$", "", block.split("_", 1)[0]) for block in blocks]
+
+
+def content_upper_bounds(
+    blocks: Sequence[str], placed_power_w: np.ndarray
+) -> np.ndarray:
+    """Conservative per-block capacities from each content-type power budget."""
+
+    placed = np.asarray(placed_power_w, dtype=float)
+    if placed.shape != (len(blocks),):
+        raise ValueError("block and placed-power dimensions differ")
+    labels = _module_labels(blocks)
+    totals = {
+        label: float(np.sum(placed[np.asarray(labels) == label]))
+        for label in set(labels)
+    }
+    return np.asarray([totals[label] for label in labels])
+
+
+def coarse_power_space(
+    placed_power_w: np.ndarray, upper_w: Optional[np.ndarray] = None
+) -> PowerPolytope:
     """Admit every nonnegative placement with the observed workload total."""
 
     placed = np.asarray(placed_power_w, dtype=float)
@@ -19,8 +41,11 @@ def coarse_power_space(placed_power_w: np.ndarray) -> PowerPolytope:
     total = float(np.sum(placed))
     if total <= 0:
         raise ValueError("placed power must have positive total")
+    upper = np.full(placed.size, total) if upper_w is None else np.asarray(upper_w)
+    if upper.shape != placed.shape or np.any(upper < placed):
+        raise ValueError("content upper bounds must cover the placed vector")
     return PowerPolytope.box_with_total(
-        np.zeros(placed.size), np.full(placed.size, total), total
+        np.zeros(placed.size), upper, total
     )
 
 
@@ -95,11 +120,8 @@ def build_measurement_library(
     required = ("module", "chiplet", "placement_region", "post_route")
     if set(costs) != set(required):
         raise ValueError(f"measurement costs must define exactly {required}")
-    module_labels = [
-        re.sub(r"\d+$", "", block.split("_", 1)[0]) for block in blocks
-    ]
     registries = (
-        ("module", _groups(module_labels)),
+        ("module", _groups(_module_labels(blocks))),
         ("chiplet", _groups(_chiplet_labels(blocks, architecture))),
         ("placement_region", _groups(_region_labels(blocks, floorplan_text))),
         (

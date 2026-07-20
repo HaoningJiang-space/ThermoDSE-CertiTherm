@@ -1,5 +1,10 @@
 # CertiTherm Research Insight, Corrected After Integrity Audit
 
+> **Archived pre-DSOS insights.** Historical audit trail only. Current method
+> and claims are in `docs/INFORMATION_THEORETIC_METHOD.md` and
+> `docs/HELDOUT_PROTOCOL.md`. The old 3D-ICE equivalence and G4 headline are
+> withdrawn.
+
 ## The insight that survives
 
 Early chiplet DSE observes aggregate hardware quantities but acts on a
@@ -156,11 +161,4 @@ authoritative gate ledger is
    free (read off the stored witness tuples) and lands 100% of its channels
    on the decision-carrying candidate.
 
-All contract gates G1–G4 are closed; the remaining work is paper writing,
-not gating experiments.
-# Archived pre-DSOS insights
-
-> Historical audit trail only. Current method and claims are in
-> `docs/INFORMATION_THEORETIC_METHOD.md` and `docs/HELDOUT_PROTOCOL.md`.
-> In particular, the old 3D-ICE equivalence and fixed-vs-adaptive G4 headline
-> are withdrawn.
+All historical G1–G4 gates closed under that superseded contract.

@@ -58,9 +58,11 @@ stage/tool effort and are frozen in `experiments/measurements.tsv`; they are
 not claimed as elapsed seconds or sensor dollars.
 
 Before an operator is admitted, the driver replays every ResNet/Transformer
-placed-power vector, a uniform vector, and three deterministic spatial
-permutations directly through every registered HotSpot model and compares
-them with \(T_0+Rp\). Development froze a 0.01 K two-sided model-error band
+placed-power vector, a bounded-uniform vector, and three deterministic
+bounded-simplex vectors directly through every registered HotSpot model and
+compares them with \(T_0+Rp\). Every vector conserves total power and obeys
+the registered content-derived upper bounds. Development froze a 0.01 K
+two-sided model-error band
 after the first grid replay exposed a 0.00327 K numerical superposition
 residual. Every vector identity and digest is archived. The band is included
 in every safe/unsafe LP; held-out replay may reject it but may not enlarge it.

@@ -1,5 +1,10 @@
 # G4 acquisition gate: closure report
 
+> **Historical result — superseded.** The single-witness G4 policy and fixed
+> baseline are superseded by exact DSOS and the fair sequential early-stop
+> baselines in `CertiTherm/policies.py`. Numbers below are audit history, not
+> active paper results.
+
 Status: **G4 PASS (empirical gate); registered single-action check is an exhaustive negative**
 Date: 2026-07-20
 Source commit: `d7409653...` (clean-clone claim-grade runs)
@@ -90,8 +95,3 @@ research contract (G1–G4) is now closed. The authoritative gate ledger is
 | Registry bundle s10 | /tmp/g4_registry/attention-enhanced_sink_s10/ | fb2af825 (registry) | self-verified |
 
 In-repo summary: `results/G4_POLICY_COMPARISON_20260720.json`.
-# Historical result — superseded
-
-> The single-witness G4 policy and fixed baseline are superseded by exact DSOS
-> and the fair sequential early-stop baselines in `CertiTherm/policies.py`.
-> Numbers below are audit history, not active paper results.
