@@ -36,18 +36,21 @@ For finite obtainable action library \(\mathcal A\), DSOS solves
  \quad\text{for every confusable edge }e .
 \]
 
-The edge set is continuous and is never enumerated. The implementation
-alternates:
+The edge set is continuous and is never enumerated. The implementation uses:
 
-1. a minimum-cost hitting-set MILP over discovered witness cuts; and
-2. an exhaustive safe-model × unsafe-model × peak-row LP separation oracle.
+1. a deterministic cost-normalized greedy cover to accumulate violated
+   witness cuts without repeatedly solving an exact master;
+2. a minimum-cost hitting-set MILP over the accumulated cuts; and
+3. an exhaustive safe-model × unsafe-model × peak-row LP separation oracle on
+   that exact MILP plan.
 
-If the LP finds a collision, its separating actions form a necessary master
-cut. If it finds none, the current plan is feasible and the exact MILP bound
-proves global optimality for the registered library. If even the full library
-cannot separate a collision, the result is `UNSYNTHESIZABLE` with that
-witness. Solver or replay uncertainty returns `UNRESOLVED`, never a
-certificate.
+The greedy plan is only a separation accelerator and never produces a paper
+claim. Once it is collision-free, the exact MILP is solved. If the MILP plan
+still collides, that necessary cut returns to the greedy accumulation phase.
+If the MILP plan has no collision, its lower bound and primal feasibility
+prove global optimality. If even the full library cannot separate a
+collision, the result is `UNSYNTHESIZABLE` with that witness. Solver or replay
+uncertainty returns `UNRESOLVED`, never a certificate.
 
 This is a non-incremental algorithm: it synthesizes the entire least-cost
 observation contract before any physical measurement value is known. The
@@ -77,18 +80,20 @@ the minimum-cost hitting set. \(\square\)
 
 ### Theorem 2: exactness and finite termination of constraint generation
 
-At iteration \(t\), the master contains a finite subset \(E_t\) of valid
-cross-decision edges. Its optimum \(L_t\) is a lower bound on
+At exact-closure iteration \(t\), the master contains a finite subset \(E_t\)
+of valid cross-decision edges. Its optimum \(L_t\) is a lower bound on
 \(C^\star_{\rm batch}\), because it relaxes the full edge set. If the
 continuous LP oracle returns no collision for master plan \(S_t\), \(S_t\)
 hits the full edge set and hence is feasible. Thus
 \(L_t=C(S_t)=C^\star_{\rm batch}\).
 
-If the oracle returns edge \(e_t\), the added cut contains exactly the
+If either greedy or exact-plan separation returns edge \(e_t\), the added cut contains exactly the
 registered actions that separate \(e_t\). It is necessary for every feasible
-plan and is violated by \(S_t\), so that binary selection can never recur.
-There are only \(2^{|\mathcal A|}\) selections. Therefore the procedure
-terminates after at most \(2^{|\mathcal A|}\) oracle iterations with either:
+plan and is violated by the queried selection, so that selection can never
+recur. Greedy selections affect only which valid edges are discovered; they
+do not alter the exact master feasible region. There are only
+\(2^{|\mathcal A|}\) selections. Therefore the procedure terminates after at
+most \(2^{|\mathcal A|}\) oracle iterations with either:
 
 - a globally optimal feasible plan; or
 - an edge separated by no registered action, proving `UNSYNTHESIZABLE`.
