@@ -131,5 +131,11 @@ is not an architecture-selection flip and is not an error rate.
 The replacement G3 object is four workload-family × package queries, each over
 the same architecture candidate pool. Every candidate binds separate point,
 placed-reference, and spatial-domain evidence. All three variants execute the
-same cross-candidate selection semantics. Until those content-bound physical
-bundles exist and replay, G3 remains open and all breadth cells are `TBD`.
+same cross-candidate selection semantics.
+
+**Update (2026-07-20):** those content-bound physical bundles now exist and
+replay — the real 2×2×2 suite passes G3-A (breadth), G3-B (dual-backend
+physical replay), and G3-C (four frozen baselines + systems cost). The
+authoritative gate ledger is
+`results/G3_REAL_2x2x2_CONSOLIDATED_REPORT.md`; baseline evidence is in
+`results/G3_BASELINE_REPORT.md`. G4 remains open.

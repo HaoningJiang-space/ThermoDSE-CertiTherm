@@ -4,7 +4,10 @@
 
 **Status:** `LEGACY_INVALIDATED_FOR_CLAIMS`
 
-**Gate verdict:** G3 is open; no replacement empirical result exists.
+**Gate verdict (updated 2026-07-20):** this document retracts the legacy
+pilot only. The replacement content-bound real 2×2×2 suite has since passed
+G3-A/B/C; the authoritative gate ledger is
+`results/G3_REAL_2x2x2_CONSOLIDATED_REPORT.md`.
 
 The former headline, `5/8 (62.5%) flip from uniform SAFE to spatial
 NON_IDENTIFIABLE`, is withdrawn. The committed JSON is retained only for

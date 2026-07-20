@@ -1,0 +1,403 @@
+{
+  "aggregate": {
+    "fixed_uniform_refinement": {
+      "applicable_count": 2,
+      "certified_commit_count": 2,
+      "commit_count": 2,
+      "false_infeasible_count": 0,
+      "false_safe_count": 0,
+      "physical_query_count": 360,
+      "placed_reference_agreement_count": 2,
+      "stratum_count": 4,
+      "synthetic_sample_count": 0,
+      "total_objective_regret": 0.0,
+      "unjustified_commitment_count": 0,
+      "wall_time_s": 2.7899761340231635,
+      "wrong_architecture_count": 0
+    },
+    "interval_box_aggregate": {
+      "applicable_count": 4,
+      "certified_commit_count": 2,
+      "commit_count": 2,
+      "false_infeasible_count": 0,
+      "false_safe_count": 0,
+      "physical_query_count": 0,
+      "placed_reference_agreement_count": 2,
+      "stratum_count": 4,
+      "synthetic_sample_count": 0,
+      "total_objective_regret": 0.0,
+      "unjustified_commitment_count": 0,
+      "wall_time_s": 5.7625364489795174,
+      "wrong_architecture_count": 0
+    },
+    "k_sample_synthetic_stress": {
+      "applicable_count": 4,
+      "certified_commit_count": 0,
+      "commit_count": 4,
+      "false_infeasible_count": 0,
+      "false_safe_count": 0,
+      "physical_query_count": 0,
+      "placed_reference_agreement_count": 2,
+      "stratum_count": 4,
+      "synthetic_sample_count": 512,
+      "total_objective_regret": 22.50083136929021,
+      "unjustified_commitment_count": 2,
+      "wall_time_s": 0.12204057097551413,
+      "wrong_architecture_count": 2
+    },
+    "uniform_aggregate_point": {
+      "applicable_count": 4,
+      "certified_commit_count": 0,
+      "commit_count": 4,
+      "false_infeasible_count": 0,
+      "false_safe_count": 0,
+      "physical_query_count": 0,
+      "placed_reference_agreement_count": 4,
+      "stratum_count": 4,
+      "synthetic_sample_count": 0,
+      "total_objective_regret": 0.0,
+      "unjustified_commitment_count": 2,
+      "wall_time_s": 0.0006003629823680967,
+      "wrong_architecture_count": 0
+    }
+  },
+  "baseline_artifact": {
+    "path": "/tmp/certitherm_g3_real_outputs/g3_baseline_comparison.json",
+    "sha256": "49ee2f4237931fc790825075d70b86faf3d1c0b60f028b0739f5faab86215fa3"
+  },
+  "baseline_receipt": {
+    "path": "/tmp/certitherm_g3_real_outputs/g3_baseline_comparison_receipt.json",
+    "sha256": "49ee2f4237931fc790825075d70b86faf3d1c0b60f028b0739f5faab86215fa3",
+    "status": "PASS"
+  },
+  "claim_boundary": "Baseline rows are frozen comparison procedures evaluated on the registered G3 suite. uniform_aggregate_point and k_sample_synthetic_stress commit without a certificate; only interval_box_aggregate and the registered spatial path return bounds. A finite sample maximum is never a bound, and a clean-tree baseline artifact is not itself a G3-C closure claim without the companion systems-cost table.",
+  "date": "2026-07-20",
+  "parameters": {
+    "feasibility_tolerance_k": 1e-07,
+    "k_samples": 64,
+    "max_rejection_draws": 200000,
+    "seed_base": 20260720
+  },
+  "schema_version": "certitherm.g3-baseline-comparison-summary.v1",
+  "source_commit": "46f327f1afd01c7c7618fa66d8a18f4b4ad6e70e",
+  "strata": [
+    {
+      "baselines": {
+        "fixed_uniform_refinement": {
+          "certificate_size_bytes": 410,
+          "certified": false,
+          "channel_cost": 0,
+          "error_class": null,
+          "objective_regret": null,
+          "physical_query_count": 0,
+          "selection": null,
+          "status": "NOT_APPLICABLE",
+          "unjustified_commitment": false,
+          "wall_time_s": 0.0
+        },
+        "interval_box_aggregate": {
+          "certificate_size_bytes": 760,
+          "certified": true,
+          "error_class": null,
+          "interval_width_k": {
+            "arch_4x4_mesh_fullcut": 6.6212,
+            "arch_5x4_rect_struct": 6.7921
+          },
+          "objective_regret": 0.0,
+          "physical_query_count": 0,
+          "selection": "arch_5x4_rect_struct",
+          "status": "CERTIFIED",
+          "unjustified_commitment": false,
+          "wall_time_s": 1.3655
+        },
+        "k_sample_synthetic_stress": {
+          "certificate_size_bytes": 823,
+          "certified": false,
+          "error_class": null,
+          "objective_regret": 0.0,
+          "per_candidate": [
+            {
+              "candidate_id": "arch_5x4_rect_struct",
+              "max_sampled_peak_k": 326.3597,
+              "seed": 9524326956829128340,
+              "violation_count": 0
+            },
+            {
+              "candidate_id": "arch_4x4_mesh_fullcut",
+              "max_sampled_peak_k": 326.8607,
+              "seed": 10909780153557799062,
+              "violation_count": 0
+            }
+          ],
+          "physical_query_count": 0,
+          "selection": "arch_5x4_rect_struct",
+          "status": null,
+          "unjustified_commitment": false,
+          "wall_time_s": 0.0326
+        },
+        "uniform_aggregate_point": {
+          "certificate_size_bytes": 681,
+          "certified": false,
+          "error_class": null,
+          "objective_regret": 0.0,
+          "physical_query_count": 0,
+          "selection": "arch_5x4_rect_struct",
+          "status": null,
+          "unjustified_commitment": false,
+          "wall_time_s": 0.0002
+        }
+      },
+      "package_id": "standard_sink_s06",
+      "placed_reference_outcome": "arch_5x4_rect_struct",
+      "query_id": "g3-real-cnn-standard_sink_s06",
+      "spatial_interval_width_k": {
+        "arch_4x4_mesh_fullcut": 6.2024,
+        "arch_5x4_rect_struct": 6.1675
+      },
+      "spatial_oracle_status": "CERTIFIED",
+      "workload_family": "cnn"
+    },
+    {
+      "baselines": {
+        "fixed_uniform_refinement": {
+          "certificate_size_bytes": 409,
+          "certified": false,
+          "channel_cost": 0,
+          "error_class": null,
+          "objective_regret": null,
+          "physical_query_count": 0,
+          "selection": null,
+          "status": "NOT_APPLICABLE",
+          "unjustified_commitment": false,
+          "wall_time_s": 0.0
+        },
+        "interval_box_aggregate": {
+          "certificate_size_bytes": 761,
+          "certified": true,
+          "error_class": null,
+          "interval_width_k": {
+            "arch_4x4_mesh_fullcut": 6.6734,
+            "arch_5x4_rect_struct": 6.7737
+          },
+          "objective_regret": 0.0,
+          "physical_query_count": 0,
+          "selection": "arch_5x4_rect_struct",
+          "status": "CERTIFIED",
+          "unjustified_commitment": false,
+          "wall_time_s": 1.3514
+        },
+        "k_sample_synthetic_stress": {
+          "certificate_size_bytes": 825,
+          "certified": false,
+          "error_class": null,
+          "objective_regret": 0.0,
+          "per_candidate": [
+            {
+              "candidate_id": "arch_5x4_rect_struct",
+              "max_sampled_peak_k": 326.4386,
+              "seed": 17073169931678054400,
+              "violation_count": 0
+            },
+            {
+              "candidate_id": "arch_4x4_mesh_fullcut",
+              "max_sampled_peak_k": 326.739,
+              "seed": 5913260802998031905,
+              "violation_count": 0
+            }
+          ],
+          "physical_query_count": 0,
+          "selection": "arch_5x4_rect_struct",
+          "status": null,
+          "unjustified_commitment": false,
+          "wall_time_s": 0.0299
+        },
+        "uniform_aggregate_point": {
+          "certificate_size_bytes": 681,
+          "certified": false,
+          "error_class": null,
+          "objective_regret": 0.0,
+          "physical_query_count": 0,
+          "selection": "arch_5x4_rect_struct",
+          "status": null,
+          "unjustified_commitment": false,
+          "wall_time_s": 0.0001
+        }
+      },
+      "package_id": "enhanced_sink_s10",
+      "placed_reference_outcome": "arch_5x4_rect_struct",
+      "query_id": "g3-real-cnn-enhanced_sink_s10",
+      "spatial_interval_width_k": {
+        "arch_4x4_mesh_fullcut": 6.2691,
+        "arch_5x4_rect_struct": 6.1622
+      },
+      "spatial_oracle_status": "CERTIFIED",
+      "workload_family": "cnn"
+    },
+    {
+      "baselines": {
+        "fixed_uniform_refinement": {
+          "certificate_size_bytes": 595,
+          "certified": true,
+          "channel_cost": 180,
+          "error_class": null,
+          "objective_regret": 0.0,
+          "physical_query_count": 180,
+          "selection": "arch_5x4_rect_struct",
+          "status": "CERTIFIED",
+          "unjustified_commitment": false,
+          "wall_time_s": 1.3884
+        },
+        "interval_box_aggregate": {
+          "certificate_size_bytes": 807,
+          "certified": false,
+          "error_class": null,
+          "interval_width_k": {
+            "arch_4x4_mesh_fullcut": 8.5953,
+            "arch_5x4_rect_struct": 9.7753
+          },
+          "objective_regret": null,
+          "physical_query_count": 0,
+          "selection": null,
+          "status": "NON_IDENTIFIABLE",
+          "unjustified_commitment": false,
+          "wall_time_s": 1.5101
+        },
+        "k_sample_synthetic_stress": {
+          "certificate_size_bytes": 867,
+          "certified": false,
+          "error_class": "WRONG_ARCHITECTURE",
+          "objective_regret": 11.250415684645105,
+          "per_candidate": [
+            {
+              "candidate_id": "arch_5x4_rect_struct",
+              "max_sampled_peak_k": 330.5925,
+              "seed": 16891053670108946049,
+              "violation_count": 6
+            },
+            {
+              "candidate_id": "arch_4x4_mesh_fullcut",
+              "max_sampled_peak_k": 329.7882,
+              "seed": 4014445040772612627,
+              "violation_count": 0
+            }
+          ],
+          "physical_query_count": 0,
+          "selection": "arch_4x4_mesh_fullcut",
+          "status": null,
+          "unjustified_commitment": true,
+          "wall_time_s": 0.0302
+        },
+        "uniform_aggregate_point": {
+          "certificate_size_bytes": 686,
+          "certified": false,
+          "error_class": null,
+          "objective_regret": 0.0,
+          "physical_query_count": 0,
+          "selection": "arch_5x4_rect_struct",
+          "status": null,
+          "unjustified_commitment": true,
+          "wall_time_s": 0.0001
+        }
+      },
+      "package_id": "standard_sink_s06",
+      "placed_reference_outcome": "arch_5x4_rect_struct",
+      "query_id": "g3-real-attention-standard_sink_s06",
+      "spatial_interval_width_k": {
+        "arch_4x4_mesh_fullcut": 8.2081,
+        "arch_5x4_rect_struct": 9.0902
+      },
+      "spatial_oracle_status": "NON_IDENTIFIABLE",
+      "workload_family": "attention"
+    },
+    {
+      "baselines": {
+        "fixed_uniform_refinement": {
+          "certificate_size_bytes": 592,
+          "certified": true,
+          "channel_cost": 180,
+          "error_class": null,
+          "objective_regret": 0.0,
+          "physical_query_count": 180,
+          "selection": "arch_5x4_rect_struct",
+          "status": "CERTIFIED",
+          "unjustified_commitment": false,
+          "wall_time_s": 1.4015
+        },
+        "interval_box_aggregate": {
+          "certificate_size_bytes": 807,
+          "certified": false,
+          "error_class": null,
+          "interval_width_k": {
+            "arch_4x4_mesh_fullcut": 8.6995,
+            "arch_5x4_rect_struct": 9.7709
+          },
+          "objective_regret": null,
+          "physical_query_count": 0,
+          "selection": null,
+          "status": "NON_IDENTIFIABLE",
+          "unjustified_commitment": false,
+          "wall_time_s": 1.5354
+        },
+        "k_sample_synthetic_stress": {
+          "certificate_size_bytes": 869,
+          "certified": false,
+          "error_class": "WRONG_ARCHITECTURE",
+          "objective_regret": 11.250415684645105,
+          "per_candidate": [
+            {
+              "candidate_id": "arch_5x4_rect_struct",
+              "max_sampled_peak_k": 330.3984,
+              "seed": 13649663078207974576,
+              "violation_count": 5
+            },
+            {
+              "candidate_id": "arch_4x4_mesh_fullcut",
+              "max_sampled_peak_k": 328.9444,
+              "seed": 1061380992906354880,
+              "violation_count": 0
+            }
+          ],
+          "physical_query_count": 0,
+          "selection": "arch_4x4_mesh_fullcut",
+          "status": null,
+          "unjustified_commitment": true,
+          "wall_time_s": 0.0294
+        },
+        "uniform_aggregate_point": {
+          "certificate_size_bytes": 687,
+          "certified": false,
+          "error_class": null,
+          "objective_regret": 0.0,
+          "physical_query_count": 0,
+          "selection": "arch_5x4_rect_struct",
+          "status": null,
+          "unjustified_commitment": true,
+          "wall_time_s": 0.0002
+        }
+      },
+      "package_id": "enhanced_sink_s10",
+      "placed_reference_outcome": "arch_5x4_rect_struct",
+      "query_id": "g3-real-attention-enhanced_sink_s10",
+      "spatial_interval_width_k": {
+        "arch_4x4_mesh_fullcut": 8.3272,
+        "arch_5x4_rect_struct": 9.1026
+      },
+      "spatial_oracle_status": "NON_IDENTIFIABLE",
+      "workload_family": "attention"
+    }
+  ],
+  "suite_artifact_sha256": "ed93b3fa84ca85bca535b787e193124dadc9ad146f75b7fc7f0458d1a6242503",
+  "systems_cost": {
+    "baseline_runner_peak_rss_kb": 170240,
+    "baseline_runner_wall_time_s": 31.749,
+    "suite_certificate_size_bytes": {
+      "avg": 16296.333333333334,
+      "max": 21696,
+      "min": 12759
+    },
+    "suite_peak_rss_kb": 555896,
+    "suite_variant_cost_summary": "CertiTherm/results/G3_SYSTEM_COST_SUMMARY_20260720.json",
+    "suite_wall_time_total_s": 200.32224094800767
+  },
+  "thermal_limit_k": 330.0
+}

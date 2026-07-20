@@ -1,6 +1,11 @@
 # CertiTherm: Spatial Power Identifiability for Chiplet DSE
 
-> **Evidence status (2026-07-20): G2 NARROWLY CORRECTED; G3/G4 REMAIN OPEN.** The committed
+> **Evidence status (2026-07-20): G2 CORRECTED; G3 FULL PASS (A breadth + B physical replay + C baseline/system cost); G4 REMAINS OPEN.**
+> The authoritative gate ledger is
+> `results/G3_REAL_2x2x2_CONSOLIDATED_REPORT.md`; baseline/system-cost
+> evidence is in `results/G3_BASELINE_REPORT.md` and
+> `results/G3_BASELINE_COMPARISON_20260720.json`.
+> The committed
 > Gaussian/corner/checker and finite-sample results are retained as legacy
 > debugging artifacts, but are not valid paper evidence. Their generator used
 > the wrong ThermoDSE ptrace column order, did not conserve obtainable
@@ -8,10 +13,13 @@
 > fail-open thermal constraint. The later `5/8` G3 pilot is also withdrawn
 > because it relabeled aggregate workload data, reused package operators, and
 > compared nested uncertainty sets rather than architecture queries. The
-> corrected G2 query supports only its registered narrow certificate/witness;
-> no breadth or paper-level G3 claim has passed. See
-> `audit/INTEGRITY_AUDIT_20260719.md`, `results/G2_CORRECTION_REPORT.md`, and
-> `results/G3_FULL_REPORT.md`.
+> corrected G2 query supports only its registered narrow certificate/witness.
+> The replacement G3 object — the content-bound real 2 DNN × 2 non-isomorphic
+> architecture × 2 package suite — has since been built, replayed under two
+> independent thermal backends, and compared against the four contract
+> baselines. See
+> `audit/INTEGRITY_AUDIT_20260719.md`, `results/G2_CORRECTION_REPORT.md`,
+> `results/G3_FULL_REPORT.md` (legacy retraction), and the gate ledger above.
 
 ## Core thesis (independent of ThermoDSE 2026)
 
@@ -71,8 +79,8 @@ information is needed and *where*?
 | 2 | Bind obtainable aggregate-power observations | NARROW G2 REGISTERED QUERY CLOSED |
 | 3 | Build power-conserving synthetic stress pilot | CODE-FIXED; results not rerun |
 | 4 | Run decision-flip audit | LEGACY RESULTS INVALIDATED; physical rerun required |
-| 5 | Exact identifiability classifier + replayable certificates | CORRECTED G2 PATH MIGRATED; G3 BREADTH OPEN |
-| 6 | EDA-specific information acquisition | INTERFACE REPAIRED; tests and physical G3 input not executed |
+| 5 | Exact identifiability classifier + replayable certificates | CORRECTED G2 PATH MIGRATED; G3 FULL PASS (see gate ledger) |
+| 6 | EDA-specific information acquisition | INTERFACE REPAIRED; G4 OPEN — physical NON_IDENTIFIABLE strata authorized |
 
 ## Related work (avoid overlap)
 

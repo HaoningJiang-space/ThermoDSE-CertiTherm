@@ -106,6 +106,21 @@ See: `CertiTherm/evidence/g3_2x2x2_real_archive/manifest.json`
 - 峰值 RSS：`555,896 KB`
 - certificate size：min `12,759 B`, max `21,696 B`, avg `16,296 B`
 
+## G3-C baseline evidence
+
+- 报告：`CertiTherm/results/G3_BASELINE_REPORT.md`
+- 汇总：`CertiTherm/results/G3_BASELINE_COMPARISON_20260720.json`
+- Claim-grade artifact（外部）：`/tmp/certitherm_g3_real_outputs/g3_baseline_comparison.json`
+  - SHA-256：`49ee2f4237931fc790825075d70b86faf3d1c0b60f028b0739f5faab86215fa3`
+  - replay：`PASS`（fresh clean clone `/tmp/certitherm_g3c_clone`，commit `46f327f1`）
+- 四个 contract 基线在同一 loader / 同一候选集 / 同一 330K 限制 / 同一热算子下评估；
+  重算的 deployed point 路径与注册 `point_estimate` variant 在 4/4 strata 完全一致（公平性校验）。
+- 结果要点：
+  - `uniform_aggregate_point`：4/4 与物理参考一致但含 **2 次 unjustified commitment**（attention strata）；
+  - `k_sample_synthetic_stress`（K=64，冻结种子）：**2 次错误架构选择**（regret 11.25 EDYP/workload，+54%）；
+  - `interval_box_aggregate`：保守诚实（0 unjustified），coverage 2/4 且区间严格更宽；
+  - `fixed_uniform_refinement`：360 sensor channels（180/stratum）才把 2 个 NON_IDENTIFIABLE strata 认证到 placed 结果 —— G4 必须击败的成本列。
+
 ## Build / tooling updates in this round
 
 - `CertiTherm/exact/build_g3_real_matrix.py`
@@ -130,7 +145,9 @@ See: `CertiTherm/evidence/g3_2x2x2_real_archive/manifest.json`
 
 ## Gate status
 
+本文件是 G3 门禁状态的权威 ledger（其余文档由此派生，见 README / INSIGHTS / G3_FULL_REPORT 指针）。
+
 - `G3-A semantic breadth`: **PASS**
 - `G3-B physical replay`: **PASS**
-- `G3-C baseline/system cost`: **OPEN**
-- `G3 full`: **OPEN**
+- `G3-C baseline/system cost`: **PASS**（2026-07-20，四基线对比 + 成本表，replay PASS）
+- `G3 full`: **PASS**（A+B+C 全部通过；claim boundary 见 G3_BASELINE_REPORT.md）
