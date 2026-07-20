@@ -32,7 +32,25 @@ TMP_TEMPLATE_FALLBACK = REPO_ROOT / "CertiTherm" / "evidence" / "thermodse_tmp_t
 
 sys.path.insert(0, str(THERMODSE_ROOT))
 
-from core.chiplet_eva import chiplet_evaluator  # type: ignore  # noqa: E402
+_CHIPLET_EVALUATOR_IMPORT_ERROR: str | None = None
+
+
+def _load_chiplet_evaluator():
+    """Import ThermoDSE's chiplet_evaluator lazily.
+
+    A missing or broken ThermoDSE checkout (e.g. submodule not initialized in
+    a clean clone) must fail closed with an INVALID replay report, never crash
+    before the report is written. Returns None and records the error on
+    failure.
+    """
+    global _CHIPLET_EVALUATOR_IMPORT_ERROR
+    try:
+        from core.chiplet_eva import chiplet_evaluator  # type: ignore
+    except Exception as exc:  # noqa: BLE001 - any dependency failure fails closed
+        _CHIPLET_EVALUATOR_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
+        return None
+    _CHIPLET_EVALUATOR_IMPORT_ERROR = None
+    return chiplet_evaluator
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -151,7 +169,34 @@ def _replay_backend(
     package_cfgs: dict[str, Path],
     workspace: Path,
 ) -> dict[str, Any]:
-    template_root = _template_root()
+    try:
+        template_root = _template_root()
+    except RuntimeError as exc:
+        return {
+            "backend": backend,
+            "status": "INVALID",
+            "reason": str(exc),
+            "cases": [],
+            "all_match": False,
+        }
+
+    needs_evaluator = any(
+        entry["variants"]["spatial_equivalence"]["result"].get("status") == "NON_IDENTIFIABLE"
+        and entry["variants"]["spatial_equivalence"]["result"].get("witness_tuples")
+        for entry in suite_artifact["entries"]
+    )
+    chiplet_evaluator = None
+    if needs_evaluator:
+        chiplet_evaluator = _load_chiplet_evaluator()
+        if chiplet_evaluator is None:
+            return {
+                "backend": backend,
+                "status": "INVALID",
+                "reason": f"missing ThermoDSE dependency: {_CHIPLET_EVALUATOR_IMPORT_ERROR}",
+                "cases": [],
+                "all_match": False,
+            }
+
     cases = []
     for entry in suite_artifact["entries"]:
         spatial = entry["variants"]["spatial_equivalence"]["result"]
