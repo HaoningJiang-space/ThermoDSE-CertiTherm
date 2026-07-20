@@ -64,6 +64,24 @@ It measures paid reduction of zero-error *decision* uncertainty, rather than
 generic uncertainty width. It is an approximation and must be reported
 against \(C^\star_{\rm batch}\), not presented as the theoretical limit.
 
+## Adaptive finite-alphabet limit
+
+For an explicitly finite/quantized world set, `CertiTherm/adaptive.py` also
+solves the exact minimax Bellman recurrence
+
+\[
+ V(W)=
+ \begin{cases}
+ 0,&\text{all worlds in }W\text{ have one decision},\\
+ \min_a\left[c_a+\max_z V(W_{a,z})\right],&\text{otherwise}.
+ \end{cases}
+\]
+
+This is the adaptive theoretical limit for that declared quantization. It is
+used for small calibration cases and lower-level insight only. The continuous
+held-out claim remains the exact non-adaptive DSOS limit; no finite
+quantization is allowed to masquerade as a continuous-world proof.
+
 ## Scope of the theorem
 
 The result is conditional on:

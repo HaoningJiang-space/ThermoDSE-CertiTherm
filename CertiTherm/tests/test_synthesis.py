@@ -15,6 +15,7 @@ from CertiTherm.policies import (
     sequential_early_stop,
     uncertainty_width_order,
 )
+from CertiTherm.adaptive import finite_adaptive_limit
 
 
 def test_exact_plan_reaches_unit_cost_global_limit() -> None:
@@ -81,3 +82,19 @@ def test_ordered_query_optimizes_cross_candidate_decision() -> None:
     dual = dual_price_greedy(candidates, actions)
     assert fixed.status == width.status == dual.status == "CERTIFIED"
     assert min(fixed.cost, width.cost, dual.cost) >= plan.exact_cost
+
+
+def test_finite_adaptive_bellman_limit() -> None:
+    result = finite_adaptive_limit(
+        decisions=("A", "A", "B", "B"),
+        action_ids=("coarse", "left", "right"),
+        outcomes=(
+            ("0", "1", "0", "1"),
+            ("0", "0", "1", "1"),
+            ("0", "1", "1", "0"),
+        ),
+        costs=(1.0, 2.0, 2.0),
+    )
+    assert result.status == "OPTIMAL"
+    assert result.worst_case_cost == 2.0
+    assert result.first_action == "left"
