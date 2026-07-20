@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import subprocess
 
 import numpy as np
 
@@ -270,3 +271,57 @@ def test_suite_artifact_tampering_is_rejected(tmp_path):
     )
     artifact["metrics"]["query_count"] = 99
     assert replay_g3_suite_artifact(artifact)["status"] == "INVALID"
+
+
+def test_independent_replay_fail_closed_on_empty_witness_set(tmp_path):
+    bundle_root = tmp_path / "bundle"
+    configs = bundle_root / "configs"
+    configs.mkdir(parents=True)
+    for pkg in ("standard_sink_s06", "enhanced_sink_s10"):
+        (configs / f"{pkg}.config").write_text("top heat sink :\n  temperature 300;\n", encoding="utf-8")
+
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(
+        artifact_path,
+        {
+            "schema_version": "certitherm.g3-suite-artifact.v1",
+            "artifact_sha256": _digest("artifact"),
+            "entries": [
+                {
+                    "query_id": "g3-empty",
+                    "package_id": "standard_sink_s06",
+                    "variants": {
+                        "spatial_equivalence": {
+                            "result": {"status": CERTIFIED, "witness_tuples": []},
+                            "inputs": {"candidates": []},
+                        }
+                    },
+                }
+            ],
+        },
+    )
+
+    output_path = tmp_path / "report.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(EXACT_DIR / "replay_witness_independent.py"),
+            "--artifact",
+            str(artifact_path),
+            "--bundle-root",
+            str(bundle_root),
+            "--output",
+            str(output_path),
+            "--hotspot-bin",
+            "/bin/true",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    report = json.loads(output_path.read_text())
+    assert report["status"] == "INVALID"
+    assert report["backends"]["hotspot"]["status"] == "INVALID"
+    assert report["backends"]["hotspot"]["all_match"] is False

@@ -1,0 +1,119 @@
+{
+  "artifact_path": "/tmp/certitherm_g3_real_outputs/g3_suite_artifact.json",
+  "certificate_size_bytes": {
+    "avg": 16296.333333333334,
+    "max": 21696,
+    "min": 12759
+  },
+  "peak_rss_kb": {
+    "avg": 555896.0,
+    "max": 555896,
+    "min": 555896
+  },
+  "rows": [
+    {
+      "certificate_size_bytes": 12925,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-cnn-standard_sink_s06",
+      "status": "CERTIFIED",
+      "variant": "placed_reference",
+      "wall_time_s": 17.3503913449822
+    },
+    {
+      "certificate_size_bytes": 17360,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-cnn-standard_sink_s06",
+      "status": "CERTIFIED",
+      "variant": "point_estimate",
+      "wall_time_s": 18.270853020017967
+    },
+    {
+      "certificate_size_bytes": 15484,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-cnn-standard_sink_s06",
+      "status": "CERTIFIED",
+      "variant": "spatial_equivalence",
+      "wall_time_s": 15.30391909100581
+    },
+    {
+      "certificate_size_bytes": 12918,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-cnn-enhanced_sink_s10",
+      "status": "CERTIFIED",
+      "variant": "placed_reference",
+      "wall_time_s": 17.747467159002554
+    },
+    {
+      "certificate_size_bytes": 17360,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-cnn-enhanced_sink_s10",
+      "status": "CERTIFIED",
+      "variant": "point_estimate",
+      "wall_time_s": 17.794529809994856
+    },
+    {
+      "certificate_size_bytes": 15502,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-cnn-enhanced_sink_s10",
+      "status": "CERTIFIED",
+      "variant": "spatial_equivalence",
+      "wall_time_s": 14.655617150012404
+    },
+    {
+      "certificate_size_bytes": 12759,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-attention-standard_sink_s06",
+      "status": "CERTIFIED",
+      "variant": "placed_reference",
+      "wall_time_s": 17.177148293994833
+    },
+    {
+      "certificate_size_bytes": 17559,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-attention-standard_sink_s06",
+      "status": "CERTIFIED",
+      "variant": "point_estimate",
+      "wall_time_s": 17.482739431987284
+    },
+    {
+      "certificate_size_bytes": 21656,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-attention-standard_sink_s06",
+      "status": "NON_IDENTIFIABLE",
+      "variant": "spatial_equivalence",
+      "wall_time_s": 14.630925489007495
+    },
+    {
+      "certificate_size_bytes": 12764,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-attention-enhanced_sink_s10",
+      "status": "CERTIFIED",
+      "variant": "placed_reference",
+      "wall_time_s": 17.684985011990648
+    },
+    {
+      "certificate_size_bytes": 17573,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-attention-enhanced_sink_s10",
+      "status": "CERTIFIED",
+      "variant": "point_estimate",
+      "wall_time_s": 17.295714147010585
+    },
+    {
+      "certificate_size_bytes": 21696,
+      "peak_rss_kb": 555896,
+      "query_id": "g3-real-attention-enhanced_sink_s10",
+      "status": "NON_IDENTIFIABLE",
+      "variant": "spatial_equivalence",
+      "wall_time_s": 14.927950999001041
+    }
+  ],
+  "schema_version": "certitherm.g3-system-cost-summary.v1",
+  "variant_count": 12,
+  "wall_time_s": {
+    "avg": 16.69352007900064,
+    "max": 18.270853020017967,
+    "min": 14.630925489007495,
+    "total": 200.32224094800767
+  }
+}

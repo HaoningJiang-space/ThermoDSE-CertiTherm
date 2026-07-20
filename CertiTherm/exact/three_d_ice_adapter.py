@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import tempfile
 
@@ -42,13 +40,55 @@ def _read_ptrace(path: Path) -> dict[str, float]:
     return dict(zip(names, values))
 
 
-def _read_ambient(config_path: Path) -> float:
-    pattern = re.compile(r"^\s*ambient\s+([0-9.eE+-]+)")
+def _parse_hotspot_config(config_path: Path) -> dict[str, float | str]:
+    out: dict[str, float | str] = {}
+    pattern = re.compile(r"^\s*(-[A-Za-z0-9_]+)\s+([^\s#]+)")
     for line in config_path.read_text(encoding="utf-8").splitlines():
-        m = pattern.match(line)
-        if m:
-            return float(m.group(1))
-    return 300.0
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        match = pattern.match(text)
+        if not match:
+            continue
+        key = match.group(1)
+        value = match.group(2)
+        if value == "(null)":
+            continue
+        try:
+            out[key] = float(value)
+        except ValueError:
+            out[key] = value
+    return out
+
+
+def _read_materials(path: Path) -> dict[str, dict[str, float | str]]:
+    rows = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    out: dict[str, dict[str, float | str]] = {}
+    idx = 0
+    while idx + 3 < len(rows):
+        name = rows[idx]
+        mtype = rows[idx + 1]
+        try:
+            conductivity = float(rows[idx + 2])
+            capacity = float(rows[idx + 3])
+        except ValueError:
+            idx += 1
+            continue
+        entry: dict[str, float | str] = {
+            "type": mtype,
+            "conductivity": conductivity,
+            "capacity": capacity,
+        }
+        if mtype == "fluid" and idx + 4 < len(rows):
+            try:
+                entry["viscosity"] = float(rows[idx + 4])
+                idx += 5
+            except ValueError:
+                idx += 4
+        else:
+            idx += 4
+        out[name] = entry
+    return out
 
 
 def _write_3dice_flp(
@@ -60,12 +100,21 @@ def _write_3dice_flp(
     max_x = 0.0
     max_y = 0.0
     with path.open("w", encoding="utf-8") as stream:
+        flp_names = [name for name, _, _, _, _ in rows]
+        ptrace_names = list(powers.keys())
+        if set(flp_names) != set(ptrace_names):
+            missing = sorted(set(flp_names) - set(ptrace_names))
+            extra = sorted(set(ptrace_names) - set(flp_names))
+            raise RuntimeError(
+                "ptrace/floorplan block mismatch: "
+                f"missing={missing[:8]} extra={extra[:8]}"
+            )
         for name, w, h, x, y in rows:
             px = max(0, int(round(x * scale)))
             py = max(0, int(round(y * scale)))
             pw = max(1, int(round(w * scale)))
             ph = max(1, int(round(h * scale)))
-            p = float(powers.get(name, 0.0))
+            p = float(powers[name])
             stream.write(f"{name} :\n")
             stream.write(f"  position {px}, {py} ;\n")
             stream.write(f"  dimension {pw}, {ph} ;\n")
@@ -82,13 +131,18 @@ def _write_stk(
     chip_width: int,
     ambient: float,
     heat_transfer_coeff: float,
+    chip_thickness: float,
+    chip_conductivity: float,
+    chip_capacity: float,
+    spreader_side: float,
+    spreader_thickness: float,
 ) -> Path:
     tflp_out = path.parent / "tflp.txt"
     path.write_text(
         (
-            "material SILICON :\n"
-            "   thermal conductivity     1.30e-4 ;\n"
-            "   volumetric heat capacity 1.628e-12 ;\n\n"
+            "material CHIP_MAT :\n"
+            f"   thermal conductivity     {chip_conductivity * 1e-6:.12g} ;\n"
+            f"   volumetric heat capacity {chip_capacity * 1e-18:.12g} ;\n\n"
             "top heat sink :\n"
             f"   heat transfer coefficient {heat_transfer_coeff:.12g} ;\n"
             f"   temperature               {ambient:.6f} ;\n\n"
@@ -97,7 +151,7 @@ def _write_stk(
             f"   cell length {max(1, chip_length // 10)}, width {max(1, chip_width // 10)} ;\n"
             "   non-uniform true;\n\n"
             "die TOP_IC :\n"
-            "   source 2 SILICON ;\n\n"
+            f"   source {max(chip_thickness * 1e6, 1.0):.3f} CHIP_MAT ;\n\n"
             "stack:\n"
             f'   die DIE0 TOP_IC floorplan "{flp_file}" ;\n\n'
             "solver:\n"
@@ -142,8 +196,22 @@ def main() -> int:
 
     flp_rows = _read_hotspot_flp(args.floorplan)
     powers = _read_ptrace(args.ptrace)
-    ambient = _read_ambient(args.config)
-    heat_transfer_coeff = float(os.environ.get("THREE_D_ICE_HTC", "8.0e-8"))
+    cfg = _parse_hotspot_config(args.config)
+    materials = _read_materials(args.materials)
+
+    ambient = float(cfg.get("-ambient", 300.0))
+    r_convec = float(cfg.get("-r_convec", 0.05))
+    sink_side = float(cfg.get("-s_sink", 0.05))
+    sink_area = max(sink_side * sink_side, 1e-12)
+    heat_transfer_coeff = 1.0 / (r_convec * sink_area)
+
+    chip_material = str(cfg.get("-material_chip", "silicon"))
+    chip = materials.get(chip_material, {})
+    chip_conductivity = float(chip.get("conductivity", 130.0))
+    chip_capacity = float(chip.get("capacity", 1630300.0))
+    chip_thickness = float(cfg.get("-t_chip", 0.00015))
+    spreader_side = float(cfg.get("-s_spreader", sink_side))
+    spreader_thickness = float(cfg.get("-t_spreader", 0.0013))
 
     with tempfile.TemporaryDirectory(prefix="certitherm_3dice_") as tmp:
         tmpdir = Path(tmp)
@@ -157,6 +225,11 @@ def main() -> int:
             chip_width=max(1, int(round(chip_y))),
             ambient=ambient,
             heat_transfer_coeff=heat_transfer_coeff,
+            chip_thickness=chip_thickness,
+            chip_conductivity=chip_conductivity,
+            chip_capacity=chip_capacity,
+            spreader_side=spreader_side,
+            spreader_thickness=spreader_thickness,
         )
         result = subprocess.run(
             [str(THREE_D_ICE_BIN), str(stk_path)],

@@ -1,2 +1,10 @@
 # Submodule content - not tracked here
 3d-ice/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+
+# Local runtime artifacts
+*.log
+conductance_layer.txt

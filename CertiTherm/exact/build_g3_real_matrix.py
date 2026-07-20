@@ -32,6 +32,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 THERMODSE_ROOT = REPO_ROOT / "ThermoDSE"
 TMP_TEMPLATE = THERMODSE_ROOT / "tmp"
+TMP_TEMPLATE_FALLBACK = REPO_ROOT / "CertiTherm" / "evidence" / "thermodse_tmp_template"
 
 sys.path.insert(0, str(THERMODSE_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "CertiTherm" / "exact"))
@@ -109,6 +110,17 @@ def _component_group(name: str) -> str:
 
 def _sha_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _template_root() -> Path:
+    if TMP_TEMPLATE.is_dir():
+        return TMP_TEMPLATE
+    if TMP_TEMPLATE_FALLBACK.is_dir():
+        return TMP_TEMPLATE_FALLBACK
+    raise RuntimeError(
+        "missing simulation template: neither ThermoDSE/tmp nor "
+        "CertiTherm/evidence/thermodse_tmp_template exists"
+    )
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -210,7 +222,7 @@ def _probe_flp_units(
     sim_path = workspace_root / f"{arch_name}_flp_probe"
     if sim_path.exists():
         shutil.rmtree(sim_path)
-    shutil.copytree(TMP_TEMPLATE, sim_path)
+    shutil.copytree(_template_root(), sim_path)
     ev = chiplet_evaluator(
         hotspot_path=str(hotspot_root),
         sim_path=str(sim_path),
@@ -237,7 +249,7 @@ def _capture_workload_power(
     sim_path = capture_root / f"{arch_name}_{workload_key}"
     if sim_path.exists():
         shutil.rmtree(sim_path)
-    shutil.copytree(TMP_TEMPLATE, sim_path)
+    shutil.copytree(_template_root(), sim_path)
 
     ev = chiplet_evaluator(
         hotspot_path=str(hotspot_root),
@@ -301,7 +313,7 @@ def _compute_response_matrix(
     sim_path = workspace_root / f"{arch_name}_{package_name}_response"
     if sim_path.exists():
         shutil.rmtree(sim_path)
-    shutil.copytree(TMP_TEMPLATE, sim_path)
+    shutil.copytree(_template_root(), sim_path)
 
     # Replace package config.
     shutil.copy2(config_path, sim_path / "example.config")
@@ -814,7 +826,7 @@ def main() -> int:
                 sim_dir = workspace / "witness_replay" / f"{entry['query_id']}_{tuple_idx}_{cand_id}"
                 if sim_dir.exists():
                     shutil.rmtree(sim_dir)
-                shutil.copytree(TMP_TEMPLATE, sim_dir)
+                shutil.copytree(_template_root(), sim_dir)
                 shutil.copy2(cfg, sim_dir / "example.config")
                 ev = chiplet_evaluator(
                     hotspot_path=str(hotspot_bin.parent),
@@ -882,7 +894,7 @@ def main() -> int:
             "schema_version": "certitherm.g3-independent-hotspot-replay.v1",
             "suite_artifact_sha256": artifact.get("artifact_sha256"),
             "cases": witness_replays,
-            "all_match": all(case["match"] for case in witness_replays) if witness_replays else True,
+            "all_match": all(case["match"] for case in witness_replays) if witness_replays else False,
             "note": "3D-ICE backend replay not executed in this environment.",
         },
     )

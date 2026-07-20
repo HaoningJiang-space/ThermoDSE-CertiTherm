@@ -28,6 +28,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 THERMODSE_ROOT = REPO_ROOT / "ThermoDSE"
 TMP_TEMPLATE = THERMODSE_ROOT / "tmp"
+TMP_TEMPLATE_FALLBACK = REPO_ROOT / "CertiTherm" / "evidence" / "thermodse_tmp_template"
 
 sys.path.insert(0, str(THERMODSE_ROOT))
 
@@ -37,6 +38,17 @@ from core.chiplet_eva import chiplet_evaluator  # type: ignore  # noqa: E402
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _template_root() -> Path:
+    if TMP_TEMPLATE.is_dir():
+        return TMP_TEMPLATE
+    if TMP_TEMPLATE_FALLBACK.is_dir():
+        return TMP_TEMPLATE_FALLBACK
+    raise RuntimeError(
+        "missing simulation template: neither ThermoDSE/tmp nor "
+        "CertiTherm/evidence/thermodse_tmp_template exists"
+    )
 
 
 def _flp_units(path: Path) -> list[str]:
@@ -139,6 +151,7 @@ def _replay_backend(
     package_cfgs: dict[str, Path],
     workspace: Path,
 ) -> dict[str, Any]:
+    template_root = _template_root()
     cases = []
     for entry in suite_artifact["entries"]:
         spatial = entry["variants"]["spatial_equivalence"]["result"]
@@ -161,7 +174,7 @@ def _replay_backend(
                 sim_dir = workspace / backend / f"{entry['query_id']}_{tuple_index}_{candidate_id}"
                 if sim_dir.exists():
                     shutil.rmtree(sim_dir)
-                shutil.copytree(TMP_TEMPLATE, sim_dir)
+                shutil.copytree(template_root, sim_dir)
                 shutil.copy2(cfg, sim_dir / "example.config")
 
                 ev = chiplet_evaluator(
@@ -239,10 +252,27 @@ def _replay_backend(
                 }
             )
 
+    if not cases:
+        return {
+            "backend": backend,
+            "status": "INVALID",
+            "reason": "no witness tuples were replayed",
+            "cases": [],
+            "all_match": False,
+        }
+    if not all(item["match"] for item in cases):
+        return {
+            "backend": backend,
+            "status": "INVALID",
+            "reason": "one or more witness tuples failed replay",
+            "cases": cases,
+            "all_match": False,
+        }
     return {
         "backend": backend,
+        "status": "PASS",
         "cases": cases,
-        "all_match": all(item["match"] for item in cases) if cases else True,
+        "all_match": True,
     }
 
 
@@ -269,6 +299,12 @@ def main() -> int:
         "--three-d-ice-adapter",
         type=Path,
         help="Executable adapter for 3D-ICE replay.",
+    )
+    parser.add_argument(
+        "--expected-witness-count",
+        type=int,
+        default=4,
+        help="Required number of replayed witness tuples per backend.",
     )
     args = parser.parse_args()
 
@@ -299,8 +335,11 @@ def main() -> int:
         )
     else:
         report["backends"]["hotspot"] = {
+            "backend": "hotspot",
             "status": "UNRESOLVED",
             "reason": f"missing hotspot binary: {args.hotspot_bin}",
+            "all_match": False,
+            "cases": [],
         }
 
     if args.three_d_ice_adapter and args.three_d_ice_adapter.is_file():
@@ -314,15 +353,39 @@ def main() -> int:
         )
     else:
         report["backends"]["3d-ice"] = {
+            "backend": "3d-ice",
             "status": "UNRESOLVED",
             "reason": "3D-ICE adapter not provided or not executable",
+            "all_match": False,
+            "cases": [],
         }
 
+    for backend in report["backends"].values():
+        if backend.get("status") == "PASS":
+            cases = backend.get("cases", [])
+            if len(cases) != args.expected_witness_count:
+                backend["status"] = "INVALID"
+                backend["all_match"] = False
+                backend["reason"] = (
+                    f"unexpected witness count: expected {args.expected_witness_count}, "
+                    f"got {len(cases)}"
+                )
+            elif len({case.get("suite_expected_outcome") for case in cases}) < 2:
+                backend["status"] = "INVALID"
+                backend["all_match"] = False
+                backend["reason"] = "replayed witness outcomes are not decision-changing"
+
+    backends = list(report["backends"].values())
+    report["status"] = (
+        "PASS"
+        if backends
+        and all(item.get("status") == "PASS" and item.get("all_match") for item in backends)
+        else "INVALID"
+    )
     _write_json(args.output.resolve(), report)
     print(f"Wrote independent replay report: {args.output}")
-    return 0
+    return 0 if report["status"] == "PASS" else 2
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -1,0 +1,4 @@
+[submodule "ThermoDSE"]
+	path = ThermoDSE
+	url = https://github.com/Jian-PENG207/ThermoDSE.git
+	branch = main
