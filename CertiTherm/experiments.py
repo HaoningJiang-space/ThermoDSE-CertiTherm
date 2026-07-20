@@ -36,6 +36,7 @@ HOTSPOT = ROOT / ".build" / "hotspot" / "hotspot"
 MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 MODEL_ERROR_LIMIT_K = 0.01
+HOTSPOT_WORKERS = 24
 CALIBRATION_SEEDS = (17, 23, 41)
 CALIBRATION_VECTOR_IDS = (
     "placed",
@@ -264,6 +265,7 @@ def _operator(
         MODELS,
         work / "impulses",
         THERMAL_LIMIT_K,
+        workers=HOTSPOT_WORKERS,
     )
     calibration = []
     rejected = []
