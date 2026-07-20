@@ -27,10 +27,12 @@ compared against four frozen baselines under identical conditions:
    pinned by zero-sum groups are physically determined and are not counted.
 
 Comparison axes (contract "Primary metrics"): certification coverage,
-unjustified commitments against the registered spatial oracle,
-false-safe/false-infeasible selections against the placed-power physical
-reference, nonthermal objective regret, expensive physical-query count,
-wall time, and peak RSS.
+uncertified commitments under NON_IDENTIFIABLE spatial oracles
+(unjustified commitments), false-safe/false-infeasible selections against
+the placed-power physical reference, nonthermal objective regret, expensive
+physical-query count, wall time, and peak RSS.  A commitment produced after
+a certified acquisition step (fixed_uniform_refinement) is justified by its
+own certificate and is never counted as unjustified.
 
 The module emits a self-authenticating artifact and a replay receipt.  The
 registered runner requires a clean Git worktree and writes raw outputs only
@@ -533,7 +535,11 @@ def evaluate_g3_baselines(
                     for candidate in query["spatial_candidates"]
                 }
                 verdict["objective_regret"] = objectives[selection] - objectives[placed_outcome]
-            unjustified = bool(commits and oracle_status == NON_IDENTIFIABLE)
+            unjustified = bool(
+                commits
+                and not record.get("certified")
+                and oracle_status == NON_IDENTIFIABLE
+            )
             baselines[record["baseline_id"]] = {
                 **record,
                 "wall_time_s": wall,
