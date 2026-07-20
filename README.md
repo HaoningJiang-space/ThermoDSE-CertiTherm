@@ -66,6 +66,8 @@ Cross-model disagreement at identical power is reported explicitly as
 - `CertiTherm/hotspot.py` — official HotSpot operator construction;
 - `CertiTherm/cli.py` — NPZ/TSV command line;
 - `docs/INFORMATION_THEORETIC_METHOD.md` — objective and proof contract;
+- `docs/MEASUREMENT_LIBRARY.md` — obtainable EDA channels and costs;
+- `docs/THERMAL_ERROR_CONTRACT.md` — direct-replay error gate;
 - `docs/HELDOUT_PROTOCOL.md` — frozen 4×3×3 evaluation.
 
 ## Evidence status

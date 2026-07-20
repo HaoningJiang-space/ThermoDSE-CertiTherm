@@ -62,6 +62,11 @@ def test_unified_eda_library_has_real_cost_levels_and_no_duplicates() -> None:
     supports = [tuple(np.flatnonzero(action.vector)) for action in actions]
     assert len(supports) == len(set(supports))
     assert tuple(range(len(blocks))) not in supports
+    assert not any(
+        tuple(index for index in range(len(blocks)) if index not in support)
+        in supports
+        for support in supports
+    )
 
 
 def test_coarse_observation_reveals_only_total_power() -> None:

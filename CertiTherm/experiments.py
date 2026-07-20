@@ -10,10 +10,11 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping, Optional, TypeVar
 
 import numpy as np
 
@@ -32,6 +33,8 @@ MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 MODEL_ERROR_LIMIT_K = 0.01
 CALIBRATION_SEEDS = (17, 23, 41)
+QUERY_METHOD_TIMEOUT_S = 1800
+_T = TypeVar("_T")
 
 
 def _rows(path: Path) -> list[dict[str, str]]:
@@ -317,6 +320,24 @@ def _measurement_costs() -> dict[str, float]:
     return {row["action_class"]: float(row["cost"]) for row in rows}
 
 
+def _timed_call(function: Callable[[], _T]) -> tuple[Optional[_T], float, str]:
+    """Run one query method with a fail-closed wall-clock budget."""
+
+    def expire(_signum, _frame) -> None:
+        raise TimeoutError(f"{QUERY_METHOD_TIMEOUT_S}s method budget exhausted")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, QUERY_METHOD_TIMEOUT_S)
+    started = time.perf_counter()
+    try:
+        return function(), time.perf_counter() - started, ""
+    except Exception as exc:
+        return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def _placed_outcomes(
     candidates: Iterable[CandidateSpace],
     placed_by_candidate: Mapping[str, np.ndarray],
@@ -403,9 +424,12 @@ def _write_report(
     false_certificates = sum(
         int(row.get("false_certificate") or 0) for row in rows
     )
+    comparable = [
+        row for row in resolved if row.get("dual_cost") != "" and row.get("width_cost") != ""
+    ]
     dual_wins = sum(
         float(row["dual_cost"]) < float(row["width_cost"])
-        for row in resolved
+        for row in comparable
     )
     calibration_errors = []
     for operator in operators.values():
@@ -428,7 +452,7 @@ def _write_report(
             if savings
             else "- Median exact saving vs full registry: unavailable"
         ),
-        f"- Dual policy beats width: {dual_wins}/{len(resolved)} exact queries",
+        f"- Dual policy beats width: {dual_wins}/{len(comparable)} comparable queries",
         f"- Archived failures: {len(failures)}",
         "",
         "## Workload-specific EDYP order",
@@ -578,58 +602,54 @@ def run(split: str, output: Path, frozen: bool) -> None:
                         }
                     )
             query_id = f"{workload['workload_id']}--{package['package_id']}"
-            try:
-                started = time.perf_counter()
-                exact = synthesize_ordered_query(candidates, actions)
-                exact_seconds = time.perf_counter() - started
-                started = time.perf_counter()
-                fixed_order = tuple(
-                    sorted(
-                        range(len(actions)),
-                        key=lambda index: (
-                            actions[index].cost,
-                            actions[index].action_id,
-                        ),
-                    )
+            fixed_order = tuple(
+                sorted(
+                    range(len(actions)),
+                    key=lambda index: (
+                        actions[index].cost,
+                        actions[index].action_id,
+                    ),
                 )
-                fixed = sequential_early_stop(candidates, actions, fixed_order)
-                fixed_seconds = time.perf_counter() - started
-                started = time.perf_counter()
-                width = sequential_early_stop(
-                    candidates, actions, uncertainty_width_order(candidates, actions)
+            )
+            exact, exact_seconds, exact_error = _timed_call(
+                lambda: synthesize_ordered_query(candidates, actions)
+            )
+            fixed, fixed_seconds, fixed_error = _timed_call(
+                lambda: sequential_early_stop(candidates, actions, fixed_order)
+            )
+            width, width_seconds, width_error = _timed_call(
+                lambda: sequential_early_stop(
+                    candidates,
+                    actions,
+                    uncertainty_width_order(candidates, actions),
                 )
-                width_seconds = time.perf_counter() - started
-                started = time.perf_counter()
-                dual = dual_price_greedy(candidates, actions)
-                dual_seconds = time.perf_counter() - started
-            except Exception as exc:
+            )
+            dual, dual_seconds, dual_error = _timed_call(
+                lambda: dual_price_greedy(candidates, actions)
+            )
+            method_errors = {
+                name: error
+                for name, error in (
+                    ("exact_dsos", exact_error),
+                    ("fixed_early_stop", fixed_error),
+                    ("uncertainty_width", width_error),
+                    ("dual_price", dual_error),
+                )
+                if error
+            }
+            for method, error in method_errors.items():
                 failures.append(
                     {
-                        "stage": "query",
+                        "stage": method,
                         "workload": workload["workload_id"],
                         "architecture": "ORDERED_SET",
                         "package": package["package_id"],
-                        "failure_type": type(exc).__name__,
-                        "message": str(exc),
+                        "failure_type": error.split(":", 1)[0],
+                        "message": error,
                     }
                 )
-                results.append(
-                    {
-                        "freeze_id": "method-freeze-v1",
-                        "split": split,
-                        "workload": workload["workload_id"],
-                        "package": package["package_id"],
-                        "objective": "EDYP_ASCENDING",
-                        "candidate_order": ";".join(
-                            candidate.candidate_id for candidate in candidates
-                        ),
-                        "exact_status": "UNRESOLVED",
-                        "failure": f"{type(exc).__name__}: {exc}",
-                    }
-                )
-                continue
             witness_path = output / "witnesses" / f"{query_id}.npz"
-            if _save_unsynth_witness(witness_path, exact):
+            if exact is not None and _save_unsynth_witness(witness_path, exact):
                 witness_rows.append(
                     {
                         "query_id": query_id,
@@ -645,6 +665,8 @@ def run(split: str, output: Path, frozen: bool) -> None:
                 ("uncertainty_width", width),
                 ("dual_price", dual),
             ):
+                if policy is None:
+                    continue
                 selected = policy.selected_action_ids
                 plan_rows.append(
                     {
@@ -671,14 +693,19 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "candidate_order": ";".join(
                         candidate.candidate_id for candidate in candidates
                     ),
-                    "exact_status": exact.status,
-                    "exact_cost": exact.exact_cost,
-                    "milp_lower_bound": exact.lower_bound,
-                    "lp_relaxation_bound": exact.relaxation_bound,
-                    "optimality_gap": exact.optimality_gap,
-                    "fixed_cost": fixed.cost,
-                    "width_cost": width.cost,
-                    "dual_cost": dual.cost,
+                    "exact_status": exact.status if exact else "UNRESOLVED",
+                    "exact_cost": exact.exact_cost if exact else "",
+                    "milp_lower_bound": exact.lower_bound if exact else "",
+                    "lp_relaxation_bound": (
+                        exact.relaxation_bound if exact else ""
+                    ),
+                    "optimality_gap": exact.optimality_gap if exact else "",
+                    "fixed_status": fixed.status if fixed else "UNRESOLVED",
+                    "fixed_cost": fixed.cost if fixed else "",
+                    "width_status": width.status if width else "UNRESOLVED",
+                    "width_cost": width.cost if width else "",
+                    "dual_status": dual.status if dual else "UNRESOLVED",
+                    "dual_cost": dual.cost if dual else "",
                     "exact_seconds": exact_seconds,
                     "fixed_seconds": fixed_seconds,
                     "width_seconds": width_seconds,
@@ -689,10 +716,12 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "placed_outcome_count": len(placed_outcomes),
                     "false_certificate": (
                         int(len(placed_outcomes) != 1)
-                        if exact.status == "OPTIMAL"
+                        if exact is not None and exact.status == "OPTIMAL"
                         else ""
                     ),
-                    "failure": "",
+                    "failure": "; ".join(
+                        f"{method}={error}" for method, error in method_errors.items()
+                    ),
                 }
             )
     result_path = output / "results.tsv"

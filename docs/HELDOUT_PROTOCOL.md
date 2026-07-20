@@ -80,6 +80,10 @@ Any failure, cross-model disagreement, timeout, or negative comparison is
 archived unchanged. Post-freeze tuning requires a new freeze ID and a new
 held-out split.
 
+Each exact or heuristic query method has a frozen 1800-second wall-clock
+budget. A timeout is recorded per method in `FAILURES.tsv`; other methods for
+the same query still run, and no timeout is converted into a certificate.
+
 ## Artifact contract
 
 Outputs are TSV/CSV/NPZ/Markdown, plus:

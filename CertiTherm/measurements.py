@@ -107,11 +107,13 @@ def build_measurement_library(
             [(block, np.asarray([index])) for index, block in enumerate(blocks)],
         ),
     )
-    actions, seen = [], {tuple(range(n))}
+    actions, seen = [], {(), tuple(range(n))}
     for action_class, groups in registries:
         for label, indices in groups:
             key = tuple(indices.tolist())
-            if not key or key in seen:
+            key_set = set(key)
+            complement = tuple(index for index in range(n) if index not in key_set)
+            if key in seen or complement in seen:
                 continue
             seen.add(key)
             vector = np.zeros(n)

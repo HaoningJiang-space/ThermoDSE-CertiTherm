@@ -14,8 +14,9 @@ additional action is a linear aggregate over the same placed-power vector.
 | post-route | one physical floorplan block | 8 | detailed post-route power analysis |
 
 The implementation derives membership from the provenance-bound floorplan
-and architecture cuts, removes duplicate vectors, and removes the all-block
-vector because total power is already observed. A registry artifact records
+and architecture cuts, removes duplicate and total-power-complement-equivalent
+vectors, and removes the all-block vector because total power is already observed.
+A registry artifact records
 every action, class, support size, and cost seen by each method.
 
 These costs are a frozen ordinal tool-effort model: later EDA stages and finer
