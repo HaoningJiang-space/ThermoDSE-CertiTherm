@@ -3,6 +3,12 @@
 Freeze ID: `method-freeze-v1`  
 Registered two-sided bound: 0.01 K
 
+The exported official HotSpot source is built with a registered numerical
+patch that changes only the grid steady-state stopping threshold from
+\(10^{-6}\) to \(10^{-8}\). The physical equations, package configuration,
+other solver comparisons, and submodule remain unchanged. The patch and
+resulting binary digest are evidence inputs; it is not a fitted scale factor.
+
 For every architecture × package operator and registered HotSpot model, the
 driver compares a direct steady-state replay \(T_{\rm direct}(p)\) with the
 impulse superposition \(T_0+Rp\):

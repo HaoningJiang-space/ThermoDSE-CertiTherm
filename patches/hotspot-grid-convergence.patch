@@ -1,0 +1,28 @@
+--- a/temperature_grid.c
++++ b/temperature_grid.c
+@@ -15,6 +15,7 @@
+ // export some of the matrices into CSV files
+ // WARNING : only use for small designs, as the files get prohibitively large easily
+ #define MAKE_CSVS 0
++#define REGISTERED_STEADY_DELTA 1.0e-8
+ 
+ #if SUPERLU > 0
+ /* Lib for SuperLU */
+@@ -2789,7 +2790,7 @@
+ #if VERBOSE > 1
+       i++;
+ #endif
+-  } while (!eq(delta, 0));
++  } while (fabs(delta) >= REGISTERED_STEADY_DELTA);
+ #if VERBOSE > 1
+   fprintf(stdout, "no. of iterations for steady state convergence (%d x %d grid): %d\n",
+           model->rows, model->cols, i);
+@@ -2833,7 +2834,7 @@
+ #if VERBOSE > 1
+           num_iterations++;
+ #endif
+-      } while (!eq(delta, 0));
++      } while (fabs(delta) >= REGISTERED_STEADY_DELTA);
+ #if VERBOSE > 1
+       fprintf(stdout, "no. of iterations for steady state convergence (%d x %d grid): %d\n",
+               model->rows, model->cols, num_iterations);

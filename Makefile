@@ -15,6 +15,7 @@ bootstrap:
 	find $(HOTSPOT_BUILD) -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 	git -C HotSpot archive HEAD | tar -xf - -C $(HOTSPOT_BUILD)
 	patch -d $(HOTSPOT_BUILD) -p1 < patches/hotspot-output-precision.patch
+	patch -d $(HOTSPOT_BUILD) -p1 < patches/hotspot-grid-convergence.patch
 	$(MAKE) -C $(HOTSPOT_BUILD) hotspot
 	sha256sum $(HOTSPOT_BIN) > $(HOTSPOT_BUILD)/SHA256SUMS
 
