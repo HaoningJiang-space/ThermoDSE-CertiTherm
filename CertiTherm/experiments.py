@@ -306,6 +306,7 @@ def _write_tsv(path: Path, rows: Iterable[dict[str, object]]) -> None:
     rows = list(rows)
     if not rows:
         raise RuntimeError("refusing to write empty evidence table")
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as stream:
         fieldnames = list(
             dict.fromkeys(key for row in rows for key in row)
