@@ -158,3 +158,9 @@ authoritative gate ledger is
 
 All contract gates G1–G4 are closed; the remaining work is paper writing,
 not gating experiments.
+# Archived pre-DSOS insights
+
+> Historical audit trail only. Current method and claims are in
+> `docs/INFORMATION_THEORETIC_METHOD.md` and `docs/HELDOUT_PROTOCOL.md`.
+> In particular, the old 3D-ICE equivalence and fixed-vs-adaptive G4 headline
+> are withdrawn.

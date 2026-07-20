@@ -133,17 +133,24 @@ def dual_price_greedy(
             )
         cuts.append(cut)
         cover = np.asarray(cuts)
+        unresolved = (
+            np.sum(cover[:, selected], axis=1) == 0
+            if selected
+            else np.ones(len(cover), dtype=bool)
+        )
+        residual = cover[unresolved]
+        bounds = [(0.0, 0.0) if index in selected else (0.0, 1.0) for index in range(len(actions))]
         relaxation = linprog(
             costs,
-            A_ub=-cover,
-            b_ub=-np.ones(len(cuts)),
-            bounds=[(0.0, 1.0)] * len(actions),
+            A_ub=-residual,
+            b_ub=-np.ones(len(residual)),
+            bounds=bounds,
             method="highs",
         )
         if not relaxation.success:
             return PolicyResult("UNRESOLVED", (), float("nan"), calls + 1)
         dual = -np.asarray(relaxation.ineqlin.marginals)
-        score = cover.T @ dual / costs
+        score = residual.T @ dual / costs
         score[selected] = -np.inf
         next_index = int(np.argmax(score))
         if not np.isfinite(score[next_index]) or score[next_index] <= 0:
