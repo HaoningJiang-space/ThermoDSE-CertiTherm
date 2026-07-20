@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from pathlib import Path
 import subprocess
@@ -133,6 +134,7 @@ def build_operator(
     materials: Path,
     model: HotSpotModel,
     workspace: Path,
+    workers: int = 8,
 ) -> Tuple[np.ndarray, np.ndarray, str, Tuple[str, ...]]:
     """Build one response matrix by zero-power and unit-impulse replay."""
 
@@ -142,13 +144,17 @@ def build_operator(
     workspace.mkdir(parents=True, exist_ok=True)
     units = tuple(_floorplan_units(paths[2]))
     zero = _run(*paths, model, units, np.zeros(len(units)), workspace, "zero")
-    columns = []
-    for index in range(len(units)):
+    def impulse(index: int) -> np.ndarray:
         power = np.zeros(len(units))
         power[index] = 1.0
-        columns.append(
-            _run(*paths, model, units, power, workspace, f"impulse-{index:04d}") - zero
-        )
+        return _run(
+            *paths, model, units, power, workspace, f"impulse-{index:04d}"
+        ) - zero
+
+    if workers <= 0:
+        raise ValueError("workers must be positive")
+    with ThreadPoolExecutor(max_workers=min(workers, len(units))) as pool:
+        columns = list(pool.map(impulse, range(len(units))))
     response = np.column_stack(columns)
     if np.any(response < -1e-7):
         raise RuntimeError("HotSpot response violates registered steady-state monotonicity")
@@ -171,6 +177,7 @@ def build_family(
     model_ids: Iterable[str],
     workspace: Path,
     limit_k: float,
+    workers: int = 8,
 ) -> Tuple[ThermalFamily, Tuple[str, ...]]:
     responses, ambients, provenance = [], [], []
     units: Tuple[str, ...] = ()
@@ -183,6 +190,7 @@ def build_family(
             materials,
             model,
             workspace / model.model_id,
+            workers,
         )
         if units and units != current_units:
             raise RuntimeError("HotSpot models returned inconsistent block identities")
