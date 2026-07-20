@@ -208,6 +208,31 @@ def build_family(
     return family, units
 
 
+def replay_power(
+    binary: Path,
+    config: Path,
+    floorplan: Path,
+    materials: Path,
+    model_id: str,
+    block_ids: Sequence[str],
+    power_w: np.ndarray,
+    workspace: Path,
+) -> np.ndarray:
+    """Direct HotSpot replay used to audit impulse superposition."""
+
+    model = HotSpotModel.parse(model_id)
+    paths = tuple(Path(path).resolve() for path in (binary, config, floorplan, materials))
+    workspace.mkdir(parents=True, exist_ok=True)
+    return _run(
+        *paths,
+        model,
+        tuple(block_ids),
+        np.asarray(power_w, dtype=float),
+        workspace,
+        "direct",
+    )
+
+
 def save_family(path: Path, family: ThermalFamily, block_ids: Sequence[str]) -> None:
     """Store numeric evidence without pickle or ad-hoc JSON."""
 

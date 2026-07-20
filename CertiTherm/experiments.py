@@ -16,7 +16,7 @@ from typing import Dict, Iterable
 import numpy as np
 
 from .core import CandidateSpace, MeasurementAction, PowerPolytope
-from .hotspot import build_family, load_family, save_family
+from .hotspot import build_family, load_family, replay_power, save_family
 from .policies import dual_price_greedy, sequential_early_stop, uncertainty_width_order
 from .synthesis import synthesize_ordered_query
 
@@ -166,6 +166,7 @@ def _operator(
     with np.load(capture, allow_pickle=False) as data:
         floorplan = work / "floorplan.flp"
         floorplan.write_text(str(data["floorplan_text"]), encoding="utf-8")
+        placed_power = np.asarray(data["placed_power_w"], dtype=float)
     config = work / "package.config"
     _configure(TEMPLATE / "example.config", config, package)
     family, blocks = build_family(
@@ -177,7 +178,30 @@ def _operator(
         work / "impulses",
         THERMAL_LIMIT_K,
     )
+    calibration = []
+    for model_index, model_id in enumerate(family.model_ids):
+        direct = replay_power(
+            HOTSPOT,
+            config,
+            floorplan,
+            TEMPLATE / "example.materials",
+            model_id,
+            blocks,
+            placed_power,
+            work / "calibration" / model_id,
+        )
+        predicted = (
+            family.ambient_k[model_index]
+            + family.response_k_per_w[model_index] @ placed_power
+        )
+        error = float(np.max(np.abs(direct - predicted)))
+        calibration.append(
+            {"model_id": model_id, "max_abs_error_k": error, "limit_k": 1e-5}
+        )
+        if error > 1e-5:
+            raise RuntimeError(f"{model_id} impulse superposition error is {error:.6g} K")
     save_family(target, family, blocks)
+    _write_tsv(target.with_suffix(".calibration.tsv"), calibration)
     return target
 
 
