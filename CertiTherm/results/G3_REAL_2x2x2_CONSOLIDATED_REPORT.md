@@ -33,7 +33,7 @@ Repository: `HaoningJiang-space/ThermoDSE-CertiTherm`
 - `g3_case_query_artifact_receipts.json`: `258225b29f84b8558abf0b0843c9dbcad43de23cf0ac9b87c904699e8b9b97cd`
 - `g3_case_matrix_index.json`: `9e724d0b4126558c8578aaba76cf0ef04a1119969aaf5ff4c18f333ffcf796d4`
 - `g3_independent_hotspot_witness_replay.json`: `6bc4dc69626d5540f0f58ca0ea182cdd785e4cafaafdfdad1a9854b73a3e812f`
-- `g3_independent_dual_backend_replay.json`: `a4d3b21d3d40eab5397713fc405ddc7fb4785f0231de215b403e3e014df09d13`
+- `g3_independent_dual_backend_replay.json`: `17c4185cdb016bc21ba711326ba7edb82945d41f30de80717d70246465489975`
 
 ### Archived artifact SHA-256 (commit-bound)
 
@@ -88,7 +88,15 @@ See: `CertiTherm/evidence/g3_2x2x2_real_archive/manifest.json`
 - 3D-ICE 已完成本地构建并接入 adapter：
   - adapter: `CertiTherm/exact/three_d_ice_adapter.py`
   - dual-backend report: `/tmp/certitherm_g3_real_outputs/g3_independent_dual_backend_replay.json`
-- 结果：当前严格 fail-closed 复跑为 `INVALID`（3d-ice backend 与 hotspot 在 2/4 tuple 不一致）
+- 结果：当前严格 fail-closed 复跑为 `PASS`（HotSpot 与 3D-ICE 均 `all_match=true`）
+
+### Fresh clean-clone replay
+
+- Clean clone: `/tmp/certitherm_clean_clone`
+- Registered suite replay: `PASS`
+- Artifact SHA-256: `69c46a9be4cd6196fc04aa82f81567fdbe33f76931d85b65c3091c6af2948c86`
+- Receipt SHA-256: `bd2fc66a83c28dc30bed90514c91b39637317b285efb283b2dc3c78f1edeaf5c`
+- Source commit: `f3f7345c6f5f360ccef6df9bcd36001563998e36`
 
 ## System-cost evidence
 
@@ -123,6 +131,6 @@ See: `CertiTherm/evidence/g3_2x2x2_real_archive/manifest.json`
 ## Gate status
 
 - `G3-A semantic breadth`: **PASS**
-- `G3-B physical replay`: **PASS** for HotSpot, **PARTIAL** for 3D-ICE
+- `G3-B physical replay`: **PASS**
 - `G3-C baseline/system cost`: **OPEN**
 - `G3 full`: **OPEN**

@@ -1,0 +1,8 @@
+{
+  "artifact_sha256": "69c46a9be4cd6196fc04aa82f81567fdbe33f76931d85b65c3091c6af2948c86",
+  "clone_path": "/tmp/certitherm_clean_clone",
+  "receipt_sha256": "bd2fc66a83c28dc30bed90514c91b39637317b285efb283b2dc3c78f1edeaf5c",
+  "replay_status": "PASS",
+  "source_commit": "f3f7345c6f5f360ccef6df9bcd36001563998e36",
+  "suite_id": "g3_real_2x2x2_content_bound"
+}

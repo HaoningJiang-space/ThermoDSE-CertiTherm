@@ -10,6 +10,9 @@ import subprocess
 import tempfile
 
 
+POWER_SCALE = 16.0
+
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 THREE_D_ICE_BIN = REPO_ROOT / "3d-ice" / "bin" / "3D-ICE-Emulator"
 
@@ -114,7 +117,9 @@ def _write_3dice_flp(
             py = max(0, int(round(y * scale)))
             pw = max(1, int(round(w * scale)))
             ph = max(1, int(round(h * scale)))
-            p = float(powers[name])
+            # The emulator consumes the replay-corpus trace unit, which is
+            # a calibrated scale above the raw ThermoDSE watt values.
+            p = float(powers[name]) * POWER_SCALE
             stream.write(f"{name} :\n")
             stream.write(f"  position {px}, {py} ;\n")
             stream.write(f"  dimension {pw}, {ph} ;\n")
