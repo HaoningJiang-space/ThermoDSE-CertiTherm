@@ -26,8 +26,9 @@ same registry and cost vector. Consequently, DSOS proves the minimum cost
 under this declared library; changing the library or costs defines a new
 problem instance and requires a new freeze.
 
-The fixed baseline sorts by registered cost and stable action ID and calls the
-same decision oracle after every action. It therefore receives the same
-sequential early-stop opportunity as width and dual policies. Full refinement
-means purchasing the entire deduplicated registry, not an artificially
-inflated number of repeated channels.
+The fixed baseline sorts by registered cost, workload-specific EDYP candidate
+rank, and stable action ID, then calls the same decision oracle after every
+action. It therefore receives the same sequential early-stop opportunity as
+width and dual policies. Width ties use the same candidate rank. Full
+refinement means purchasing the entire deduplicated registry, not an
+artificially inflated number of repeated channels.

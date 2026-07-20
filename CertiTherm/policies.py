@@ -80,6 +80,9 @@ def uncertainty_width_order(
     """Order by obtainable measurement range per cost; no decision information."""
 
     candidate_map = {candidate.candidate_id: candidate for candidate in candidates}
+    candidate_rank = {
+        candidate.candidate_id: rank for rank, candidate in enumerate(candidates)
+    }
     scores = []
     for index, action in enumerate(actions):
         polytope = candidate_map[action.candidate_id].power
@@ -96,8 +99,17 @@ def uncertainty_width_order(
         if not lower.success or not upper.success:
             raise RuntimeError("width baseline LP unresolved")
         width = -float(upper.fun) - float(lower.fun)
-        scores.append((width / action.cost, action.action_id, index))
-    return tuple(item[2] for item in sorted(scores, key=lambda item: (-item[0], item[1])))
+        scores.append(
+            (
+                width / action.cost,
+                candidate_rank[action.candidate_id],
+                action.action_id,
+                index,
+            )
+        )
+    return tuple(
+        item[3] for item in sorted(scores, key=lambda item: (-item[0], item[1], item[2]))
+    )
 
 
 def dual_price_greedy(
@@ -158,6 +170,6 @@ def dual_price_greedy(
             unselected = [index for index in separators if index not in selected]
             if not unselected:
                 return PolicyResult("UNRESOLVED", (), float("nan"), calls + 1)
-            next_index = min(unselected, key=lambda index: (costs[index], actions[index].action_id))
+            next_index = min(unselected, key=lambda index: (costs[index], index))
         selected.append(next_index)
     return PolicyResult("UNRESOLVED", (), float("nan"), len(actions) + 1)

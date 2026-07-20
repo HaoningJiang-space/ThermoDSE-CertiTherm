@@ -603,11 +603,16 @@ def run(split: str, output: Path, frozen: bool) -> None:
                         }
                     )
             query_id = f"{workload['workload_id']}--{package['package_id']}"
+            candidate_rank = {
+                candidate.candidate_id: rank
+                for rank, candidate in enumerate(candidates)
+            }
             fixed_order = tuple(
                 sorted(
                     range(len(actions)),
                     key=lambda index: (
                         actions[index].cost,
+                        candidate_rank[actions[index].candidate_id],
                         actions[index].action_id,
                     ),
                 )
