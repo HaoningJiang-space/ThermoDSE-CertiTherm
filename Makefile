@@ -35,10 +35,10 @@ check: test hotspot-smoke
 	git submodule foreach --recursive 'test -z "$$(git status --porcelain)"'
 
 reproduce-dev:
-	$(PYTHON) -m CertiTherm.experiments --registry experiments/dev.tsv --output artifacts/dev
+	$(PYTHON) -m CertiTherm.experiments --split dev --output artifacts/dev
 
 heldout:
-	$(PYTHON) -m CertiTherm.experiments --registry experiments/heldout.tsv --output artifacts/heldout --frozen
+	$(PYTHON) -m CertiTherm.experiments --split heldout --output artifacts/heldout --frozen
 
 clean-generated:
 	find .build -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +

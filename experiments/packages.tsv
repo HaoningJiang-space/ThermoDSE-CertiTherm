@@ -1,0 +1,4 @@
+package_id	r_convec	s_sink	s_spreader	t_spreader	ambient	t_sink	t_interface
+default	0.10	0.06	0.05	0.0010	318.15	0.0069	0.00002
+standard	0.07	0.06	0.03	0.0007	318.15	0.0069	0.00002
+enhanced	0.05	0.10	0.03	0.0013	318.15	0.0069	0.00002

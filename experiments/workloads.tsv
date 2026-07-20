@@ -1,0 +1,7 @@
+workload_id	split	thermodse_name	b_tot	b_exe	sparsity
+resnet50	dev	resnet50	2	2	0.217
+transformer	dev	transformer	1	1	0.000
+mobilenetv2	heldout	mobilenet	4	2	0.368
+unet	heldout	unet	2	1	0.453
+yolov2	heldout	yolo	4	4	0.009
+googlenet	heldout	googlenet	2	2	0.375
