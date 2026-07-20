@@ -8,3 +8,6 @@ __pycache__/
 # Local runtime artifacts
 *.log
 conductance_layer.txt
+
+# Local Claude Code config — contains live API tokens, must never be committed
+.claude/settings.json
