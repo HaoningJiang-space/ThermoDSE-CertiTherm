@@ -96,6 +96,20 @@ terminates after at most \(2^{|\mathcal A|}\) oracle iterations with either:
 An implementation iteration cap or a solver failure weakens this to
 `UNRESOLVED`; it never weakens into a certificate. \(\square\)
 
+### Lemma 3: diagonal coupling for equal candidate states
+
+For one candidate whose required state is identical in two compared query
+outcomes (`SAFE/SAFE`, `UNSAFE/UNSAFE`, or `ANY/ANY`), a confusable composite
+pair exists for that candidate if and only if the single state is feasible.
+Choose the same admissible power and model world on both sides. Every
+registered action then agrees automatically. Conversely, either side of any
+pair is itself a feasible single-state world.
+
+The oracle therefore performs one single-world feasibility search for an
+equal-state candidate. It enumerates the two-world model × peak Cartesian
+product only when the candidate's states differ. This is an exact reduction,
+not pruning, and prevents an unnecessary quadratic LP explosion.
+
 The implementation reports three different quantities. The exact plan cost
 is a primal feasible bound, the solved binary master value is the MILP lower
 bound, and the continuous master relaxation is a generally weaker LP lower

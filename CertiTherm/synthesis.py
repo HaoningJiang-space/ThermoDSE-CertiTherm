@@ -180,6 +180,70 @@ def _state_constraints(
     return (np.hstack((rows, pad)) if side == 0 else np.hstack((pad, rows))), rhs
 
 
+def _single_state_world(
+    candidate: CandidateSpace,
+    state: str,
+    margin_k: float,
+    feasibility_tolerance: float,
+) -> Optional[Tuple[np.ndarray, str]]:
+    """Find one world in a state; used to couple equal-state query sides."""
+
+    power, thermal = candidate.power, candidate.thermal
+    for model, point in _state_specs(thermal, state):
+        if state == "ANY":
+            rows, rhs, model_id = power.a_ub, power.b_ub, "UNCONSTRAINED"
+        elif state == "SAFE":
+            rows = np.vstack((power.a_ub, thermal.response_k_per_w[model]))
+            rhs = np.concatenate(
+                (
+                    power.b_ub,
+                    thermal.limit_k
+                    - margin_k
+                    + thermal.error_k[model]
+                    - thermal.ambient_k[model],
+                )
+            )
+            model_id = thermal.model_ids[model]
+        else:
+            rows = np.vstack(
+                (power.a_ub, -thermal.response_k_per_w[model, point][None, :])
+            )
+            rhs = np.concatenate(
+                (
+                    power.b_ub,
+                    np.array(
+                        [
+                            -(
+                                thermal.limit_k
+                                + margin_k
+                                - thermal.error_k[model]
+                                - thermal.ambient_k[model, point]
+                            )
+                        ]
+                    ),
+                )
+            )
+            model_id = thermal.model_ids[model]
+        result = linprog(
+            np.zeros(power.dimension),
+            A_ub=rows,
+            b_ub=rhs,
+            A_eq=power.a_eq,
+            b_eq=power.b_eq,
+            bounds=list(zip(power.lower_w, power.upper_w)),
+            method="highs",
+            options={
+                "primal_feasibility_tolerance": feasibility_tolerance,
+                "dual_feasibility_tolerance": feasibility_tolerance,
+            },
+        )
+        if result.status == 0:
+            return result.x.copy(), model_id
+        if result.status != 2:
+            raise RuntimeError(f"state feasibility LP unresolved: {result.message}")
+    return None
+
+
 def _state_collision(
     candidate: CandidateSpace,
     actions: Sequence[MeasurementAction],
@@ -190,6 +254,22 @@ def _state_collision(
     feasibility_tolerance: float,
 ) -> Optional[CandidateWorldPair]:
     polytope, thermal = candidate.power, candidate.thermal
+    if left_state == right_state:
+        world = _single_state_world(
+            candidate, left_state, margin_k, feasibility_tolerance
+        )
+        if world is None:
+            return None
+        power, model_id = world
+        return CandidateWorldPair(
+            candidate_id=candidate.candidate_id,
+            left_power_w=power,
+            right_power_w=power.copy(),
+            left_state=left_state,
+            right_state=right_state,
+            left_model_id=model_id,
+            right_model_id=model_id,
+        )
     n = polytope.dimension
     a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
     action_rows, action_rhs = [], []

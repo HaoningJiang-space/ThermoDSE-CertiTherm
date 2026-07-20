@@ -16,7 +16,7 @@ from CertiTherm.policies import (
     uncertainty_width_order,
 )
 from CertiTherm.adaptive import finite_adaptive_limit
-from CertiTherm.synthesis import _query_collision
+from CertiTherm.synthesis import _query_collision, _state_collision
 
 
 def test_exact_plan_reaches_unit_cost_global_limit() -> None:
@@ -154,3 +154,18 @@ def test_query_constraint_generation_matches_all_subset_enumeration() -> None:
     assert plan.exact_cost == min(feasible_costs)
     assert plan.lower_bound == plan.exact_cost
     assert plan.optimality_gap == 0.0
+
+
+def test_equal_query_states_use_exact_diagonal_coupling() -> None:
+    power = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
+    thermal = ThermalFamily(
+        ("cool",), np.zeros((1, 1, 2)), np.array([0.0]), 1.0
+    )
+    candidate = CandidateSpace("candidate", power, thermal)
+    pair = _state_collision(candidate, (), (), "SAFE", "SAFE", 1e-4, 1e-8)
+    assert pair is not None
+    np.testing.assert_array_equal(pair.left_power_w, pair.right_power_w)
+    assert (
+        _state_collision(candidate, (), (), "UNSAFE", "UNSAFE", 1e-4, 1e-8)
+        is None
+    )
