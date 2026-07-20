@@ -5,18 +5,21 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+from itertools import product
 from pathlib import Path
 import re
 import shlex
 import shutil
 import subprocess
 import sys
-from typing import Dict, Iterable
+import time
+from typing import Iterable, Mapping
 
 import numpy as np
 
-from .core import CandidateSpace, MeasurementAction, PowerPolytope
+from .core import CandidateSpace, PowerPolytope
 from .hotspot import build_family, load_family, replay_power, save_family
+from .measurements import build_measurement_library, coarse_power_space
 from .policies import dual_price_greedy, sequential_early_stop, uncertainty_width_order
 from .synthesis import synthesize_ordered_query
 
@@ -28,6 +31,7 @@ HOTSPOT = ROOT / ".build" / "hotspot" / "hotspot"
 MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 MODEL_ERROR_LIMIT_K = 0.01
+CALIBRATION_SEEDS = (17, 23, 41)
 
 
 def _rows(path: Path) -> list[dict[str, str]]:
@@ -57,6 +61,37 @@ def _architecture(row: dict[str, str]) -> list[float]:
         "dram_bw",
     )
     return [float(row[key]) if key == "interval" else int(row[key]) for key in keys]
+
+
+def _capture_metrics(capture: Path) -> dict[str, float]:
+    with np.load(capture, allow_pickle=False) as data:
+        latency = float(data["latency_ms"])
+        energy = float(data["energy_mj"])
+        die_yield = float(data["die_yield"])
+    if min(latency, energy, die_yield) <= 0:
+        raise RuntimeError(f"nonpositive objective metric in {capture.name}")
+    return {
+        "latency_ms": latency,
+        "energy_mj": energy,
+        "die_yield": die_yield,
+        "edyp": latency * energy / die_yield,
+    }
+
+
+def _ordered_architectures(
+    workload_id: str,
+    architectures: Iterable[dict[str, str]],
+    captures: Mapping[tuple[str, str], Path],
+) -> list[dict[str, str]]:
+    """Return the workload's true non-thermal ThermoDSE preference order."""
+
+    return sorted(
+        architectures,
+        key=lambda arch: (
+            _capture_metrics(captures[(workload_id, arch["architecture_id"])])["edyp"],
+            arch["architecture_id"],
+        ),
+    )
 
 
 def _configure(source: Path, output: Path, package: dict[str, str]) -> None:
@@ -160,11 +195,19 @@ def _operator(
     output: Path,
 ) -> Path:
     target = output / "operators" / f"{arch['architecture_id']}--{package['package_id']}.npz"
-    if target.is_file():
+    captures = tuple(captures)
+    calibration_path = target.with_suffix(".calibration.tsv")
+    expected_rows = len(captures) * (2 + len(CALIBRATION_SEEDS)) * len(MODELS)
+    if (
+        target.is_file()
+        and calibration_path.is_file()
+        and len(_rows(calibration_path)) == expected_rows
+    ):
         return target
+    target.unlink(missing_ok=True)
+    calibration_path.unlink(missing_ok=True)
     work = output / "work" / f"operator--{arch['architecture_id']}--{package['package_id']}"
     work.mkdir(parents=True, exist_ok=True)
-    captures = tuple(captures)
     with np.load(captures[0], allow_pickle=False) as data:
         floorplan = work / "floorplan.flp"
         floorplan.write_text(str(data["floorplan_text"]), encoding="utf-8")
@@ -180,37 +223,60 @@ def _operator(
         THERMAL_LIMIT_K,
     )
     calibration = []
+    rejected = []
     for capture_index, capture in enumerate(captures):
         with np.load(capture, allow_pickle=False) as data:
             placed_power = np.asarray(data["placed_power_w"], dtype=float)
-        for model_index, model_id in enumerate(family.model_ids):
-            direct = replay_power(
-                HOTSPOT,
-                config,
-                floorplan,
-                TEMPLATE / "example.materials",
-                model_id,
-                blocks,
-                placed_power,
-                work / "calibration" / f"{capture_index}--{model_id}",
+        vectors = [("placed", placed_power), ("uniform", np.full(
+            placed_power.size, np.sum(placed_power) / placed_power.size
+        ))]
+        for seed in CALIBRATION_SEEDS:
+            vectors.append(
+                (f"permutation-{seed}", np.random.default_rng(seed).permutation(placed_power))
             )
-            predicted = (
-                family.ambient_k[model_index]
-                + family.response_k_per_w[model_index] @ placed_power
-            )
-            error = float(np.max(np.abs(direct - predicted)))
-            calibration.append(
-                {
-                    "capture": capture.name,
-                    "model_id": model_id,
-                    "max_abs_error_k": error,
-                    "registered_error_k": MODEL_ERROR_LIMIT_K,
-                }
-            )
-            if error > MODEL_ERROR_LIMIT_K:
-                raise RuntimeError(
-                    f"{model_id} impulse superposition error is {error:.6g} K"
+        for vector_id, power in vectors:
+            digest = hashlib.sha256(np.asarray(power, dtype="<f8").tobytes()).hexdigest()
+            for model_index, model_id in enumerate(family.model_ids):
+                direct = replay_power(
+                    HOTSPOT,
+                    config,
+                    floorplan,
+                    TEMPLATE / "example.materials",
+                    model_id,
+                    blocks,
+                    power,
+                    work
+                    / "calibration"
+                    / f"{capture_index}--{vector_id}--{model_id}",
                 )
+                predicted = (
+                    family.ambient_k[model_index]
+                    + family.response_k_per_w[model_index] @ power
+                )
+                error = float(np.max(np.abs(direct - predicted)))
+                calibration.append(
+                    {
+                        "capture": capture.name,
+                        "vector_id": vector_id,
+                        "power_sha256": digest,
+                        "model_id": model_id,
+                        "max_abs_error_k": error,
+                        "registered_error_k": MODEL_ERROR_LIMIT_K,
+                        "bound_status": (
+                            "PASS" if error <= MODEL_ERROR_LIMIT_K else "REJECT"
+                        ),
+                    }
+                )
+                if error > MODEL_ERROR_LIMIT_K:
+                    rejected.append((capture.name, vector_id, model_id, error))
+    _write_tsv(calibration_path, calibration)
+    if rejected:
+        worst = max(rejected, key=lambda item: item[-1])
+        raise RuntimeError(
+            "frozen 0.01 K error contract rejected "
+            f"{len(rejected)} replay(s); worst={worst[0]}/{worst[1]}/"
+            f"{worst[2]}:{worst[3]:.6g} K"
+        )
     family = type(family)(
         family.model_ids,
         family.response_k_per_w,
@@ -220,37 +286,17 @@ def _operator(
         np.full(len(family.model_ids), MODEL_ERROR_LIMIT_K),
     )
     save_family(target, family, blocks)
-    _write_tsv(target.with_suffix(".calibration.tsv"), calibration)
     return target
 
 
-def _power_space(capture: Path) -> tuple[PowerPolytope, tuple[str, ...], np.ndarray]:
+def _power_space(
+    capture: Path,
+) -> tuple[PowerPolytope, tuple[str, ...], np.ndarray, str]:
     with np.load(capture, allow_pickle=False) as data:
         blocks = tuple(data["block_ids"].tolist())
         placed = np.asarray(data["placed_power_w"], dtype=float)
-    groups: Dict[str, list[int]] = {}
-    for index, block in enumerate(blocks):
-        groups.setdefault(re.sub(r"_\d+$", "", block), []).append(index)
-    a_eq, b_eq, upper = [], [], np.zeros(len(blocks))
-    for indices in groups.values():
-        row = np.zeros(len(blocks))
-        row[indices] = 1.0
-        total = float(np.sum(placed[indices]))
-        a_eq.append(row)
-        b_eq.append(total)
-        upper[indices] = total
-    return (
-        PowerPolytope(
-            np.zeros(len(blocks)),
-            upper,
-            np.asarray(a_eq),
-            np.asarray(b_eq),
-            np.empty((0, len(blocks))),
-            np.empty(0),
-        ),
-        blocks,
-        placed,
-    )
+        floorplan_text = str(data["floorplan_text"])
+    return coarse_power_space(placed), blocks, placed, floorplan_text
 
 
 def _write_tsv(path: Path, rows: Iterable[dict[str, object]]) -> None:
@@ -258,9 +304,150 @@ def _write_tsv(path: Path, rows: Iterable[dict[str, object]]) -> None:
     if not rows:
         raise RuntimeError("refusing to write empty evidence table")
     with path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(rows[0]), delimiter="\t")
+        fieldnames = list(
+            dict.fromkeys(key for row in rows for key in row)
+        )
+        writer = csv.DictWriter(stream, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _measurement_costs() -> dict[str, float]:
+    rows = _rows(ROOT / "experiments" / "measurements.tsv")
+    return {row["action_class"]: float(row["cost"]) for row in rows}
+
+
+def _placed_outcomes(
+    candidates: Iterable[CandidateSpace],
+    placed_by_candidate: Mapping[str, np.ndarray],
+    margin_k: float = 1e-4,
+) -> tuple[str, ...]:
+    state_sets = []
+    candidates = tuple(candidates)
+    for candidate in candidates:
+        power = placed_by_candidate[candidate.candidate_id]
+        thermal = candidate.thermal
+        states = set()
+        for model_index, (model, error) in enumerate(
+            zip(thermal.response_k_per_w, thermal.error_k)
+        ):
+            peak = float(
+                np.max(thermal.ambient_k[model_index] + model @ power)
+            )
+            if peak <= thermal.limit_k - margin_k + error:
+                states.add("SAFE")
+            if peak >= thermal.limit_k + margin_k - error:
+                states.add("UNSAFE")
+        if not states:
+            states.add("NUMERICAL_GAP")
+        state_sets.append(tuple(sorted(states)))
+    outcomes = set()
+    for states in product(*state_sets):
+        decision = "NO_FEASIBLE_CANDIDATE"
+        for candidate, state in zip(candidates, states):
+            if state == "SAFE":
+                decision = candidate.candidate_id
+                break
+            if state == "NUMERICAL_GAP":
+                decision = "UNRESOLVED"
+                break
+        outcomes.add(decision)
+    return tuple(sorted(outcomes))
+
+
+def _save_unsynth_witness(path: Path, plan) -> bool:
+    if plan.status != "UNSYNTHESIZABLE" or not plan.witnesses:
+        return False
+    witness = plan.witnesses[-1]
+    payload: dict[str, np.ndarray] = {
+        "left_decision": np.asarray(witness.left_decision),
+        "right_decision": np.asarray(witness.right_decision),
+    }
+    for index, pair in enumerate(witness.candidates):
+        prefix = f"candidate_{index}"
+        payload[f"{prefix}_id"] = np.asarray(pair.candidate_id)
+        payload[f"{prefix}_left_power_w"] = pair.left_power_w
+        payload[f"{prefix}_right_power_w"] = pair.right_power_w
+        payload[f"{prefix}_left_state"] = np.asarray(pair.left_state)
+        payload[f"{prefix}_right_state"] = np.asarray(pair.right_state)
+        payload[f"{prefix}_left_model"] = np.asarray(pair.left_model_id)
+        payload[f"{prefix}_right_model"] = np.asarray(pair.right_model_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, **payload)
+    return True
+
+
+def _write_report(
+    path: Path,
+    split: str,
+    operators: Mapping[tuple[str, str], Path],
+    results: Iterable[dict[str, object]],
+    order_rows: Iterable[dict[str, object]],
+    failures: Iterable[dict[str, object]],
+) -> None:
+    rows, failures = list(results), list(failures)
+    statuses = {
+        status: sum(row.get("exact_status") == status for row in rows)
+        for status in ("OPTIMAL", "UNSYNTHESIZABLE", "UNRESOLVED")
+    }
+    resolved = [
+        row
+        for row in rows
+        if row.get("exact_status") == "OPTIMAL"
+        and row.get("exact_cost") is not None
+    ]
+    savings = [
+        1 - float(row["exact_cost"]) / float(row["full_registry_cost"])
+        for row in resolved
+    ]
+    false_certificates = sum(
+        int(row.get("false_certificate") or 0) for row in rows
+    )
+    dual_wins = sum(
+        float(row["dual_cost"]) < float(row["width_cost"])
+        for row in resolved
+    )
+    calibration_errors = []
+    for operator in operators.values():
+        for row in _rows(operator.with_suffix(".calibration.tsv")):
+            calibration_errors.append(float(row["max_abs_error_k"]))
+    lines = [
+        f"# CertiTherm {split} gate report",
+        "",
+        f"- Physical operators admitted: {len(operators)}",
+        f"- Exact status: {statuses}",
+        f"- Placed-reference false certificates: {false_certificates}",
+        (
+            f"- Maximum direct-replay residual: {max(calibration_errors):.9g} K "
+            f"(frozen bound {MODEL_ERROR_LIMIT_K:.3g} K)"
+            if calibration_errors
+            else "- Maximum direct-replay residual: unavailable"
+        ),
+        (
+            f"- Median exact saving vs full registry: {np.median(savings):.1%}"
+            if savings
+            else "- Median exact saving vs full registry: unavailable"
+        ),
+        f"- Dual policy beats width: {dual_wins}/{len(resolved)} exact queries",
+        f"- Archived failures: {len(failures)}",
+        "",
+        "## Workload-specific EDYP order",
+        "",
+        "| Workload | Rank | Architecture | EDYP |",
+        "|---|---:|---|---:|",
+    ]
+    for row in order_rows:
+        lines.append(
+            f"| {row['workload']} | {row['objective_rank']} | "
+            f"{row['architecture']} | {float(row['edyp']):.9g} |"
+        )
+    lines += [
+        "",
+        "The exact cost is the registered finite-library non-adaptive batch "
+        "optimum, not an unrestricted or continuous-adaptive sensor limit.",
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def run(split: str, output: Path, frozen: bool) -> None:
@@ -270,9 +457,15 @@ def run(split: str, output: Path, frozen: bool) -> None:
         raise RuntimeError("run make bootstrap before experiments")
     output.mkdir(parents=True, exist_ok=True)
     architectures = sorted(
-        _rows(ROOT / "experiments" / "architectures.tsv"), key=lambda row: int(row["rank"])
+        (
+            row
+            for row in _rows(ROOT / "experiments" / "architectures.tsv")
+            if row["split"] == split
+        ),
+        key=lambda row: int(row["rank"]),
     )
     packages = _rows(ROOT / "experiments" / "packages.tsv")
+    measurement_costs = _measurement_costs()
     workloads = [
         row for row in _rows(ROOT / "experiments" / "workloads.tsv") if row["split"] == split
     ]
@@ -284,27 +477,75 @@ def run(split: str, output: Path, frozen: bool) -> None:
         for workload in workloads
         for arch in architectures
     }
-    operators = {
-        (arch["architecture_id"], package["package_id"]): _operator(
-            arch,
-            package,
-            [
-                captures[(workload["workload_id"], arch["architecture_id"])]
-                for workload in workloads
-            ],
-            output,
-        )
-        for arch in architectures
-        for package in packages
-    }
-    results = []
+    failures, operators = [], {}
+    for arch in architectures:
+        for package in packages:
+            key = arch["architecture_id"], package["package_id"]
+            try:
+                operators[key] = _operator(
+                    arch,
+                    package,
+                    [
+                        captures[(workload["workload_id"], arch["architecture_id"])]
+                        for workload in workloads
+                    ],
+                    output,
+                )
+            except Exception as exc:  # archive physical/timeout failures unchanged
+                failures.append(
+                    {
+                        "stage": "operator",
+                        "workload": "ALL",
+                        "architecture": key[0],
+                        "package": key[1],
+                        "failure_type": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                )
+    results, order_rows, registry_rows, plan_rows, witness_rows = [], [], [], [], []
     for workload in workloads:
+        ordered_arches = _ordered_architectures(
+            workload["workload_id"], architectures, captures
+        )
+        for rank, arch in enumerate(ordered_arches):
+            metrics = _capture_metrics(
+                captures[(workload["workload_id"], arch["architecture_id"])]
+            )
+            order_rows.append(
+                {
+                    "workload": workload["workload_id"],
+                    "objective_rank": rank,
+                    "architecture": arch["architecture_id"],
+                    **metrics,
+                }
+            )
         for package in packages:
             candidates, actions = [], []
             placed_by_candidate = {}
-            for arch in architectures:
+            missing = [
+                arch["architecture_id"]
+                for arch in ordered_arches
+                if (arch["architecture_id"], package["package_id"]) not in operators
+            ]
+            if missing:
+                results.append(
+                    {
+                        "freeze_id": "method-freeze-v1",
+                        "split": split,
+                        "workload": workload["workload_id"],
+                        "package": package["package_id"],
+                        "objective": "EDYP_ASCENDING",
+                        "candidate_order": ";".join(
+                            arch["architecture_id"] for arch in ordered_arches
+                        ),
+                        "exact_status": "UNRESOLVED",
+                        "failure": f"missing operators: {','.join(missing)}",
+                    }
+                )
+                continue
+            for arch in ordered_arches:
                 candidate_id = arch["architecture_id"]
-                power, blocks, placed = _power_space(
+                power, blocks, placed, floorplan_text = _power_space(
                     captures[(workload["workload_id"], candidate_id)]
                 )
                 family, operator_blocks = load_family(
@@ -314,26 +555,122 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     raise RuntimeError("power/operator block identity mismatch")
                 candidates.append(CandidateSpace(candidate_id, power, family))
                 placed_by_candidate[candidate_id] = placed
-                actions.extend(
-                    MeasurementAction(
-                        f"{candidate_id}::{block}",
-                        np.eye(len(blocks))[index],
-                        candidate_id=candidate_id,
-                    )
-                    for index, block in enumerate(blocks)
+                candidate_actions = build_measurement_library(
+                    candidate_id,
+                    blocks,
+                    floorplan_text,
+                    arch,
+                    measurement_costs,
                 )
-            exact = synthesize_ordered_query(candidates, actions)
-            fixed = sequential_early_stop(candidates, actions, tuple(range(len(actions))))
-            width = sequential_early_stop(
-                candidates, actions, uncertainty_width_order(candidates, actions)
-            )
-            dual = dual_price_greedy(candidates, actions)
+                actions.extend(candidate_actions)
+                for action in candidate_actions:
+                    action_class = action.action_id.split("::")[1]
+                    registry_rows.append(
+                        {
+                            "split": split,
+                            "workload": workload["workload_id"],
+                            "package": package["package_id"],
+                            "candidate": candidate_id,
+                            "action_id": action.action_id,
+                            "action_class": action_class,
+                            "cost": action.cost,
+                            "support_size": int(np.count_nonzero(action.vector)),
+                        }
+                    )
+            query_id = f"{workload['workload_id']}--{package['package_id']}"
+            try:
+                started = time.perf_counter()
+                exact = synthesize_ordered_query(candidates, actions)
+                exact_seconds = time.perf_counter() - started
+                started = time.perf_counter()
+                fixed_order = tuple(
+                    sorted(
+                        range(len(actions)),
+                        key=lambda index: (
+                            actions[index].cost,
+                            actions[index].action_id,
+                        ),
+                    )
+                )
+                fixed = sequential_early_stop(candidates, actions, fixed_order)
+                fixed_seconds = time.perf_counter() - started
+                started = time.perf_counter()
+                width = sequential_early_stop(
+                    candidates, actions, uncertainty_width_order(candidates, actions)
+                )
+                width_seconds = time.perf_counter() - started
+                started = time.perf_counter()
+                dual = dual_price_greedy(candidates, actions)
+                dual_seconds = time.perf_counter() - started
+            except Exception as exc:
+                failures.append(
+                    {
+                        "stage": "query",
+                        "workload": workload["workload_id"],
+                        "architecture": "ORDERED_SET",
+                        "package": package["package_id"],
+                        "failure_type": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                )
+                results.append(
+                    {
+                        "freeze_id": "method-freeze-v1",
+                        "split": split,
+                        "workload": workload["workload_id"],
+                        "package": package["package_id"],
+                        "objective": "EDYP_ASCENDING",
+                        "candidate_order": ";".join(
+                            candidate.candidate_id for candidate in candidates
+                        ),
+                        "exact_status": "UNRESOLVED",
+                        "failure": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
+            witness_path = output / "witnesses" / f"{query_id}.npz"
+            if _save_unsynth_witness(witness_path, exact):
+                witness_rows.append(
+                    {
+                        "query_id": query_id,
+                        "status": exact.status,
+                        "left_decision": exact.witnesses[-1].left_decision,
+                        "right_decision": exact.witnesses[-1].right_decision,
+                        "path": str(witness_path.relative_to(output)),
+                    }
+                )
+            for policy_name, policy in (
+                ("exact_dsos", exact),
+                ("fixed_early_stop", fixed),
+                ("uncertainty_width", width),
+                ("dual_price", dual),
+            ):
+                selected = policy.selected_action_ids
+                plan_rows.append(
+                    {
+                        "query_id": query_id,
+                        "policy": policy_name,
+                        "status": policy.status,
+                        "cost": (
+                            policy.exact_cost
+                            if policy_name == "exact_dsos"
+                            else policy.cost
+                        ),
+                        "selected_count": len(selected),
+                        "selected_action_ids": ";".join(selected),
+                    }
+                )
+            placed_outcomes = _placed_outcomes(candidates, placed_by_candidate)
             results.append(
                 {
                     "freeze_id": "method-freeze-v1",
                     "split": split,
                     "workload": workload["workload_id"],
                     "package": package["package_id"],
+                    "objective": "EDYP_ASCENDING",
+                    "candidate_order": ";".join(
+                        candidate.candidate_id for candidate in candidates
+                    ),
                     "exact_status": exact.status,
                     "exact_cost": exact.exact_cost,
                     "milp_lower_bound": exact.lower_bound,
@@ -342,12 +679,41 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "fixed_cost": fixed.cost,
                     "width_cost": width.cost,
                     "dual_cost": dual.cost,
+                    "exact_seconds": exact_seconds,
+                    "fixed_seconds": fixed_seconds,
+                    "width_seconds": width_seconds,
+                    "dual_seconds": dual_seconds,
                     "full_registry_cost": sum(action.cost for action in actions),
                     "witnesses": len(exact.witnesses),
+                    "placed_reachable_outcomes": ";".join(placed_outcomes),
+                    "placed_outcome_count": len(placed_outcomes),
+                    "false_certificate": (
+                        int(len(placed_outcomes) != 1)
+                        if exact.status == "OPTIMAL"
+                        else ""
+                    ),
+                    "failure": "",
                 }
             )
     result_path = output / "results.tsv"
     _write_tsv(result_path, results)
+    _write_tsv(output / "candidate_order.tsv", order_rows)
+    if registry_rows:
+        _write_tsv(output / "measurement_registry.tsv", registry_rows)
+    if plan_rows:
+        _write_tsv(output / "plans.tsv", plan_rows)
+    if witness_rows:
+        _write_tsv(output / "witnesses.tsv", witness_rows)
+    if failures:
+        _write_tsv(output / "FAILURES.tsv", failures)
+    _write_report(
+        output / "REPORT.md",
+        split,
+        operators,
+        results,
+        order_rows,
+        failures,
+    )
     git_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=ROOT,
@@ -358,7 +724,11 @@ def run(split: str, output: Path, frozen: bool) -> None:
     scientific_paths = [
         path
         for path in sorted(output.rglob("*"))
-        if path.is_file() and "work" not in path.parts
+        if (
+            path.is_file()
+            and "work" not in path.parts
+            and path.name not in {"SHA256SUMS", "ARTIFACTS.tsv"}
+        )
     ]
     sums = output / "SHA256SUMS"
     sums.write_text(
@@ -370,10 +740,25 @@ def run(split: str, output: Path, frozen: bool) -> None:
     )
     artifacts = []
     for path in sorted(output.rglob("*")):
-        if path.is_file() and "work" not in path.parts:
+        if (
+            path.is_file()
+            and "work" not in path.parts
+            and path.name != "ARTIFACTS.tsv"
+        ):
             artifacts.append(
                 {
-                    "role": "result" if path == result_path else "scientific_input",
+                    "role": (
+                        "result"
+                        if path.name
+                        in {
+                            "results.tsv",
+                            "plans.tsv",
+                            "REPORT.md",
+                            "witnesses.tsv",
+                        }
+                        or "witnesses" in path.parts
+                        else "scientific_input"
+                    ),
                     "path": str(path.relative_to(output)),
                     "sha256": _sha256(path),
                     "git_sha": git_sha,

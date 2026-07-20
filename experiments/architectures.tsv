@@ -1,4 +1,7 @@
-architecture_id	rank	chiplet_x	chiplet_y	cut_x	cut_y	interval	mtxu_h	mtxu_w	ubuf	nop_bw	dram_bw
-arch_a	0	7	3	1	1	0.0014	144	128	524288	144	128
-arch_b	1	4	5	2	1	0.0017	128	128	1048576	112	224
-arch_c	2	4	4	2	2	0.0026	160	208	1048576	208	128
+architecture_id	split	rank	chiplet_x	chiplet_y	cut_x	cut_y	interval	mtxu_h	mtxu_w	ubuf	nop_bw	dram_bw
+arch_a	dev	0	7	3	1	1	0.0014	144	128	524288	144	128
+arch_b	dev	1	4	5	2	1	0.0017	128	128	1048576	112	224
+arch_c	dev	2	4	4	2	2	0.0026	160	208	1048576	208	128
+arch_d	heldout	0	5	6	1	2	0.0011	160	80	524288	144	128
+arch_e	heldout	1	8	1	8	1	0.0005	160	176	4194304	64	128
+arch_f	heldout	2	4	2	4	2	0.0005	176	160	4194304	208	128

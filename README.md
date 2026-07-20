@@ -33,11 +33,18 @@ Claim-grade runs are executed on moe-server:
 ```bash
 make reproduce-dev
 make heldout
+make package-dev package-heldout
 ```
 
 Generated evidence is written outside Git under `artifacts/` as
 TSV/CSV/NPZ/Markdown. No secret, machine-specific path, fitted power scale, or
 3D-ICE conversion is part of the method.
+
+Each workload's candidates are ordered by its captured ThermoDSE
+`latency × energy / die_yield` value before thermal feasibility is applied.
+The registered observation library spans module, chiplet, placement-region,
+and post-route per-block power reports with frozen non-unit EDA-stage costs;
+the initial coarse observation reveals total power only.
 
 ## Registered thermal family
 

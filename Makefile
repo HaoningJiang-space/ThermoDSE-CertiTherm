@@ -2,7 +2,7 @@ PYTHON := .venv/bin/python
 HOTSPOT_BUILD := .build/hotspot
 HOTSPOT_BIN := $(HOTSPOT_BUILD)/hotspot
 
-.PHONY: bootstrap check test hotspot-smoke reproduce-dev heldout clean-generated
+.PHONY: bootstrap check test hotspot-smoke reproduce-dev heldout package-dev package-heldout clean-generated
 
 bootstrap:
 	git submodule sync --recursive
@@ -41,6 +41,24 @@ reproduce-dev:
 
 heldout:
 	$(PYTHON) -m CertiTherm.experiments --split heldout --output artifacts/heldout --frozen
+
+package-dev:
+	test -f artifacts/dev/ARTIFACTS.tsv
+	mkdir -p artifacts/releases
+	tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+		--exclude=work -czf artifacts/releases/certitherm-dev.tar.gz \
+		-C artifacts dev
+	sha256sum artifacts/releases/certitherm-dev.tar.gz \
+		> artifacts/releases/certitherm-dev.tar.gz.sha256
+
+package-heldout:
+	test -f artifacts/heldout/ARTIFACTS.tsv
+	mkdir -p artifacts/releases
+	tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+		--exclude=work -czf artifacts/releases/certitherm-heldout.tar.gz \
+		-C artifacts heldout
+	sha256sum artifacts/releases/certitherm-heldout.tar.gz \
+		> artifacts/releases/certitherm-heldout.tar.gz.sha256
 
 clean-generated:
 	find .build -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +

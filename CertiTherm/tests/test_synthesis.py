@@ -16,6 +16,7 @@ from CertiTherm.policies import (
     uncertainty_width_order,
 )
 from CertiTherm.adaptive import finite_adaptive_limit
+from CertiTherm.synthesis import _query_collision
 
 
 def test_exact_plan_reaches_unit_cost_global_limit() -> None:
@@ -116,3 +117,40 @@ def test_finite_adaptive_bellman_limit() -> None:
     assert result.status == "OPTIMAL"
     assert result.worst_case_cost == 2.0
     assert result.first_action == "left"
+
+
+def test_query_constraint_generation_matches_all_subset_enumeration() -> None:
+    polytope = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
+    thermal = ThermalFamily(
+        ("block",), np.array([[[2.0, 0.0]]]), np.array([0.0]), 1.0
+    )
+    candidates = (
+        CandidateSpace("first", polytope, thermal),
+        CandidateSpace("second", polytope, thermal),
+    )
+    actions = (
+        MeasurementAction(
+            "first-p0", np.array([1.0, 0.0]), 3.0, candidate_id="first"
+        ),
+        MeasurementAction(
+            "first-p1", np.array([0.0, 1.0]), 2.0, candidate_id="first"
+        ),
+        MeasurementAction(
+            "second-p0", np.array([1.0, 0.0]), 4.0, candidate_id="second"
+        ),
+        MeasurementAction(
+            "second-p1", np.array([0.0, 1.0]), 1.0, candidate_id="second"
+        ),
+    )
+    feasible_costs = []
+    for mask in range(1 << len(actions)):
+        selected = tuple(
+            index for index in range(len(actions)) if mask & (1 << index)
+        )
+        if _query_collision(candidates, actions, selected, 1e-4, 1e-8) is None:
+            feasible_costs.append(sum(actions[index].cost for index in selected))
+    plan = synthesize_ordered_query(candidates, actions)
+    assert plan.status == "OPTIMAL"
+    assert plan.exact_cost == min(feasible_costs)
+    assert plan.lower_bound == plan.exact_cost
+    assert plan.optimality_gap == 0.0

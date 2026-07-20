@@ -18,8 +18,11 @@ decisions, and
   |a^\top(p_1-p_2)| \le \eta_a \quad \forall a\in S .
 \]
 
-The unresolved cross-decision pairs are the edges of a decision-confusability
-graph. Certifying a decision is equivalent to removing every such edge.
+Let the vertices of the decision-confusability graph be registered physical
+worlds. Two vertices share an edge exactly when they induce different ordered
+DSE decisions. An action \(a\) covers edge \(e=(w_1,w_2)\) when its two
+outcomes differ by more than the registered measurement tolerance. Certifying
+a decision is equivalent to covering every such edge.
 
 ## Exact batch limit
 
@@ -50,6 +53,65 @@ This is a non-incremental algorithm: it synthesizes the entire least-cost
 observation contract before any physical measurement value is known. The
 subsequent LP decision verifier consumes that contract.
 
+### Theorem 1: confusability graph–hitting set equivalence
+
+For a compact registered world set \(W\), finite action library
+\(\mathcal A\), deterministic linear action outcomes with registered
+tolerances, and decision map \(d:W\rightarrow D\), an action subset \(S\)
+identifies the decision for every obtainable observation if and only if \(S\)
+is a hitting set of all cross-decision edges:
+
+\[
+ \forall (w_1,w_2)\in W^2,\quad
+ d(w_1)\ne d(w_2)
+ \Longrightarrow
+ \exists a\in S:\ |a(w_1)-a(w_2)|>\eta_a.
+\]
+
+**Proof.** If an edge is not hit, its endpoints have different decisions but
+identical registered observations, so no verifier can distinguish them.
+Conversely, if every edge is hit, any two worlds consistent with one
+observation have the same decision. That common decision is therefore
+well-defined and certifiable. The minimum-cost sufficient batch is exactly
+the minimum-cost hitting set. \(\square\)
+
+### Theorem 2: exactness and finite termination of constraint generation
+
+At iteration \(t\), the master contains a finite subset \(E_t\) of valid
+cross-decision edges. Its optimum \(L_t\) is a lower bound on
+\(C^\star_{\rm batch}\), because it relaxes the full edge set. If the
+continuous LP oracle returns no collision for master plan \(S_t\), \(S_t\)
+hits the full edge set and hence is feasible. Thus
+\(L_t=C(S_t)=C^\star_{\rm batch}\).
+
+If the oracle returns edge \(e_t\), the added cut contains exactly the
+registered actions that separate \(e_t\). It is necessary for every feasible
+plan and is violated by \(S_t\), so that binary selection can never recur.
+There are only \(2^{|\mathcal A|}\) selections. Therefore the procedure
+terminates after at most \(2^{|\mathcal A|}\) oracle iterations with either:
+
+- a globally optimal feasible plan; or
+- an edge separated by no registered action, proving `UNSYNTHESIZABLE`.
+
+An implementation iteration cap or a solver failure weakens this to
+`UNRESOLVED`; it never weakens into a certificate. \(\square\)
+
+The implementation reports three different quantities. The exact plan cost
+is a primal feasible bound, the solved binary master value is the MILP lower
+bound, and the continuous master relaxation is a generally weaker LP lower
+bound. A completed exact run must have primal-minus-MILP gap zero within the
+registered numerical tolerance.
+
+### Finite exhaustive validation
+
+`test_query_constraint_generation_matches_all_subset_enumeration` enumerates
+all \(2^{|\mathcal A|}\) batch subsets on a hand-specified ordered
+two-candidate instance, calls the continuous collision oracle for every
+subset, and checks that DSOS returns exactly the cheapest feasible subset
+cost with zero MILP gap. The existing analytic two-variable tests separately
+check the known one-channel optimum and a full-library model collision. These
+tests validate the implementation route; they do not replace Theorems 1–2.
+
 ## Information–certification score
 
 For scale, the master LP relaxation assigns dual price \(\lambda_e\) to each
@@ -77,10 +139,13 @@ solves the exact minimax Bellman recurrence
  \end{cases}
 \]
 
-This is the adaptive theoretical limit for that declared quantization. It is
-used for small calibration cases and lower-level insight only. The continuous
-held-out claim remains the exact non-adaptive DSOS limit; no finite
-quantization is allowed to masquerade as a continuous-world proof.
+This is the adaptive theoretical limit only for that declared finite
+quantization. The recurrence terminates because every informative action
+strictly reduces the current world subset and there are at most \(2^{|W|}\)
+subsets. It is used for small calibration cases and lower-level insight only.
+The continuous held-out claim remains the exact **non-adaptive batch** DSOS
+limit; no finite quantization is allowed to masquerade as a continuous-world
+adaptive proof.
 
 ## Scope of the theorem
 
@@ -94,6 +159,11 @@ The result is conditional on:
 It is not an assertion about all possible sensors or silicon truth. A
 cross-model flip at identical full power is reported as
 `MODEL_NON_IDENTIFIABLE`; no power sensor is allowed to hide it.
+
+The word “limit” in all continuous-world result tables therefore means:
+minimum non-adaptive batch cost under the finite, provenance-bound registered
+channel library. It does not mean the unrestricted sensor-design limit or the
+continuous-world adaptive limit.
 
 ## Model family
 

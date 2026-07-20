@@ -1,0 +1,5 @@
+action_class	cost	obtainability
+module	1	workload-level module power report
+chiplet	2	chiplet aggregate power analysis
+placement_region	4	placed-design regional power report
+post_route	8	post-route per-block power analysis

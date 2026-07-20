@@ -6,8 +6,9 @@ State: protocol frozen; no held-out result has been inserted here.
 
 ## Separation
 
-Development workloads are ResNet-50 and Transformer on the two existing
-architectures and two existing package regimes. All algorithm choices,
+Development workloads are ResNet-50 and Transformer on three development
+architectures and three package regimes (nine physical architecture ×
+package operators). All algorithm choices,
 measurement costs, margins, tolerances, and model-family rules are frozen
 before opening the held-out matrix.
 
@@ -23,11 +24,12 @@ Held-out workloads are MobileNetV2, U-Net, YOLOv2, and GoogLeNet. The matrix is:
 - 3 package regimes;
 - 36 candidate cases grouped into 12 ordered three-candidate DSE queries.
 
-The architecture vectors are:
+The three held-out architecture vectors are disjoint from the development
+set:
 
-1. `7 3 1 1 0.0014 144 128 524288 144 128`
-2. `4 5 2 1 0.0017 128 128 1048576 112 224`
-3. `4 4 2 2 0.0026 160 208 1048576 208 128`
+1. `5 6 1 2 0.0011 160 80 524288 144 128`
+2. `8 1 8 1 0.0005 160 176 4194304 64 128`
+3. `4 2 4 2 0.0005 176 160 4194304 208 128`
 
 Package parameters are recorded in `experiments/packages.tsv`. All use
 ambient 318.15 K, sink thickness 0.0069 m, and interface thickness 0.00002 m.
@@ -43,12 +45,27 @@ ambient 318.15 K, sink thickness 0.0069 m, and interface thickness 0.00002 m.
 Every method sees the same action library, costs, tolerances, power polytope,
 HotSpot family, and certification oracle.
 
-Before an operator is admitted, the driver replays the frozen placed-power
-vector directly through the same HotSpot model and compares it with
-\(T_0+Rp\). Development froze a 0.01 K two-sided model-error band after the
-first grid replay exposed a 0.00327 K numerical superposition residual. The
-band is included in every safe/unsafe LP; held-out replay may reject it but
-may not enlarge it.
+Candidate preference is not a static architecture label order. For each
+workload, the driver records ThermoDSE latency, energy, and die yield, computes
+\(\mathrm{EDYP}=\mathrm{latency}\times\mathrm{energy}/\mathrm{yield}\), and
+sorts candidates by ascending measured EDYP before asking the thermal
+feasibility query.
+
+The common measurement registry contains module, chiplet, placement-region,
+and post-route per-block reports at normalized costs 1, 2, 4, and 8. The
+coarse input reveals total workload power only. Costs encode increasing EDA
+stage/tool effort and are frozen in `experiments/measurements.tsv`; they are
+not claimed as elapsed seconds or sensor dollars.
+
+Before an operator is admitted, the driver replays every ResNet/Transformer
+placed-power vector, a uniform vector, and three deterministic spatial
+permutations directly through every registered HotSpot model and compares
+them with \(T_0+Rp\). Development froze a 0.01 K two-sided model-error band
+after the first grid replay exposed a 0.00327 K numerical superposition
+residual. Every vector identity and digest is archived. The band is included
+in every safe/unsafe LP; held-out replay may reject it but may not enlarge it.
+This is a frozen empirical registered-domain error contract, not a formal
+all-power floating-point error proof.
 
 ## Primary evidence
 
