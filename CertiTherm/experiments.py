@@ -302,6 +302,26 @@ def run(split: str, output: Path, frozen: bool) -> None:
             )
     result_path = output / "results.tsv"
     _write_tsv(result_path, results)
+    git_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    scientific_paths = [
+        path
+        for path in sorted(output.rglob("*"))
+        if path.is_file() and "work" not in path.parts
+    ]
+    sums = output / "SHA256SUMS"
+    sums.write_text(
+        "".join(
+            f"{_sha256(path)}  {path.relative_to(output)}\n"
+            for path in scientific_paths
+        ),
+        encoding="utf-8",
+    )
     artifacts = []
     for path in sorted(output.rglob("*")):
         if path.is_file() and "work" not in path.parts:
@@ -310,12 +330,20 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "role": "result" if path == result_path else "scientific_input",
                     "path": str(path.relative_to(output)),
                     "sha256": _sha256(path),
+                    "git_sha": git_sha,
+                    "producer": f"make {'heldout' if frozen else 'reproduce-dev'}",
                 }
             )
     _write_tsv(output / "ARTIFACTS.tsv", artifacts)
-    subprocess.run(
-        ["git", "status", "--porcelain"], cwd=ROOT, check=True, capture_output=True
-    )
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--ignore-submodules=none"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if status:
+        raise RuntimeError(f"repository became dirty during experiment:\n{status}")
 
 
 def main() -> None:
