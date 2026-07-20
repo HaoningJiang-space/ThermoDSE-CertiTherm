@@ -54,6 +54,24 @@ def test_same_power_cross_model_flip_is_unsynthesizable() -> None:
     assert plan.witnesses[-1].cause == "MODEL_NON_IDENTIFIABLE"
 
 
+def test_model_error_straddling_limit_cannot_be_measured_away() -> None:
+    polytope = PowerPolytope.box_with_total(np.ones(1), np.ones(1), 1.0)
+    thermal = ThermalFamily(
+        model_ids=("block",),
+        response_k_per_w=np.array([[[1.0]]]),
+        ambient_k=np.array([0.0]),
+        limit_k=1.0,
+        error_k=np.array([0.01]),
+    )
+    plan = synthesize_minimum_observation(
+        polytope,
+        thermal,
+        (MeasurementAction("full-power", np.ones(1)),),
+    )
+    assert plan.status == "UNSYNTHESIZABLE"
+    assert plan.witnesses[-1].cause == "MODEL_NON_IDENTIFIABLE"
+
+
 def test_ordered_query_optimizes_cross_candidate_decision() -> None:
     polytope = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
     thermal = ThermalFamily(

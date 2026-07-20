@@ -43,6 +43,13 @@ ambient 318.15 K, sink thickness 0.0069 m, and interface thickness 0.00002 m.
 Every method sees the same action library, costs, tolerances, power polytope,
 HotSpot family, and certification oracle.
 
+Before an operator is admitted, the driver replays the frozen placed-power
+vector directly through the same HotSpot model and compares it with
+\(T_0+Rp\). Development froze a 0.01 K two-sided model-error band after the
+first grid replay exposed a 0.00327 K numerical superposition residual. The
+band is included in every safe/unsafe LP; held-out replay may reject it but
+may not enlarge it.
+
 ## Primary evidence
 
 - false certificates: exactly zero;

@@ -244,6 +244,7 @@ def save_family(path: Path, family: ThermalFamily, block_ids: Sequence[str]) -> 
         ambient_k=family.ambient_k,
         limit_k=np.asarray(family.limit_k),
         provenance_sha256=np.asarray(family.provenance_sha256),
+        error_k=family.error_k,
         block_ids=np.asarray(block_ids),
     )
 
@@ -256,5 +257,6 @@ def load_family(path: Path) -> Tuple[ThermalFamily, Tuple[str, ...]]:
             ambient_k=data["ambient_k"],
             limit_k=float(data["limit_k"]),
             provenance_sha256=tuple(data["provenance_sha256"].tolist()),
+            error_k=data["error_k"],
         )
         return family, tuple(data["block_ids"].tolist())

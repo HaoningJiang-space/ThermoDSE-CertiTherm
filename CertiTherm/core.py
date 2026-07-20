@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 import numpy as np
@@ -83,6 +83,7 @@ class ThermalFamily:
     ambient_k: np.ndarray
     limit_k: float
     provenance_sha256: Tuple[str, ...] = ()
+    error_k: np.ndarray = field(default_factory=lambda: np.empty(0))
 
     def __post_init__(self) -> None:
         response = np.asarray(self.response_k_per_w, dtype=float)
@@ -104,8 +105,18 @@ class ThermalFamily:
             raise ValueError("limit_k must be finite")
         if self.provenance_sha256 and len(self.provenance_sha256) != response.shape[0]:
             raise ValueError("provenance must identify every model")
+        error = np.asarray(self.error_k, dtype=float)
+        if error.size == 0:
+            error = np.zeros(response.shape[0])
+        if (
+            error.shape != (response.shape[0],)
+            or not np.all(np.isfinite(error))
+            or np.any(error < 0)
+        ):
+            raise ValueError("error_k must be one finite nonnegative bound per model")
         object.__setattr__(self, "response_k_per_w", response)
         object.__setattr__(self, "ambient_k", ambient)
+        object.__setattr__(self, "error_k", error)
 
     @property
     def blocks(self) -> int:

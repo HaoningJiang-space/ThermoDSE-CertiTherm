@@ -27,6 +27,7 @@ THERMODSE = ROOT / "ThermoDSE"
 HOTSPOT = ROOT / ".build" / "hotspot" / "hotspot"
 MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
+MODEL_ERROR_LIMIT_K = 0.01
 
 
 def _rows(path: Path) -> list[dict[str, str]]:
@@ -155,7 +156,7 @@ def _capture(
 def _operator(
     arch: dict[str, str],
     package: dict[str, str],
-    capture: Path,
+    captures: Iterable[Path],
     output: Path,
 ) -> Path:
     target = output / "operators" / f"{arch['architecture_id']}--{package['package_id']}.npz"
@@ -163,10 +164,10 @@ def _operator(
         return target
     work = output / "work" / f"operator--{arch['architecture_id']}--{package['package_id']}"
     work.mkdir(parents=True, exist_ok=True)
-    with np.load(capture, allow_pickle=False) as data:
+    captures = tuple(captures)
+    with np.load(captures[0], allow_pickle=False) as data:
         floorplan = work / "floorplan.flp"
         floorplan.write_text(str(data["floorplan_text"]), encoding="utf-8")
-        placed_power = np.asarray(data["placed_power_w"], dtype=float)
     config = work / "package.config"
     _configure(TEMPLATE / "example.config", config, package)
     family, blocks = build_family(
@@ -179,27 +180,45 @@ def _operator(
         THERMAL_LIMIT_K,
     )
     calibration = []
-    for model_index, model_id in enumerate(family.model_ids):
-        direct = replay_power(
-            HOTSPOT,
-            config,
-            floorplan,
-            TEMPLATE / "example.materials",
-            model_id,
-            blocks,
-            placed_power,
-            work / "calibration" / model_id,
-        )
-        predicted = (
-            family.ambient_k[model_index]
-            + family.response_k_per_w[model_index] @ placed_power
-        )
-        error = float(np.max(np.abs(direct - predicted)))
-        calibration.append(
-            {"model_id": model_id, "max_abs_error_k": error, "limit_k": 1e-5}
-        )
-        if error > 1e-5:
-            raise RuntimeError(f"{model_id} impulse superposition error is {error:.6g} K")
+    for capture_index, capture in enumerate(captures):
+        with np.load(capture, allow_pickle=False) as data:
+            placed_power = np.asarray(data["placed_power_w"], dtype=float)
+        for model_index, model_id in enumerate(family.model_ids):
+            direct = replay_power(
+                HOTSPOT,
+                config,
+                floorplan,
+                TEMPLATE / "example.materials",
+                model_id,
+                blocks,
+                placed_power,
+                work / "calibration" / f"{capture_index}--{model_id}",
+            )
+            predicted = (
+                family.ambient_k[model_index]
+                + family.response_k_per_w[model_index] @ placed_power
+            )
+            error = float(np.max(np.abs(direct - predicted)))
+            calibration.append(
+                {
+                    "capture": capture.name,
+                    "model_id": model_id,
+                    "max_abs_error_k": error,
+                    "registered_error_k": MODEL_ERROR_LIMIT_K,
+                }
+            )
+            if error > MODEL_ERROR_LIMIT_K:
+                raise RuntimeError(
+                    f"{model_id} impulse superposition error is {error:.6g} K"
+                )
+    family = type(family)(
+        family.model_ids,
+        family.response_k_per_w,
+        family.ambient_k,
+        family.limit_k,
+        family.provenance_sha256,
+        np.full(len(family.model_ids), MODEL_ERROR_LIMIT_K),
+    )
     save_family(target, family, blocks)
     _write_tsv(target.with_suffix(".calibration.tsv"), calibration)
     return target
@@ -269,7 +288,10 @@ def run(split: str, output: Path, frozen: bool) -> None:
         (arch["architecture_id"], package["package_id"]): _operator(
             arch,
             package,
-            captures[(workloads[0]["workload_id"], arch["architecture_id"])],
+            [
+                captures[(workload["workload_id"], arch["architecture_id"])]
+                for workload in workloads
+            ],
             output,
         )
         for arch in architectures

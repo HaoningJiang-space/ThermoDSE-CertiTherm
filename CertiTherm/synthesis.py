@@ -78,14 +78,26 @@ def _collision(
     ambient = thermal.ambient_k
     for safe_model in range(response.shape[0]):
         safe_rows = np.hstack((response[safe_model], np.zeros_like(response[safe_model])))
-        safe_rhs = thermal.limit_k - margin_k - ambient[safe_model]
+        safe_rhs = (
+            thermal.limit_k
+            - margin_k
+            + thermal.error_k[safe_model]
+            - ambient[safe_model]
+        )
         for unsafe_model in range(response.shape[0]):
             for point in range(response.shape[1]):
                 unsafe_row = np.concatenate(
                     (np.zeros(n), -response[unsafe_model, point])
                 )[None, :]
                 unsafe_rhs = np.array(
-                    [-(thermal.limit_k + margin_k - ambient[unsafe_model, point])]
+                    [
+                        -(
+                            thermal.limit_k
+                            + margin_k
+                            - thermal.error_k[unsafe_model]
+                            - ambient[unsafe_model, point]
+                        )
+                    ]
                 )
                 chunks = [base_a_ub, safe_rows, unsafe_row]
                 rhs_chunks = [base_b_ub, safe_rhs, unsafe_rhs]
@@ -146,11 +158,23 @@ def _state_constraints(
     response = thermal.response_k_per_w[model]
     if state == "SAFE":
         rows = response
-        rhs = thermal.limit_k - margin_k - thermal.ambient_k[model]
+        rhs = (
+            thermal.limit_k
+            - margin_k
+            + thermal.error_k[model]
+            - thermal.ambient_k[model]
+        )
     else:
         rows = -response[point][None, :]
         rhs = np.array(
-            [-(thermal.limit_k + margin_k - thermal.ambient_k[model, point])]
+            [
+                -(
+                    thermal.limit_k
+                    + margin_k
+                    - thermal.error_k[model]
+                    - thermal.ambient_k[model, point]
+                )
+            ]
         )
     pad = np.zeros_like(rows)
     return (np.hstack((rows, pad)) if side == 0 else np.hstack((pad, rows))), rhs

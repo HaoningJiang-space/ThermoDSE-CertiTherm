@@ -37,6 +37,10 @@ maximum taken before impulse superposition is nonlinear. The registered grid
 operators use block-average mapping, which preserves linearity. An
 output-format-only patch raises emitted temperature precision from two to ten
 decimal places; the resulting binary digest is the registered executable.
+The first grid64 replay exposed a 0.00327 K numerical superposition residual.
+Development therefore froze a 0.01 K two-sided per-model error band, inserted
+it into every safe/unsafe LP, and replays all development powers. Held-out may
+reject this bound but may not enlarge it.
 
 ## Scientific corrections
 
