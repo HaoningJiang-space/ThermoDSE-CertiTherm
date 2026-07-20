@@ -90,21 +90,30 @@ commit, environment, command, input hashes, runtime, and peak RSS.  Replay
 checks the envelope, replays the G2 artifact, re-runs every required
 conditioned query, and compares decision semantics with numerical tolerance.
 
-## Evidence table shells (no results yet)
+## Evidence tables (populated 2026-07-20, clean-clone claim-grade runs at `d740965`)
 
 ### Per-query acquisition outcome
 
 | Workload | Package | Parent outcomes | Registry size | Selected action | Cost | Conditioned outcomes | Status |
 | --- | --- | --- | ---: | --- | ---: | --- | --- |
-| TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| transformer | standard_sink_s06 | arch_5x4 / arch_4x4 / NO_FEASIBLE | 180 | none | — | — | NO_REGISTERED_WITNESS_CONFIRMING_ACTION (180/180 evaluated; replay PASS) |
+| transformer | enhanced_sink_s10 | arch_5x4 / arch_4x4 / NO_FEASIBLE | 180 | none | — | — | NO_REGISTERED_WITNESS_CONFIRMING_ACTION (180/180 evaluated; replay PASS) |
 
-### Policy comparison required to close G4
+No single registered channel confirms the witness pair on either physical
+stratum: both candidates straddle the 330 K limit, so certifying either
+outcome requires constraining both candidates, which one single-candidate
+action cannot do. This is an exhaustive registered negative; the machinery's
+positive control is the synthetic-fixture WITNESS_PAIR_CONFIRMED tests.
+
+### Policy comparison required to close G4 (matched correctness 2/2 on both strata)
 
 | Policy | Correctness/coverage target | Expensive-query count | Cost | Runtime | Failure taxonomy |
 | --- | --- | ---: | ---: | ---: | --- |
-| Fixed uniform refinement | TBD | TBD | TBD | TBD | TBD |
-| Uncertainty-width refinement | TBD | TBD | TBD | TBD | TBD |
-| Decision-witness-directed | TBD | TBD | TBD | TBD | TBD |
+| Fixed uniform refinement | placed outcome, 2/2 | 360 channels | 360 | 2.7 s (2 solves) | none |
+| Uncertainty-width refinement | placed outcome, 2/2 | 58 channels | 58 | ≈132 s + 19,256 ranking LPs | none |
+| Decision-witness-directed | placed outcome, 2/2 | 77 channels | 77 | ≈114 s, zero ranking LPs | none |
 
-Do not populate these tables from synthetic software fixtures.  G4 closes only
-with registered physical undecidable cases and matched policy baselines.
+Gate result: **PASS** — both adaptive policies beat fixed refinement
+(−83.9% / −78.6% expensive queries) at matched correctness and coverage on
+the physical undecidable cases. Artifact `e8f713b6…`, replay PASS; in-repo
+summary `results/G4_POLICY_COMPARISON_20260720.json`.

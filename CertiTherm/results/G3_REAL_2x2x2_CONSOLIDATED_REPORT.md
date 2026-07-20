@@ -143,11 +143,29 @@ See: `CertiTherm/evidence/g3_2x2x2_real_archive/manifest.json`
 - `.gitmodules`, `CertiTherm/evidence/thermodse_tmp_template/`
   - 补齐 ThermoDSE gitlink 元信息与最小模板回退目录
 
+## G4 acquisition evidence
+
+- 报告：`CertiTherm/results/G4_REPORT.md`
+- 汇总：`CertiTherm/results/G4_POLICY_COMPARISON_20260720.json`
+- 注册表：`certitherm.g4-measurement-registry.v1`（physical per-block channel，180 actions/stratum，源文件 SHA-256 绑定，由 `CertiTherm/exact/build_g4_registry.py` 确定性构建并自校验）
+- Claim-grade 运行（fresh clean clone `/tmp/certitherm_g4_clone`，commit `d740965`，输出全部在仓库外 `/tmp/g4_outputs/`）：
+  - 注册单动作 acquisition（实现级检查）：两个 attention strata 均为 **NO_REGISTERED_WITNESS_CONFIRMING_ACTION**（180/180 actions 全部评估；66–67 个分离见证值但无一能同时认证两个条件查询；replay PASS ×2）。物理解释：两个候选架构在 330K 两侧跨骑，认证任一结果需要同时约束两个候选，单候选单通道动作在原理上做不到；机器确认能力由 synthetic WITNESS_PAIR_CONFIRMED 测试正向覆盖。
+  - 匹配三策略对比（实证门禁，`CertiTherm/exact/g4_policy_comparison.py`）：artifact `e8f713b6…`，replay PASS，matched correctness 2/2：
+
+| Policy | s06 channels | s10 channels | Total | vs fixed |
+|---|---:|---:|---:|---:|
+| fixed_uniform_refinement | 180 | 180 | 360 | — |
+| uncertainty_width_refinement | 29 | 29 | 58 | −83.9% |
+| decision_witness_directed_refinement | 38 | 39 | 77 | −78.6% |
+
+- 判定依据：contract G4 行要求 "fewer expensive queries than fixed refinement at matched correctness/coverage" —— 两个自适应策略均满足；EDA 特异性来自决策见证对（认证副产品）引导传感，非通用策略调参；非claim 边界（无全局最优/最小信息）保持。
+
 ## Gate status
 
-本文件是 G3 门禁状态的权威 ledger（其余文档由此派生，见 README / INSIGHTS / G3_FULL_REPORT 指针）。
+本文件是 G3/G4 门禁状态的权威 ledger（其余文档由此派生，见 README / INSIGHTS / G3_FULL_REPORT 指针）。
 
 - `G3-A semantic breadth`: **PASS**
 - `G3-B physical replay`: **PASS**
 - `G3-C baseline/system cost`: **PASS**（2026-07-20，四基线对比 + 成本表，replay PASS）
 - `G3 full`: **PASS**（A+B+C 全部通过；claim boundary 见 G3_BASELINE_REPORT.md）
+- `G4 acquisition`: **PASS**（2026-07-20，matched 3-policy comparison 58/77 vs 360 channels @ 2/2 matched correctness，replay PASS；单动作注册检查为穷尽性阴性，见 G4_REPORT.md）

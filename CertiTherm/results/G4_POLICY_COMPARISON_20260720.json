@@ -1,0 +1,115 @@
+{
+  "claim_boundary": "Policy costs are compared inside one registered per-block channel family under one declared cost model on the physical NON_IDENTIFIABLE G3 strata. This is not a proof of global policy optimality, universal resolution for every measurement value, or least-information sensing outside the registered family.",
+  "date": "2026-07-20",
+  "policy_comparison": {
+    "applicable_strata": 2,
+    "artifact_sha256": "e8f713b69ce150a93e446defd809bf7e39a3400e8b8d99617d9824068cb2c23f",
+    "channel_cost_totals": {
+      "decision_witness_directed_refinement": 77,
+      "fixed_uniform_refinement": 360,
+      "uncertainty_width_refinement": 58
+    },
+    "matched_correctness_coverage": true,
+    "peak_rss_kb": 169768,
+    "reduction_vs_fixed": {
+      "decision_witness_directed_refinement": 0.7861,
+      "uncertainty_width_refinement": 0.8389
+    },
+    "replay_status": "PASS",
+    "strata": {
+      "g3-real-attention-enhanced_sink_s10": {
+        "placed_reference_outcome": "arch_5x4_rect_struct",
+        "policies": {
+          "decision_witness_directed_refinement": {
+            "channel_cost": 39,
+            "decide_query_calls": 40,
+            "interval_lp_count": 0,
+            "matches_placed_reference": true,
+            "selection": "arch_5x4_rect_struct",
+            "status": "CERTIFIED",
+            "wall_time_s": 58.292644774977816
+          },
+          "fixed_uniform_refinement": {
+            "channel_cost": 180,
+            "decide_query_calls": 1,
+            "interval_lp_count": 0,
+            "matches_placed_reference": true,
+            "selection": "arch_5x4_rect_struct",
+            "status": "CERTIFIED",
+            "wall_time_s": 1.253407818992855
+          },
+          "uncertainty_width_refinement": {
+            "channel_cost": 29,
+            "decide_query_calls": 30,
+            "interval_lp_count": 9628,
+            "matches_placed_reference": true,
+            "selection": "arch_5x4_rect_struct",
+            "status": "CERTIFIED",
+            "wall_time_s": 65.85208653600421
+          }
+        }
+      },
+      "g3-real-attention-standard_sink_s06": {
+        "placed_reference_outcome": "arch_5x4_rect_struct",
+        "policies": {
+          "decision_witness_directed_refinement": {
+            "channel_cost": 38,
+            "decide_query_calls": 39,
+            "interval_lp_count": 0,
+            "matches_placed_reference": true,
+            "selection": "arch_5x4_rect_struct",
+            "status": "CERTIFIED",
+            "wall_time_s": 55.27303335702163
+          },
+          "fixed_uniform_refinement": {
+            "channel_cost": 180,
+            "decide_query_calls": 1,
+            "interval_lp_count": 0,
+            "matches_placed_reference": true,
+            "selection": "arch_5x4_rect_struct",
+            "status": "CERTIFIED",
+            "wall_time_s": 1.423596649983665
+          },
+          "uncertainty_width_refinement": {
+            "channel_cost": 29,
+            "decide_query_calls": 30,
+            "interval_lp_count": 9628,
+            "matches_placed_reference": true,
+            "selection": "arch_5x4_rect_struct",
+            "status": "CERTIFIED",
+            "wall_time_s": 65.79649752899422
+          }
+        }
+      }
+    },
+    "wall_time_s": 271.4000721379998
+  },
+  "registered_single_action_acquisition": {
+    "g3-real-attention-enhanced_sink_s10": {
+      "acquisition_status": "NO_REGISTERED_WITNESS_CONFIRMING_ACTION",
+      "artifact_sha256": "4ac55954ada407e95a235d6db5ae5b57b487f7e7057955626f7b780724646d9b",
+      "evaluated_actions": 180,
+      "indistinguishable_actions": 113,
+      "peak_rss_kb": 170316,
+      "registered_actions": 180,
+      "replay_status": "PASS",
+      "separating_but_not_confirming": 67,
+      "wall_time_s": 210.387747966015
+    },
+    "g3-real-attention-standard_sink_s06": {
+      "acquisition_status": "NO_REGISTERED_WITNESS_CONFIRMING_ACTION",
+      "artifact_sha256": "6dc11454ddfdc3041ae340057e3bbcb54f7b754ce05ee0c90ff41554e3d66d7e",
+      "evaluated_actions": 180,
+      "indistinguishable_actions": 114,
+      "peak_rss_kb": 171084,
+      "registered_actions": 180,
+      "replay_status": "PASS",
+      "separating_but_not_confirming": 66,
+      "wall_time_s": 217.75873159000184
+    }
+  },
+  "schema_version": "certitherm.g4-closure-summary.v1",
+  "source_commit": "d74096533397c1e2fe88b5e06263dea948b2dd17",
+  "suite_artifact_sha256": "69c46a9be4cd6196fc04aa82f81567fdbe33f76931d85b65c3091c6af2948c86",
+  "suite_id": "g3_real_2x2x2_content_bound"
+}

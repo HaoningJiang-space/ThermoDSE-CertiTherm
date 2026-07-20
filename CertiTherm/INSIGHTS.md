@@ -139,3 +139,22 @@ physical replay), and G3-C (four frozen baselines + systems cost). The
 authoritative gate ledger is
 `results/G3_REAL_2x2x2_CONSOLIDATED_REPORT.md`; baseline evidence is in
 `results/G3_BASELINE_REPORT.md`. G4 remains open.
+
+**G4 update (2026-07-20):** G4 now passes as well. Two findings matter:
+
+1. *Single-channel sensing is provably insufficient on the physical
+   undecidable strata.* Both attention candidates straddle the 330 K limit,
+   and the registered exhaustive check (180 actions per stratum, all
+   evaluated, replay PASS) confirms no one per-block measurement can certify
+   the two witness-conditioned queries. Certifying either outcome requires
+   constraining both candidates — a structural property, not a solver
+   limitation.
+2. *Iterative acquisition is decisively cheaper than brute-force sensing.*
+   At matched 2/2 correctness against the placed reference, uncertainty-width
+   refinement needs 58 channels and decision-witness-directed refinement 77,
+   versus 360 for fixed uniform refinement. The witness-directed ranking is
+   free (read off the stored witness tuples) and lands 100% of its channels
+   on the decision-carrying candidate.
+
+All contract gates G1–G4 are closed; the remaining work is paper writing,
+not gating experiments.
