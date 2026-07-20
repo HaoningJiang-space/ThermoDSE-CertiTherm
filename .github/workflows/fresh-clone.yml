@@ -1,0 +1,17 @@
+name: fresh-clone
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Bootstrap pinned dependencies and HotSpot
+        run: make bootstrap
+      - name: Verify tests, HotSpot smoke, and clean submodules
+        run: make check

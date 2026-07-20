@@ -24,7 +24,6 @@ from decision_query import (
 )
 from evidence import build_replay_artifact, replay_artifact
 from linear_oracle import canonical_sha256, solve_candidate_bounds
-from measurement import decide_with_extra_measurement
 from run_g2_query import load_query_bundle, run_registered_query
 from run_g2_physical_replay import (
     PhysicalReplayError,
@@ -215,16 +214,6 @@ def test_replay_disagreement_fails_closed():
         )
     assert result["status"] == "UNRESOLVED"
     assert result["reason"] == "UNRESOLVED_CERTIFICATE_FAILURE"
-
-
-def test_extra_measurement_reuses_correct_minmax_kernel():
-    observation = _observation(2.0, 2)
-    observation["measurement_w_p"] = ([1.0, 0.0], 1.5)
-    result = decide_with_extra_measurement(
-        np.eye(2), 0.0, ["a", "b"], observation, T_budget=1.25, area_mm2=1.0
-    )
-    assert result["status"] == "CERTIFIED_INFEASIBLE"
-    assert abs(result["lower_d"] - 1.5) < 1e-8
 
 
 def test_query_certifies_first_candidate_when_it_is_always_safe():

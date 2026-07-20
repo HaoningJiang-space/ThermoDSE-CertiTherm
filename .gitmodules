@@ -1,4 +1,6 @@
 [submodule "ThermoDSE"]
 	path = ThermoDSE
 	url = https://github.com/Jian-PENG207/ThermoDSE.git
-	branch = main
+[submodule "HotSpot"]
+	path = HotSpot
+	url = https://github.com/uvahotspot/HotSpot.git
