@@ -42,10 +42,11 @@ TSV/CSV/NPZ/Markdown. No secret, machine-specific path, fitted power scale, or
 ## Registered thermal family
 
 - HotSpot block;
-- HotSpot grid 64×64, max mapping;
-- HotSpot grid 128×128, max mapping.
+- HotSpot grid 64×64, block-average mapping;
+- HotSpot grid 128×128, block-average mapping.
 
-Grid 256×256 is calibration-only. Operators are built by zero-power and
+Grid max mapping is excluded from the LP because max-before-superposition is
+nonlinear. Grid 256×256 is calibration-only. Operators are built by zero-power and
 one-watt impulses and bound to the binary/config/floorplan/material digests.
 Cross-model disagreement at identical power is reported explicitly as
 `MODEL_NON_IDENTIFIABLE`.

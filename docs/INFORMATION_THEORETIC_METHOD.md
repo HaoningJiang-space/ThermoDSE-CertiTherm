@@ -100,9 +100,12 @@ cross-model flip at identical full power is reported as
 The main family is HotSpot-only:
 
 - block;
-- grid 64×64 with max block mapping;
-- grid 128×128 with max block mapping.
+- grid 64×64 with block-average mapping;
+- grid 128×128 with block-average mapping.
 
-Grid 256×256 is calibration-only. Every model receives a separate impulse
+Block average is linear in grid-cell temperatures; HotSpot's max mapping is
+not and is therefore forbidden in the LP operator. The exported build applies
+an output-format-only patch from two to ten decimal places before its binary
+digest is recorded. Grid 256×256 is calibration-only. Every model receives a separate impulse
 operator and provenance digest. There is no fitted `POWER_SCALE`, no 3D-ICE
 equivalence claim, and no silent conversion between stacks.

@@ -12,7 +12,9 @@ bootstrap:
 	$(PYTHON) -m pip install --upgrade pip
 	$(PYTHON) -m pip install -r requirements.lock
 	mkdir -p $(HOTSPOT_BUILD)
+	find $(HOTSPOT_BUILD) -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 	git -C HotSpot archive HEAD | tar -xf - -C $(HOTSPOT_BUILD)
+	patch -d $(HOTSPOT_BUILD) -p1 < patches/hotspot-output-precision.patch
 	$(MAKE) -C $(HOTSPOT_BUILD) hotspot
 	sha256sum $(HOTSPOT_BIN) > $(HOTSPOT_BUILD)/SHA256SUMS
 

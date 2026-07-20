@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "CertiTherm" / "evidence" / "thermodse_tmp_template"
 THERMODSE = ROOT / "ThermoDSE"
 HOTSPOT = ROOT / ".build" / "hotspot" / "hotspot"
-MODELS = ("block", "grid64-max", "grid128-max")
+MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 
 

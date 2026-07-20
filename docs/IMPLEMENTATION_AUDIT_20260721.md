@@ -32,6 +32,12 @@ Fresh clone `12b8ef0` on moe-server:
 
 No local test or physical experiment was used.
 
+Post-audit correction: HotSpot grid `max` mapping was rejected because a
+maximum taken before impulse superposition is nonlinear. The registered grid
+operators use block-average mapping, which preserves linearity. An
+output-format-only patch raises emitted temperature precision from two to ten
+decimal places; the resulting binary digest is the registered executable.
+
 ## Scientific corrections
 
 1. The active path is HotSpot-only. The uncalibrated

@@ -105,7 +105,7 @@ def main() -> None:
     build.add_argument("--config", required=True)
     build.add_argument("--floorplan", required=True)
     build.add_argument("--materials", required=True)
-    build.add_argument("--models", default="block,grid64-max,grid128-max")
+    build.add_argument("--models", default="block,grid64-avg,grid128-avg")
     build.add_argument("--workspace", required=True)
     build.add_argument("--limit-k", type=float, required=True)
     build.add_argument("--output", required=True)

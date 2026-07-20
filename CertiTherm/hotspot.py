@@ -20,17 +20,17 @@ class HotSpotModel:
     model_type: str
     grid_rows: int = 0
     grid_cols: int = 0
-    grid_map_mode: str = "max"
+    grid_map_mode: str = "avg"
 
     @classmethod
     def parse(cls, text: str) -> "HotSpotModel":
         if text == "block":
             return cls("block", "block")
-        if text.startswith("grid") and text.endswith("-max"):
+        if text.startswith("grid") and text.endswith("-avg"):
             size = int(text[4:-4])
             if size <= 0:
                 raise ValueError("grid size must be positive")
-            return cls(text, "grid", size, size, "max")
+            return cls(text, "grid", size, size, "avg")
         raise ValueError(f"unsupported registered HotSpot model: {text}")
 
 
