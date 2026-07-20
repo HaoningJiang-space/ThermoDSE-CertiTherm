@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import csv
 import hashlib
 from itertools import product
@@ -267,8 +268,7 @@ def _operator(
         THERMAL_LIMIT_K,
         workers=HOTSPOT_WORKERS,
     )
-    calibration = []
-    rejected = []
+    jobs = []
     for capture_index, capture in enumerate(captures):
         with np.load(capture, allow_pickle=False) as data:
             placed_power = np.asarray(data["placed_power_w"], dtype=float)
@@ -296,38 +296,57 @@ def _operator(
         for vector_id, power in vectors:
             digest = hashlib.sha256(np.asarray(power, dtype="<f8").tobytes()).hexdigest()
             for model_index, model_id in enumerate(family.model_ids):
-                direct = replay_power(
-                    HOTSPOT,
-                    config,
-                    floorplan,
-                    TEMPLATE / "example.materials",
-                    model_id,
-                    blocks,
-                    power,
-                    work
-                    / "calibration"
-                    / f"{capture_index}--{vector_id}--{model_id}",
+                jobs.append(
+                    (
+                        capture_index,
+                        capture.name,
+                        vector_id,
+                        digest,
+                        model_index,
+                        model_id,
+                        power,
+                    )
                 )
-                predicted = (
-                    family.ambient_k[model_index]
-                    + family.response_k_per_w[model_index] @ power
-                )
-                error = float(np.max(np.abs(direct - predicted)))
-                calibration.append(
-                    {
-                        "capture": capture.name,
-                        "vector_id": vector_id,
-                        "power_sha256": digest,
-                        "model_id": model_id,
-                        "max_abs_error_k": error,
-                        "registered_error_k": MODEL_ERROR_LIMIT_K,
-                        "bound_status": (
-                            "PASS" if error <= MODEL_ERROR_LIMIT_K else "REJECT"
-                        ),
-                    }
-                )
-                if error > MODEL_ERROR_LIMIT_K:
-                    rejected.append((capture.name, vector_id, model_id, error))
+
+    def calibrate(job):
+        capture_index, capture_name, vector_id, digest, model_index, model_id, power = job
+        direct = replay_power(
+            HOTSPOT,
+            config,
+            floorplan,
+            TEMPLATE / "example.materials",
+            model_id,
+            blocks,
+            power,
+            work / "calibration" / f"{capture_index}--{vector_id}--{model_id}",
+        )
+        predicted = (
+            family.ambient_k[model_index]
+            + family.response_k_per_w[model_index] @ power
+        )
+        error = float(np.max(np.abs(direct - predicted)))
+        return {
+            "capture": capture_name,
+            "vector_id": vector_id,
+            "power_sha256": digest,
+            "model_id": model_id,
+            "max_abs_error_k": error,
+            "registered_error_k": MODEL_ERROR_LIMIT_K,
+            "bound_status": "PASS" if error <= MODEL_ERROR_LIMIT_K else "REJECT",
+        }
+
+    with ThreadPoolExecutor(max_workers=min(HOTSPOT_WORKERS, len(jobs))) as pool:
+        calibration = list(pool.map(calibrate, jobs))
+    rejected = [
+        (
+            row["capture"],
+            row["vector_id"],
+            row["model_id"],
+            row["max_abs_error_k"],
+        )
+        for row in calibration
+        if row["bound_status"] == "REJECT"
+    ]
     _write_tsv(calibration_path, calibration)
     if rejected:
         worst = max(rejected, key=lambda item: item[-1])
