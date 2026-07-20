@@ -11,6 +11,11 @@ architectures and two existing package regimes. All algorithm choices,
 measurement costs, margins, tolerances, and model-family rules are frozen
 before opening the held-out matrix.
 
+The pinned ThermoDSE revision has one interface inconsistency:
+`GemmLayer.total_filter_size` omits the one-byte default used by its base and
+Conv implementations. The driver applies only that default-argument
+compatibility shim at runtime; the submodule remains byte-clean and pinned.
+
 Held-out workloads are MobileNetV2, U-Net, YOLOv2, and GoogLeNet. The matrix is:
 
 - 4 workloads;

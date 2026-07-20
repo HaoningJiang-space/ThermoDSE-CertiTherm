@@ -106,6 +106,16 @@ def _capture(
     (sim / "run.sh").chmod(0o755)
     sys.path.insert(0, str(THERMODSE))
     from core.chiplet_eva import chiplet_evaluator  # type: ignore
+    from core.layer import GemmLayer  # type: ignore
+
+    # The base and Conv APIs default to one-byte words; the pinned Gemm
+    # override accidentally dropped that default. Keep the submodule clean
+    # and restore only the upstream interface convention at runtime.
+    original_filter_size = GemmLayer.total_filter_size
+    if original_filter_size.__defaults__ is None:
+        GemmLayer.total_filter_size = (  # type: ignore[assignment]
+            lambda self, word_bytes=1: original_filter_size(self, word_bytes)
+        )
 
     evaluator = chiplet_evaluator(
         hotspot_path=str(HOTSPOT.parent),
