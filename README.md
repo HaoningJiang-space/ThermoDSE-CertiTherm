@@ -56,7 +56,7 @@ Grid max mapping is excluded from the LP because max-before-superposition is
 nonlinear. Grid 256×256 is calibration-only. Operators are built by zero-power and
 one-watt impulses and bound to the binary/config/floorplan/material digests.
 The exported build tightens HotSpot's grid steady-state convergence threshold
-from `1e-6` to `1e-8` and records that patch; this changes numerical
+from `1e-6` to `1e-7` and records that patch; this changes numerical
 convergence, not the thermal equations or stack.
 Cross-model disagreement at identical power is reported explicitly as
 `MODEL_NON_IDENTIFIABLE`.

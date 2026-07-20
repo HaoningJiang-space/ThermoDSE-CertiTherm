@@ -4,7 +4,7 @@
  // export some of the matrices into CSV files
  // WARNING : only use for small designs, as the files get prohibitively large easily
  #define MAKE_CSVS 0
-+#define REGISTERED_STEADY_DELTA 1.0e-8
++#define REGISTERED_STEADY_DELTA 1.0e-7
  
  #if SUPERLU > 0
  /* Lib for SuperLU */
