@@ -458,6 +458,75 @@ def _save_unsynth_witness(path: Path, plan) -> bool:
     return True
 
 
+def _replay_unsynth_witness(
+    query_id: str,
+    plan,
+    candidates: Iterable[CandidateSpace],
+    operators: Mapping[tuple[str, str], Path],
+    package_id: str,
+    output: Path,
+) -> tuple[list[dict[str, object]], bool]:
+    if plan.status != "UNSYNTHESIZABLE" or not plan.witnesses:
+        return [], True
+    candidate_map = {candidate.candidate_id: candidate for candidate in candidates}
+    rows, payload, accepted = [], {}, True
+    for pair in plan.witnesses[-1].candidates:
+        candidate = candidate_map[pair.candidate_id]
+        family, blocks = load_family(operators[(pair.candidate_id, package_id)])
+        for side, power, state, model_id in (
+            ("left", pair.left_power_w, pair.left_state, pair.left_model_id),
+            ("right", pair.right_power_w, pair.right_state, pair.right_model_id),
+        ):
+            if model_id == "UNCONSTRAINED":
+                continue
+            model_index = family.model_ids.index(model_id)
+            work = output / "work" / f"operator--{pair.candidate_id}--{package_id}"
+            direct = replay_power(
+                HOTSPOT,
+                work / "package.config",
+                work / "floorplan.flp",
+                TEMPLATE / "example.materials",
+                model_id,
+                blocks,
+                power,
+                output
+                / "work"
+                / "witness-replay"
+                / query_id
+                / pair.candidate_id
+                / side,
+            )
+            predicted = (
+                family.ambient_k[model_index]
+                + family.response_k_per_w[model_index] @ power
+            )
+            error = float(np.max(np.abs(direct - predicted)))
+            current_pass = error <= float(family.error_k[model_index])
+            accepted &= current_pass
+            key = f"{pair.candidate_id}--{side}"
+            payload[f"{key}--direct_temperature_k"] = direct
+            payload[f"{key}--predicted_temperature_k"] = predicted
+            rows.append(
+                {
+                    "query_id": query_id,
+                    "candidate": pair.candidate_id,
+                    "side": side,
+                    "registered_state": state,
+                    "model_id": model_id,
+                    "predicted_peak_k": float(np.max(predicted)),
+                    "direct_peak_k": float(np.max(direct)),
+                    "max_abs_error_k": error,
+                    "registered_error_k": float(family.error_k[model_index]),
+                    "replay_status": "PASS" if current_pass else "REJECT",
+                }
+            )
+    if payload:
+        replay_path = output / "witness_replays" / f"{query_id}.npz"
+        replay_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(replay_path, **payload)
+    return rows, accepted
+
+
 def _write_report(
     path: Path,
     split: str,
@@ -586,7 +655,8 @@ def run(split: str, output: Path, frozen: bool) -> None:
                         "message": str(exc),
                     }
                 )
-    results, order_rows, registry_rows, plan_rows, witness_rows = [], [], [], [], []
+    results, order_rows, registry_rows = [], [], []
+    plan_rows, witness_rows, witness_replay_rows = [], [], []
     for workload in workloads:
         ordered_arches = _ordered_architectures(
             workload["workload_id"], architectures, captures
@@ -714,6 +784,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     }
                 )
             witness_path = output / "witnesses" / f"{query_id}.npz"
+            exact_status = exact.status if exact else "UNRESOLVED"
             if exact is not None and _save_unsynth_witness(witness_path, exact):
                 witness_rows.append(
                     {
@@ -724,6 +795,32 @@ def run(split: str, output: Path, frozen: bool) -> None:
                         "path": str(witness_path.relative_to(output)),
                     }
                 )
+                replay_rows, replay_pass = _replay_unsynth_witness(
+                    query_id,
+                    exact,
+                    candidates,
+                    operators,
+                    package["package_id"],
+                    output,
+                )
+                witness_replay_rows.extend(replay_rows)
+                witness_rows[-1]["physical_replay_status"] = (
+                    "PASS" if replay_pass else "REJECT"
+                )
+                if not replay_pass:
+                    exact_status = "UNRESOLVED"
+                    error = "witness direct replay violates frozen error contract"
+                    method_errors["exact_dsos_replay"] = error
+                    failures.append(
+                        {
+                            "stage": "exact_dsos_replay",
+                            "workload": workload["workload_id"],
+                            "architecture": "ORDERED_SET",
+                            "package": package["package_id"],
+                            "failure_type": "ErrorContractViolation",
+                            "message": error,
+                        }
+                    )
             for policy_name, policy in (
                 ("exact_dsos", exact),
                 ("fixed_early_stop", fixed),
@@ -737,7 +834,11 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     {
                         "query_id": query_id,
                         "policy": policy_name,
-                        "status": policy.status,
+                        "status": (
+                            exact_status
+                            if policy_name == "exact_dsos"
+                            else policy.status
+                        ),
                         "cost": (
                             policy.exact_cost
                             if policy_name == "exact_dsos"
@@ -758,7 +859,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "candidate_order": ";".join(
                         candidate.candidate_id for candidate in candidates
                     ),
-                    "exact_status": exact.status if exact else "UNRESOLVED",
+                    "exact_status": exact_status,
                     "exact_cost": exact.exact_cost if exact else "",
                     "milp_lower_bound": exact.lower_bound if exact else "",
                     "lp_relaxation_bound": (
@@ -798,6 +899,8 @@ def run(split: str, output: Path, frozen: bool) -> None:
         _write_tsv(output / "plans.tsv", plan_rows)
     if witness_rows:
         _write_tsv(output / "witnesses.tsv", witness_rows)
+    if witness_replay_rows:
+        _write_tsv(output / "witness_replays.tsv", witness_replay_rows)
     if failures:
         _write_tsv(output / "FAILURES.tsv", failures)
     _write_report(
@@ -849,8 +952,10 @@ def run(split: str, output: Path, frozen: bool) -> None:
                             "plans.tsv",
                             "REPORT.md",
                             "witnesses.tsv",
+                            "witness_replays.tsv",
                         }
                         or "witnesses" in path.parts
+                        or "witness_replays" in path.parts
                         else "scientific_input"
                     ),
                     "path": str(path.relative_to(output)),

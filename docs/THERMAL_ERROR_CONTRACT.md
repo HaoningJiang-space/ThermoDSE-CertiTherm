@@ -28,3 +28,8 @@ the operator and leaves the affected query `UNRESOLVED`. The 0.01 K value is
 therefore a frozen empirical registered-domain engineering contract. It is
 not presented as a formal error bound over every real-valued power vector or
 every HotSpot configuration.
+
+For an `UNSYNTHESIZABLE` result, the final continuous-LP witness powers are
+also replayed directly through their named HotSpot models. Full direct and
+predicted temperature vectors are archived. If any witness residual exceeds
+0.01 K, the paper-facing query status is downgraded to `UNRESOLVED`.

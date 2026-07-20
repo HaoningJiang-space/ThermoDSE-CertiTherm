@@ -92,6 +92,7 @@ Outputs are TSV/CSV/NPZ/Markdown, plus:
 
 - `ARTIFACTS.tsv` with role, path, producing command, Git SHA, and input SHA;
 - `SHA256SUMS`;
+- final non-identifiability witness powers and direct HotSpot replay vectors;
 - a compressed release archive and its SHA-256;
 - HotSpot binary and submodule revision receipts.
 
