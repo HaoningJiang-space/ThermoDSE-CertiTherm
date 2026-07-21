@@ -632,19 +632,30 @@ def _solve_master(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> _Master:
     return _Master(selected, float(integer.fun), lower_bound, float(relaxed.fun), dual)
 
 
-def _insert_minimal_cut(cuts: List[np.ndarray], cut: np.ndarray) -> bool:
+def _cut_mask(cut: np.ndarray) -> int:
+    mask = 0
+    for index in np.flatnonzero(cut):
+        mask |= 1 << int(index)
+    return mask
+
+
+def _insert_minimal_cut(
+    cuts: List[np.ndarray],
+    cut: np.ndarray,
+    masks: Optional[List[int]] = None,
+) -> bool:
     """Maintain the inclusion-minimal antichain of hitting-set constraints."""
 
-    support = np.asarray(cut, dtype=bool)
-    existing_supports = [np.asarray(existing, dtype=bool) for existing in cuts]
-    if any(np.all(~existing | support) for existing in existing_supports):
+    if masks is None:
+        masks = [_cut_mask(existing) for existing in cuts]
+    mask = _cut_mask(cut)
+    if any(existing & mask == existing for existing in masks):
         return False
-    cuts[:] = [
-        existing
-        for existing, old_support in zip(cuts, existing_supports)
-        if not np.all(~support | old_support)
-    ]
+    keep = [index for index, existing in enumerate(masks) if existing & mask != mask]
+    cuts[:] = [cuts[index] for index in keep]
+    masks[:] = [masks[index] for index in keep]
     cuts.append(np.asarray(cut, dtype=float))
+    masks.append(mask)
     return True
 
 
@@ -799,6 +810,7 @@ def synthesize_minimum_observation(
 
         costs = np.asarray([action.cost for action in actions])
         cuts: List[np.ndarray] = []
+        cut_masks: List[int] = []
         witnesses: List[WorldPair] = []
         master = _solve_master(costs, cuts)
         for iteration in range(1, max_iterations + 1):
@@ -850,7 +862,7 @@ def synthesize_minimum_observation(
                         witnesses=tuple(witnesses),
                         message=f"full action library cannot separate {witness.cause}",
                     )
-                if _insert_minimal_cut(cuts, cut):
+                if _insert_minimal_cut(cuts, cut, cut_masks):
                     witnesses.append(witness)
                     added += 1
             if not added:
