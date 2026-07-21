@@ -11,7 +11,7 @@ action library, model family, margins, and numerical tolerances.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.optimize import Bounds, LinearConstraint, linprog, milp
@@ -341,6 +341,9 @@ def _query_collision(
     selected: Iterable[int],
     margin_k: float,
     feasibility_tolerance: float,
+    cache: Optional[
+        Dict[Tuple[int, Tuple[int, ...], str, str], Optional[CandidateWorldPair]]
+    ] = None,
 ) -> Optional[QueryWorldPair]:
     selected_set = set(selected)
     action_index = {
@@ -354,23 +357,34 @@ def _query_collision(
         for right_decision in range(left_decision + 1, len(candidates) + 1):
             right_states = _decision_states(len(candidates), right_decision)
             pairs = []
-            for candidate, left_state, right_state in zip(
-                candidates, left_states, right_states
+            for candidate_index, (candidate, left_state, right_state) in enumerate(
+                zip(candidates, left_states, right_states)
             ):
                 global_indices = action_index[candidate.candidate_id]
                 local_actions = [actions[index] for index in global_indices]
                 local_selected = [
                     local for local, index in enumerate(global_indices) if index in selected_set
                 ]
-                pair = _state_collision(
-                    candidate,
-                    local_actions,
-                    local_selected,
+                key = (
+                    candidate_index,
+                    tuple(local_selected),
                     left_state,
                     right_state,
-                    margin_k,
-                    feasibility_tolerance,
                 )
+                if cache is not None and key in cache:
+                    pair = cache[key]
+                else:
+                    pair = _state_collision(
+                        candidate,
+                        local_actions,
+                        local_selected,
+                        left_state,
+                        right_state,
+                        margin_k,
+                        feasibility_tolerance,
+                    )
+                    if cache is not None:
+                        cache[key] = pair
                 if pair is None:
                     break
                 pairs.append(pair)
@@ -476,12 +490,16 @@ def synthesize_ordered_query(
         costs = np.asarray([action.cost for action in actions])
         cuts: List[np.ndarray] = []
         witnesses: List[QueryWorldPair] = []
+        oracle_cache: Dict[
+            Tuple[int, Tuple[int, ...], str, str], Optional[CandidateWorldPair]
+        ] = {}
         full_witness = _query_collision(
             candidates,
             actions,
             range(len(actions)),
             margin_k,
             feasibility_tolerance,
+            oracle_cache,
         )
         if full_witness is not None:
             pairs = {pair.candidate_id: pair for pair in full_witness.candidates}
@@ -523,6 +541,7 @@ def synthesize_ordered_query(
                 selected,
                 margin_k,
                 feasibility_tolerance,
+                oracle_cache,
             )
             if witness is None:
                 if not exact_check:

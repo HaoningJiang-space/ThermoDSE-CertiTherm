@@ -51,10 +51,10 @@ def sequential_early_stop(
 ) -> PolicyResult:
     """Fair fixed/width baseline: same oracle, and stop immediately when certified."""
 
-    selected = []
+    selected, cache = [], {}
     for calls in range(len(order) + 1):
         witness = _query_collision(
-            candidates, actions, selected, margin_k, feasibility_tolerance
+            candidates, actions, selected, margin_k, feasibility_tolerance, cache
         )
         if witness is None:
             return PolicyResult(
@@ -123,10 +123,10 @@ def dual_price_greedy(
     """Greedy zero-error InfoCertGain using decision-cut LP dual prices."""
 
     costs = np.asarray([action.cost for action in actions])
-    selected, cuts = [], []
+    selected, cuts, cache = [], [], {}
     for calls in range(len(actions) + 1):
         witness = _query_collision(
-            candidates, actions, selected, margin_k, feasibility_tolerance
+            candidates, actions, selected, margin_k, feasibility_tolerance, cache
         )
         if witness is None:
             return PolicyResult(
