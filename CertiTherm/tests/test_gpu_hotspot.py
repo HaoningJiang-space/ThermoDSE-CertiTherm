@@ -3,7 +3,7 @@ import struct
 import numpy as np
 import pytest
 
-from CertiTherm.gpu_benchmark import _read_placed_power
+from CertiTherm.gpu_benchmark import _read_placed_power, _thermal_state
 from CertiTherm.gpu_hotspot import (
     GpuHotSpotBackend,
     _read_output,
@@ -65,3 +65,9 @@ def test_placed_power_trace_requires_exact_registry(tmp_path):
     assert np.array_equal(_read_placed_power(trace, ("a", "b")), [1.5, 2.5])
     with pytest.raises(RuntimeError, match="registry"):
         _read_placed_power(trace, ("b", "a"))
+
+
+def test_gpu_decision_gate_is_conservative_and_fail_closed():
+    assert _thermal_state(329.0) == "SAFE"
+    assert _thermal_state(331.0) == "REJECT"
+    assert _thermal_state(330.0 - 0.01) == "NUMERICAL_GAP"

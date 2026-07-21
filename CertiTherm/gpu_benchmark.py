@@ -17,6 +17,8 @@ from .hotspot import HotSpotModel, build_operator, replay_power
 
 
 ERROR_LIMIT_K = 0.01
+THERMAL_LIMIT_K = 330.0
+DECISION_MARGIN_K = 1e-4
 MODELS = ("grid64-avg", "grid128-avg")
 CASES = ("example1", "thermodse-227")
 
@@ -35,6 +37,15 @@ def _write_tsv(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]), delimiter="\t")
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _thermal_state(peak_k: float) -> str:
+    conservative_peak = peak_k + ERROR_LIMIT_K
+    if conservative_peak <= THERMAL_LIMIT_K - DECISION_MARGIN_K:
+        return "SAFE"
+    if conservative_peak >= THERMAL_LIMIT_K + DECISION_MARGIN_K:
+        return "REJECT"
+    return "NUMERICAL_GAP"
 
 
 def _read_placed_power(path: Path, units: tuple[str, ...]) -> np.ndarray:
@@ -131,6 +142,9 @@ def run(
                     "case": "zero-ambient",
                     "max_abs_error_k": ambient_error,
                     "limit_k": ERROR_LIMIT_K,
+                    "cpu_state": "",
+                    "gpu_state": "",
+                    "decision_status": "",
                     "status": "PASS" if ambient_error <= ERROR_LIMIT_K else "REJECT",
                 },
                 {
@@ -139,6 +153,9 @@ def run(
                     "case": "all-unit-impulses",
                     "max_abs_error_k": response_error,
                     "limit_k": ERROR_LIMIT_K,
+                    "cpu_state": "",
+                    "gpu_state": "",
+                    "decision_status": "",
                     "status": "PASS" if response_error <= ERROR_LIMIT_K else "REJECT",
                 },
             )
@@ -176,6 +193,9 @@ def run(
             )
             predicted = gpu_ambient + gpu_response @ power
             error = float(np.max(np.abs(direct - predicted)))
+            cpu_state = _thermal_state(float(np.max(direct)))
+            gpu_state = _thermal_state(float(np.max(predicted)))
+            accepted = error <= ERROR_LIMIT_K and cpu_state == gpu_state
             rows.append(
                 {
                     "input": case_id,
@@ -183,7 +203,12 @@ def run(
                     "case": case,
                     "max_abs_error_k": error,
                     "limit_k": ERROR_LIMIT_K,
-                    "status": "PASS" if error <= ERROR_LIMIT_K else "REJECT",
+                    "cpu_state": cpu_state,
+                    "gpu_state": gpu_state,
+                    "decision_status": (
+                        "MATCH" if cpu_state == gpu_state else "MISMATCH"
+                    ),
+                    "status": "PASS" if accepted else "REJECT",
                 }
             )
 
@@ -204,6 +229,7 @@ def run(
         f"- Physical input: `{case_id}`",
         f"- Faster operator builds: {len(timing) - len(slow)}/{len(timing)} PASS",
         f"- Maximum absolute temperature error: {max(float(row['max_abs_error_k']) for row in rows):.9g} K",
+        f"- Matched thermal decisions: {sum(row['decision_status'] == 'MATCH' for row in rows)}/{sum(bool(row['decision_status']) for row in rows)}",
         f"- Minimum end-to-end speedup: {min(float(row['speedup']) for row in timing):.3f}x",
         "",
         "CPU HotSpot is the reference. GPU kernel output is not used as its own validation.",
