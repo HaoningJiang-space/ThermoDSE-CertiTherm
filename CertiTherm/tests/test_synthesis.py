@@ -206,6 +206,23 @@ def test_parallel_multicut_matches_serial_exact_plan() -> None:
     assert serial.optimality_gap == parallel.optimality_gap == 0.0
 
 
+def test_early_stop_reuses_a_witness_until_an_action_separates_it() -> None:
+    polytope = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
+    thermal = ThermalFamily(
+        ("block",), np.array([[[2.0, 0.0]]]), np.array([0.0]), 1.0
+    )
+    candidate = CandidateSpace("candidate", polytope, thermal)
+    actions = tuple(
+        MeasurementAction(f"null-{index}", np.zeros(2)) for index in range(12)
+    ) + (MeasurementAction("decisive", np.array([1.0, 0.0])),)
+    result = sequential_early_stop(
+        (candidate,), actions, tuple(range(len(actions)))
+    )
+    assert result.status == "CERTIFIED"
+    assert result.selected_action_ids[-1] == "decisive"
+    assert result.oracle_calls == 2
+
+
 def test_ordered_decomposition_skips_unreachable_candidate_decisions() -> None:
     power = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
     ambiguous = ThermalFamily(

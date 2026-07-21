@@ -112,7 +112,31 @@ def sequential_early_stop(
     required = _required_candidate_indices(
         candidates, margin_k, feasibility_tolerance
     )
-    for calls in range(len(order) + 1):
+    calls = 1
+    witness = _local_collision(
+        candidates,
+        actions,
+        selected,
+        required,
+        margin_k,
+        feasibility_tolerance,
+        cache,
+    )
+    if witness is None:
+        return PolicyResult("CERTIFIED", (), 0.0, calls)
+    for index in order:
+        selected.append(index)
+        candidate_id, pair = witness
+        action = actions[index]
+        delta = pair.safe_power_w - pair.unsafe_power_w
+        if (
+            action.candidate_id != candidate_id
+            or abs(float(action.vector @ delta)) <= action.tolerance
+        ):
+            # The current LP witness satisfies the new observation exactly,
+            # so it remains a constructive ambiguity certificate.
+            continue
+        calls += 1
         witness = _local_collision(
             candidates,
             actions,
@@ -127,17 +151,14 @@ def sequential_early_stop(
                 "CERTIFIED",
                 tuple(actions[index].action_id for index in selected),
                 sum(actions[index].cost for index in selected),
-                calls + 1,
+                calls,
             )
-        if calls == len(order):
-            return PolicyResult(
-                "UNSYNTHESIZABLE",
-                tuple(actions[index].action_id for index in selected),
-                sum(actions[index].cost for index in selected),
-                calls + 1,
-            )
-        selected.append(order[calls])
-    raise AssertionError("unreachable")
+    return PolicyResult(
+        "UNSYNTHESIZABLE",
+        tuple(actions[index].action_id for index in selected),
+        sum(actions[index].cost for index in selected),
+        calls,
+    )
 
 
 def uncertainty_width_order(
