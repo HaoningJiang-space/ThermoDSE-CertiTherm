@@ -145,19 +145,63 @@ operator is synthetic — see the module docstring.
 
 | method | cost | n | converged | budget | time |
 |---|---|---|---|---|---|
-| exact DSOS | — | 0 | **no** (`UNRESOLVED`) | 250 iters | 716s |
+| exact DSOS (8 workers) | — | 11 (candidate) | **no** (`UNRESOLVED`) | 250 iters | 716s |
+| exact DSOS (sequential) | — | 11 (candidate) | **no** (`UNRESOLVED`) | 5000 iters | 461s |
 | plain greedy | 24.0 | 11 | **no** | 60 rounds | 3.1s |
 | DR-DSC learned | 85.0 | 19 | **no** | 60 rounds | 132.7s |
 
-**Three findings, in order of importance.**
+**SUPERSEDED CLAIMS — do not reuse.** Earlier revisions of this table reported
+`n=0` for the exact path and attributed the 716s to "the MILP, measured".
+Both were wrong:
 
-1. **Nothing converges at realistic scale.** The exact path exhausts its
-   constraint-generation budget and fails closed with `UNRESOLVED` after 250
-   iterations (~2.9 s/iteration; CertiTherm's own default budget is 10000
-   iterations, which extrapolates to roughly 8 hours). Both heuristics also
-   run out of rounds with their cover still growing (greedy's cost climbed
-   3.0 → 24.0 → 37.0 as the round budget rose). This is the "MILP is too
-   slow" complaint, measured.
+- `n=0` was a **reporting bug**, not an empty selection. On budget exhaustion
+  `synthesize_minimum_observation` returned `master.selected`, which on that
+  path is still the empty-cut master from initialisation, discarding an
+  11-action working cover (cost 31.0). Fixed; the run now reports it under
+  `candidate_action_ids`. Every earlier report quoting `n_selected=0` as
+  "the algorithm selected nothing" must be regenerated.
+- The exact MILP **never ran**. `_solve_master` is only called when separation
+  finds no collision, which never happened. So neither "MILP is too slow" nor
+  the "~8 hours at the 10000-iteration default" extrapolation is supported by
+  that experiment. The defensible statement is narrow: *under the 8-worker
+  fresh-spawn implementation, 250 iterations took 716s and stayed UNRESOLVED
+  within the iteration budget.*
+
+**Findings that survive, in order of importance.**
+
+1. **The default parallelism is a 32x pessimization.** Sequential separation
+   runs at 0.064 s/iteration against 2.07 s/iteration for the 8-worker
+   default: over 96% of parallel wall time is not useful LP work. Each
+   exhaustive search builds a fresh spawn-context `ProcessPoolExecutor` to
+   dispatch twelve LPs of ~5-6 ms each; the ~2 s/iteration overhead is an
+   unseparated mixture of spawn, per-worker numpy/scipy import, problem
+   pickling, IPC, HiGHS init and teardown, and should not be attributed to any
+   one of them. At twelve LPs per round, even zero-overhead 8-way parallelism
+   could only save ~53 ms/round, so sequential is the right default at this
+   scale.
+
+2. **Non-convergence is real and is NOT a parallelism artifact.** Removing the
+   32x penalty and running 5000 sequential iterations (461s) still returns
+   `UNRESOLVED`. The cut antichain grows to 5840 with ~2 new cuts per
+   iteration and little domination pruning, and exactly 2 collisions are found
+   per iteration throughout. LP cost per solve grows only mildly with the
+   selected set (5.1 ms at 25 iterations to 6.4 ms at 5000), so the
+   non-closure is combinatorial rather than a per-solve cost problem.
+
+3. **Stage attribution shifts with scale, so small-run profiles mislead.** At
+   25 iterations LP solve is 96.7% and antichain+greedy 0.6%; at 5000
+   iterations LP is 82.6% while `greedy_cover` reaches 11.8% (0.3 ms to
+   10.9 ms per call) and antichain insertion 2.5%, both growing superlinearly
+   as every round rescans thousands of cuts. An earlier claim here that
+   antichain and greedy "are not the bottleneck" was drawn from the 25-round
+   profile and is only true at that scale.
+
+4. **A structural observation worth exploiting.** Exactly 2 of the 12
+   reject cells produce collisions on every one of 5000 iterations, so roughly
+   83% of LP time re-proves the same cells infeasible. Caching is only sound
+   under a monotonicity guard: `selected` is recomputed from scratch each
+   round and can shrink, so a cell may only be skipped when the new selection
+   is a superset of the one under which it was last proved infeasible.
 
 2. **The learned ordering does not beat plain greedy — it is markedly
    worse.** At a matched 60-round budget, 85.0 vs 24.0 (+254%). Both are

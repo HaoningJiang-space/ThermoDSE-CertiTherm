@@ -129,22 +129,33 @@ def install(stages: Stages) -> None:
             stages.record("collision_search(TOTAL)", time.perf_counter() - t)
 
     class TimedPool(real_pool):
-        """Measures pool construction + teardown, the suspected hot spot:
-        an exhaustive search creates a fresh spawn-context pool per iteration,
-        re-importing numpy/scipy in every worker."""
+        """Times the pool object's lifecycle.
+
+        HONEST LABELLING (corrected 2026-07-22): `ProcessPoolExecutor` starts
+        its workers LAZILY, on the first submit/map -- so `pool_ctor` below
+        measures almost nothing (~0.5 ms) and does NOT capture spawn cost.
+        The real overhead lands inside `pool.map`, i.e. inside
+        `collision_search(TOTAL)`, and is an unseparated mixture of: process
+        spawn, Python+NumPy+SciPy import per worker, `_CollisionProblem`
+        pickling, IPC, scheduling, HiGHS init, and teardown.
+
+        So do NOT attribute the ~2 s/iteration to any single one of those.
+        The defensible statement is: *per-iteration fresh-process-pool
+        overhead is ~2 s*. Derive it as (parallel wall - sequential wall) at
+        equal iteration counts, not from these two counters.
+        """
 
         def __init__(self, *a, **k):
             t = time.perf_counter()
             super().__init__(*a, **k)
-            stages.record("pool_construct", time.perf_counter() - t)
-            self._t_enter = None
+            stages.record("pool_ctor(lazy,~0)", time.perf_counter() - t)
 
         def __exit__(self, *exc):
             t = time.perf_counter()
             try:
                 return super().__exit__(*exc)
             finally:
-                stages.record("pool_shutdown(join)", time.perf_counter() - t)
+                stages.record("pool_exit(join+teardown)", time.perf_counter() - t)
 
     syn.linprog = linprog
     syn.milp = milp
@@ -199,16 +210,19 @@ def main() -> None:
 
     lp = stages.seconds.get("lp_solve(scipy.linprog)", 0.0)
     search_total = stages.seconds.get("collision_search(TOTAL)", 0.0)
-    pool = stages.seconds.get("pool_construct", 0.0) + stages.seconds.get("pool_shutdown(join)", 0.0)
     print("\n=== attribution ===")
     if args.workers == 1:
         print(f"  LP solve inside collision search : {lp:.2f}s "
               f"({100*lp/search_total if search_total else 0:.1f}% of search)")
         print(f"  construction/other in search     : {search_total-lp:.2f}s")
     else:
-        print(f"  (workers>1: LP time under-counted -- solves run in child processes)")
-        print(f"  pool construct+shutdown          : {pool:.2f}s "
-              f"({100*pool/total if total else 0:.1f}% of wall)")
+        print("  (workers>1: LP time under-counted -- solves run in child processes,")
+        print("   and pool spawn happens lazily INSIDE pool.map, so it is folded into")
+        print("   collision_search rather than the pool_ctor counter. Quantify pool")
+        print("   overhead as (this wall clock - sequential wall clock) at equal")
+        print("   iteration count, not from the pool_* counters below.)")
+        print(f"  pool_ctor + pool_exit (partial)  : "
+              f"{stages.seconds.get('pool_ctor(lazy,~0)',0)+stages.seconds.get('pool_exit(join+teardown)',0):.2f}s")
     print(f"  antichain + greedy               : "
           f"{stages.seconds.get('antichain_insert',0)+stages.seconds.get('greedy_cover',0):.2f}s")
     print(f"  master (MILP path)               : {stages.seconds.get('solve_master(TOTAL)',0):.2f}s")
