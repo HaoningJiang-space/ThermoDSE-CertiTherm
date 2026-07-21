@@ -247,6 +247,11 @@ def _collision_search(
         for reject_model in range(response.shape[0])
         for point in range(response.shape[1])
     )
+    if not specs:
+        # ThermalFamily validation rejects an empty model/point grid, so this
+        # is unreachable today. Guard it anyway: an empty spec list would make
+        # "no collision found" vacuously true and silently certify anything.
+        raise UnresolvedComputation("no reject cells to separate")
     worker_count = min(_configured_workers(workers), len(specs))
     problem = _CollisionProblem(
         n=n,
@@ -267,12 +272,19 @@ def _collision_search(
 
     if worker_count == 1:
         collisions = []
+        evaluated = 0
         for spec in specs:
             collision = _solve_collision_spec(problem, spec)
+            evaluated += 1
             if collision is not None:
                 collisions.append(collision)
                 if not exhaustive:
                     break
+        if exhaustive and evaluated != len(specs):
+            raise UnresolvedComputation(
+                f"exhaustive separation evaluated {evaluated}/{len(specs)} "
+                "reject cells"
+            )
         return tuple(collisions)
 
     collisions: List[WorldPair] = []
@@ -294,11 +306,17 @@ def _collision_search(
         initargs=(problem,),
     ) as pool:
         if exhaustive:
-            return tuple(
-                collision
-                for collision in pool.map(_solve_collision_worker, remaining)
-                if collision is not None
-            )
+            results = tuple(pool.map(_solve_collision_worker, remaining))
+            if len(results) != len(remaining):
+                # An empty or short result set would otherwise be
+                # indistinguishable from "searched everything, found nothing"
+                # -- and that indistinguishability is what a certificate would
+                # rest on. Fail closed instead.
+                raise UnresolvedComputation(
+                    f"exhaustive separation returned {len(results)}/"
+                    f"{len(remaining)} reject-cell results"
+                )
+            return tuple(c for c in results if c is not None)
         for start in range(0, len(remaining), worker_count):
             batch = tuple(
                 pool.map(
