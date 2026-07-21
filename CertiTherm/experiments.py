@@ -6,6 +6,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import csv
 import hashlib
+import os
 from pathlib import Path
 import re
 import shlex
@@ -42,7 +43,9 @@ HOTSPOT = ROOT / ".build" / "hotspot" / "hotspot"
 MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 MODEL_ERROR_LIMIT_K = 0.01
-HOTSPOT_WORKERS = 24
+HOTSPOT_TOTAL_WORKERS = min(48, os.cpu_count() or 1)
+OPERATOR_WORKERS = min(3, HOTSPOT_TOTAL_WORKERS)
+HOTSPOT_WORKERS = max(1, HOTSPOT_TOTAL_WORKERS // OPERATOR_WORKERS)
 CALIBRATION_SEEDS = (17, 23, 41)
 CALIBRATION_VECTOR_IDS = (
     "placed",
@@ -243,6 +246,7 @@ def _operator(
     package: dict[str, str],
     captures: Iterable[Path],
     output: Path,
+    workers: int = HOTSPOT_WORKERS,
 ) -> Path:
     target = output / "operators" / f"{arch['architecture_id']}--{package['package_id']}.npz"
     captures = tuple(captures)
@@ -271,7 +275,7 @@ def _operator(
         MODELS,
         work / "impulses",
         THERMAL_LIMIT_K,
-        workers=HOTSPOT_WORKERS,
+        workers=workers,
     )
     jobs = []
     for capture_index, capture in enumerate(captures):
@@ -340,7 +344,7 @@ def _operator(
             "bound_status": "PASS" if error <= MODEL_ERROR_LIMIT_K else "REJECT",
         }
 
-    with ThreadPoolExecutor(max_workers=min(HOTSPOT_WORKERS, len(jobs))) as pool:
+    with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as pool:
         calibration = list(pool.map(calibrate, jobs))
     rejected = [
         (
@@ -733,30 +737,48 @@ def run(split: str, output: Path, frozen: bool) -> None:
         for arch in architectures
     }
     failures, operators = [], {}
-    for arch in architectures:
-        for package in packages:
-            key = arch["architecture_id"], package["package_id"]
-            try:
-                operators[key] = _operator(
-                    arch,
-                    package,
-                    [
-                        captures[(workload["workload_id"], arch["architecture_id"])]
-                        for workload in workloads
-                    ],
-                    output,
-                )
-            except Exception as exc:  # archive physical/timeout failures unchanged
-                failures.append(
-                    {
-                        "stage": "operator",
-                        "workload": "ALL",
-                        "architecture": key[0],
-                        "package": key[1],
-                        "failure_type": type(exc).__name__,
-                        "message": str(exc),
-                    }
-                )
+    operator_jobs = [
+        (
+            (arch["architecture_id"], package["package_id"]),
+            arch,
+            package,
+            [
+                captures[(workload["workload_id"], arch["architecture_id"])]
+                for workload in workloads
+            ],
+        )
+        for arch in architectures
+        for package in packages
+    ]
+
+    def build_operator(job):
+        key, arch, package, operator_captures = job
+        try:
+            return key, _operator(
+                arch,
+                package,
+                operator_captures,
+                output,
+            ), None
+        except Exception as exc:  # archive physical/timeout failures unchanged
+            return key, None, exc
+
+    with ThreadPoolExecutor(max_workers=OPERATOR_WORKERS) as pool:
+        operator_results = pool.map(build_operator, operator_jobs)
+        for key, path, error in operator_results:
+            if error is None:
+                operators[key] = path
+                continue
+            failures.append(
+                {
+                    "stage": "operator",
+                    "workload": "ALL",
+                    "architecture": key[0],
+                    "package": key[1],
+                    "failure_type": type(error).__name__,
+                    "message": str(error),
+                }
+            )
     results, order_rows, registry_rows, spectral_rows = [], [], [], []
     spectra = {}
     plan_rows, witness_rows, witness_replay_rows = [], [], []
