@@ -10,6 +10,7 @@ SUPERLU_LIB := $(SUPERLU_BUILD)/SRC/libsuperlu.a
 SUPERLU_BLAS := $(SUPERLU_BUILD)/CBLAS/libblas.a
 CUDA_NVCC ?= /usr/local/cuda-12.8/bin/nvcc
 CUDA_ARCH ?= sm_80
+CERTITHERM_LP_WORKERS ?= 8
 
 .PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity gpu-production-parity reproduce-dev reproduce-dev-gpu heldout package-dev package-heldout clean-generated
 
@@ -93,6 +94,8 @@ reproduce-dev:
 	$(PYTHON) -m CertiTherm.experiments --split dev --output artifacts/dev
 
 reproduce-dev-gpu:
+	OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+	CERTITHERM_LP_WORKERS=$(CERTITHERM_LP_WORKERS) \
 	CERTITHERM_GPU_HOTSPOT=1 $(PYTHON) -m CertiTherm.experiments \
 		--split dev --output artifacts/dev-gpu
 

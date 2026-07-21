@@ -140,7 +140,6 @@ def _collision_search(
             options={
                 "primal_feasibility_tolerance": feasibility_tolerance,
                 "dual_feasibility_tolerance": feasibility_tolerance,
-                "threads": 1,
             },
         )
         if result.status == 0:

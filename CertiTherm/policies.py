@@ -142,7 +142,6 @@ def uncertainty_width_order(
             b_eq=polytope.b_eq,
             bounds=list(zip(polytope.lower_w, polytope.upper_w)),
             method="highs",
-            options={"threads": 1},
         )
         lower = linprog(action.vector, **kwargs)
         upper = linprog(-action.vector, **kwargs)
