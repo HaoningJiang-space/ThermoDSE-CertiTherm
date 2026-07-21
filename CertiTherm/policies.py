@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from multiprocessing import get_context
 from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.optimize import linprog
 
-from .core import CandidateSpace, MeasurementAction, WorldPair
+from .core import CandidateSpace, MeasurementAction, PowerPolytope, WorldPair
 from .synthesis import _collision, _configured_workers, _required_candidate_indices
 
 
@@ -19,6 +20,26 @@ class PolicyResult:
     selected_action_ids: Tuple[str, ...]
     cost: float
     oracle_calls: int
+
+
+def _width_score(
+    task: Tuple[int, MeasurementAction, PowerPolytope, int]
+) -> Tuple[float, int, str, int]:
+    index, action, polytope, candidate_rank = task
+    kwargs = dict(
+        A_ub=polytope.a_ub,
+        b_ub=polytope.b_ub,
+        A_eq=polytope.a_eq,
+        b_eq=polytope.b_eq,
+        bounds=list(zip(polytope.lower_w, polytope.upper_w)),
+        method="highs",
+    )
+    lower = linprog(action.vector, **kwargs)
+    upper = linprog(-action.vector, **kwargs)
+    if not lower.success or not upper.success:
+        raise RuntimeError("width baseline LP unresolved")
+    width = -float(upper.fun) - float(lower.fun)
+    return width / action.cost, candidate_rank, action.action_id, index
 
 
 def _cut(
@@ -132,32 +153,21 @@ def uncertainty_width_order(
         candidate.candidate_id: rank for rank, candidate in enumerate(candidates)
     }
 
-    def score(item: Tuple[int, MeasurementAction]):
-        index, action = item
-        polytope = candidate_map[action.candidate_id].power
-        kwargs = dict(
-            A_ub=polytope.a_ub,
-            b_ub=polytope.b_ub,
-            A_eq=polytope.a_eq,
-            b_eq=polytope.b_eq,
-            bounds=list(zip(polytope.lower_w, polytope.upper_w)),
-            method="highs",
-        )
-        lower = linprog(action.vector, **kwargs)
-        upper = linprog(-action.vector, **kwargs)
-        if not lower.success or not upper.success:
-            raise RuntimeError("width baseline LP unresolved")
-        width = -float(upper.fun) - float(lower.fun)
-        return (
-            width / action.cost,
-            candidate_rank[action.candidate_id],
-            action.action_id,
-            index,
-        )
-
     worker_count = min(_configured_workers(workers), len(actions))
-    with ThreadPoolExecutor(max_workers=worker_count) as pool:
-        scores = list(pool.map(score, enumerate(actions)))
+    tasks = tuple(
+        (
+            index,
+            action,
+            candidate_map[action.candidate_id].power,
+            candidate_rank[action.candidate_id],
+        )
+        for index, action in enumerate(actions)
+    )
+    with ProcessPoolExecutor(
+        max_workers=worker_count,
+        mp_context=get_context("spawn"),
+    ) as pool:
+        scores = list(pool.map(_width_score, tasks, chunksize=4))
     return tuple(
         item[3] for item in sorted(scores, key=lambda item: (-item[0], item[1], item[2]))
     )

@@ -219,7 +219,10 @@ def _collision_search(
         return tuple(collisions)
 
     collisions: List[WorldPair] = []
-    probe_count = 0 if exhaustive else min(worker_count, len(specs))
+    # Most approximate-policy calls collide in the first reject cell. Probe
+    # only that cell before paying process-startup cost; a negative probe then
+    # triggers the exhaustive parallel batches needed for a sound certificate.
+    probe_count = 0 if exhaustive else min(1, len(specs))
     for spec in specs[:probe_count]:
         collision = _solve_collision_spec(problem, spec)
         if collision is not None:
