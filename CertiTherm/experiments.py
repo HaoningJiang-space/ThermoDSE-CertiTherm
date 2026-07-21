@@ -20,6 +20,7 @@ from typing import Callable, Iterable, Mapping, Optional, TypeVar
 import numpy as np
 
 from .core import CandidateSpace, PowerPolytope
+from .gpu_hotspot import GpuHotSpotBackend
 from .hotspot import build_family, load_family, replay_power, save_family
 from .measurements import (
     build_measurement_library,
@@ -40,6 +41,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "CertiTherm" / "evidence" / "thermodse_tmp_template"
 THERMODSE = ROOT / "ThermoDSE"
 HOTSPOT = ROOT / ".build" / "hotspot" / "hotspot"
+GPU_HOTSPOT_EXPORTER = ROOT / ".build" / "hotspot-gpu-export" / "hotspot"
+GPU_HOTSPOT_SOLVER = ROOT / ".build" / "hotspot-cuda" / "certitherm_hotspot_cuda"
 MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 MODEL_ERROR_LIMIT_K = 0.01
@@ -54,6 +57,16 @@ CALIBRATION_VECTOR_IDS = (
 )
 QUERY_METHOD_TIMEOUT_S = 1800
 _T = TypeVar("_T")
+
+
+def _gpu_backend() -> Optional[GpuHotSpotBackend]:
+    if os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") != "1":
+        return None
+    return GpuHotSpotBackend(
+        GPU_HOTSPOT_EXPORTER,
+        GPU_HOTSPOT_SOLVER,
+        device=int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
+    )
 
 
 def _rows(path: Path) -> list[dict[str, str]]:
@@ -276,6 +289,7 @@ def _operator(
         work / "impulses",
         THERMAL_LIMIT_K,
         workers=workers,
+        gpu_backend=_gpu_backend(),
     )
     jobs = []
     for capture_index, capture in enumerate(captures):

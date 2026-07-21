@@ -1,0 +1,22 @@
+diff --git a/temperature_grid.c b/temperature_grid.c
+--- a/temperature_grid.c
++++ b/temperature_grid.c
+@@ -19,1 +19,5 @@
+ #define MAKE_CSVS 0
++
++#if SUPERLU > 0
++int certitherm_export_gpu_system(grid_model_t *model);
++#endif
+@@ -2817,1 +2821,12 @@ void steady_state_temp_grid(grid_model_t *model, double *power, double *temp)
+   xlate_vector_b2g(model, power, p, V_POWER);
++
++#if SUPERLU > 0
++  /* Serialize the exact HotSpot system only in the separate CertiTherm
++   * exporter build. The production CPU reference never applies this patch. */
++  if (certitherm_export_gpu_system(model)) {
++      set_heuristic_temp(model, p, model->last_steady);
++      xlate_temp_g2b(model, temp, model->last_steady);
++      free_grid_model_vector(p);
++      return;
++  }
++#endif

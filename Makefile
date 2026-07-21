@@ -1,8 +1,13 @@
 PYTHON := .venv/bin/python
 HOTSPOT_BUILD := .build/hotspot
 HOTSPOT_BIN := $(HOTSPOT_BUILD)/hotspot
+GPU_HOTSPOT_BUILD := .build/hotspot-gpu-export
+GPU_HOTSPOT_BIN := $(GPU_HOTSPOT_BUILD)/hotspot
+GPU_SOLVER := .build/hotspot-cuda/certitherm_hotspot_cuda
+CUDA_NVCC ?= /usr/local/cuda-12.8/bin/nvcc
+CUDA_ARCH ?= sm_80
 
-.PHONY: bootstrap check test hotspot-smoke reproduce-dev heldout package-dev package-heldout clean-generated
+.PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity reproduce-dev reproduce-dev-gpu heldout package-dev package-heldout clean-generated
 
 bootstrap:
 	git submodule sync --recursive
@@ -18,6 +23,22 @@ bootstrap:
 	patch -d $(HOTSPOT_BUILD) -p1 < patches/hotspot-grid-convergence.patch
 	$(MAKE) -C $(HOTSPOT_BUILD) hotspot
 	sha256sum $(HOTSPOT_BIN) > $(HOTSPOT_BUILD)/SHA256SUMS
+
+gpu-bootstrap: bootstrap
+	mkdir -p $(GPU_HOTSPOT_BUILD)
+	find $(GPU_HOTSPOT_BUILD) -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+	git -C HotSpot archive HEAD | tar -xf - -C $(GPU_HOTSPOT_BUILD)
+	patch -d $(GPU_HOTSPOT_BUILD) -p1 < patches/hotspot-output-precision.patch
+	patch -d $(GPU_HOTSPOT_BUILD) -p1 < patches/hotspot-grid-convergence.patch
+	patch -d $(GPU_HOTSPOT_BUILD) -p1 < patches/hotspot-gpu-system-export.patch
+	install -m 0644 gpu/hotspot_cuda/system_export.c \
+		$(GPU_HOTSPOT_BUILD)/certitherm_gpu_export.c
+	$(MAKE) -C $(GPU_HOTSPOT_BUILD) SUPERLU=1 \
+		GRIDSRC='temperature_grid.c certitherm_gpu_export.c' \
+		GRIDOBJ='temperature_grid.o certitherm_gpu_export.o' hotspot
+	$(MAKE) -C gpu/hotspot_cuda NVCC=$(CUDA_NVCC) CUDA_ARCH=$(CUDA_ARCH)
+	sha256sum $(GPU_HOTSPOT_BIN) $(GPU_SOLVER) \
+		> $(GPU_HOTSPOT_BUILD)/GPU_SHA256SUMS
 
 test:
 	$(PYTHON) -m pytest -q CertiTherm/tests
@@ -37,8 +58,22 @@ check: test hotspot-smoke
 	git submodule status --recursive | awk '$$1 ~ /^[-+U]/ { bad=1 } END { exit bad }'
 	git submodule foreach --recursive 'test -z "$$(git status --porcelain)"'
 
+gpu-parity:
+	$(PYTHON) -m CertiTherm.gpu_benchmark \
+		--reference $(HOTSPOT_BIN) --exporter $(GPU_HOTSPOT_BIN) \
+		--solver $(GPU_SOLVER) --output artifacts/gpu-hotspot-dev
+
+gpu-check: test hotspot-smoke gpu-parity
+	git diff --check
+	git submodule status --recursive | awk '$$1 ~ /^[-+U]/ { bad=1 } END { exit bad }'
+	git submodule foreach --recursive 'test -z "$$(git status --porcelain)"'
+
 reproduce-dev:
 	$(PYTHON) -m CertiTherm.experiments --split dev --output artifacts/dev
+
+reproduce-dev-gpu:
+	CERTITHERM_GPU_HOTSPOT=1 $(PYTHON) -m CertiTherm.experiments \
+		--split dev --output artifacts/dev-gpu
 
 heldout:
 	$(PYTHON) -m CertiTherm.experiments --split heldout --output artifacts/heldout --frozen

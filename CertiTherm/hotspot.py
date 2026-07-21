@@ -7,11 +7,12 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from pathlib import Path
 import subprocess
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from .core import ThermalFamily
+from .gpu_hotspot import GpuHotSpotBackend, build_grid_operator_gpu
 
 
 @dataclass(frozen=True)
@@ -178,20 +179,32 @@ def build_family(
     workspace: Path,
     limit_k: float,
     workers: int = 8,
+    gpu_backend: Optional[GpuHotSpotBackend] = None,
 ) -> Tuple[ThermalFamily, Tuple[str, ...]]:
     responses, ambients, provenance = [], [], []
     units: Tuple[str, ...] = ()
     parsed = tuple(HotSpotModel.parse(model_id) for model_id in model_ids)
     for model in parsed:
-        response, ambient, digest, current_units = build_operator(
-            binary,
-            config,
-            floorplan,
-            materials,
-            model,
-            workspace / model.model_id,
-            workers,
-        )
+        if gpu_backend is not None and model.model_type == "grid":
+            response, ambient, digest, current_units = build_grid_operator_gpu(
+                binary,
+                config,
+                floorplan,
+                materials,
+                model,
+                workspace / model.model_id,
+                gpu_backend,
+            )
+        else:
+            response, ambient, digest, current_units = build_operator(
+                binary,
+                config,
+                floorplan,
+                materials,
+                model,
+                workspace / model.model_id,
+                workers,
+            )
         if units and units != current_units:
             raise RuntimeError("HotSpot models returned inconsistent block identities")
         units = current_units

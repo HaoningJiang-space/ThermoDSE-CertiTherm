@@ -10,11 +10,21 @@ from typing import Sequence
 import numpy as np
 
 from .core import MeasurementAction, PowerPolytope
+from .gpu_hotspot import GpuHotSpotBackend
 from .hotspot import build_family, load_family, save_family
 from .synthesis import synthesize_minimum_observation
 
 
 def _build(args: argparse.Namespace) -> None:
+    if bool(args.gpu_exporter) != bool(args.gpu_solver):
+        raise SystemExit("--gpu-exporter and --gpu-solver must be specified together")
+    gpu_backend = (
+        GpuHotSpotBackend(
+            Path(args.gpu_exporter), Path(args.gpu_solver), args.gpu_device
+        )
+        if args.gpu_exporter
+        else None
+    )
     family, blocks = build_family(
         Path(args.hotspot),
         Path(args.config),
@@ -23,6 +33,7 @@ def _build(args: argparse.Namespace) -> None:
         args.models.split(","),
         Path(args.workspace),
         args.limit_k,
+        gpu_backend=gpu_backend,
     )
     save_family(Path(args.output), family, blocks)
 
@@ -109,6 +120,9 @@ def main() -> None:
     build.add_argument("--workspace", required=True)
     build.add_argument("--limit-k", type=float, required=True)
     build.add_argument("--output", required=True)
+    build.add_argument("--gpu-exporter")
+    build.add_argument("--gpu-solver")
+    build.add_argument("--gpu-device", type=int, default=0)
     build.set_defaults(run=_build)
     synth = sub.add_parser("synthesize")
     synth.add_argument("--family", required=True)
