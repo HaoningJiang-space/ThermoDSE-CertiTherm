@@ -143,12 +143,22 @@ ThermoDSE floorplan, the action library from CertiTherm's own
 equals total power), and CertiTherm's own power polytope. The thermal
 operator is synthetic — see the module docstring.
 
-| method | cost | n | converged | budget | time |
+| method | candidate cost | n | converged | budget | time |
 |---|---|---|---|---|---|
-| exact DSOS (8 workers) | — | 11 (candidate) | **no** (`UNRESOLVED`) | 250 iters | 716s |
-| exact DSOS (sequential) | — | 11 (candidate) | **no** (`UNRESOLVED`) | 5000 iters | 461s |
+| exact DSOS (8 workers) | not recorded | — | **no** (`UNRESOLVED`) | 250 iters | 716s |
+| exact DSOS (sequential) | 302.0 | ≥38 | **no** (`UNRESOLVED`) | 5000 iters | 461s |
 | plain greedy | 24.0 | 11 | **no** | 60 rounds | 3.1s |
 | DR-DSC learned | 85.0 | 19 | **no** | 60 rounds | 132.7s |
+
+CORRECTION (integrity audit, 2026-07-22): earlier revisions of this table put
+`11 (candidate)` on BOTH exact-DSOS rows. That number came from the
+60-iteration verification run and was wrong for the others — the sweep records
+`candidate_cost=302.0` at 5000 iterations, and with a maximum per-action cost
+of 8 an 11-action cover cannot exceed 88, so 302 needs at least 38 actions.
+Measured candidate sizes are 11 (60 iters, cost 31.0), 17 (250, 58.0) and 19
+(1000, 74.0); the 5000-iteration count was not separately recorded and is only
+bounded below. The 716s parallel run predates the reporting fix, so its
+candidate was never captured at all.
 
 **SUPERSEDED CLAIMS — do not reuse.** Earlier revisions of this table reported
 `n=0` for the exact path and attributed the 716s to "the MILP, measured".
@@ -191,8 +201,11 @@ because it hit the few cuts discovered by then. Never subtract these two
 columns and call the result an optimality gap.
 
 **Diagnostic reading (this is the useful part).** The bound is not stalling —
-it climbs 16 → 21 → 31 → 169 and is still rising steeply between 1000 and
-5000 iterations, roughly linearly in iteration count. So cut generation is
+it climbs 16 → 21 → 31 → 169 and is still rising between 1000 and 5000
+iterations. (An earlier revision called that rise "roughly linear"; the
+integrity audit rejected it, correctly — four checkpoints give interval slopes
+of ~0.026, 0.014 and 0.034 bound units per iteration, which does not support a
+linear characterisation.) So cut generation is
 producing genuinely informative cuts; the loop is not spinning. What the
 numbers say instead is that **this instance's true optimum is large**: at
 least 169.17 against a full-library cost of 1842 (10 module@1 + 4 region@4 +
