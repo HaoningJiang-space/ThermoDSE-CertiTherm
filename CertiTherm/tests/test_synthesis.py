@@ -17,6 +17,7 @@ from CertiTherm.policies import (
 )
 from CertiTherm.adaptive import finite_adaptive_limit
 from CertiTherm.synthesis import (
+    _greedy_cover,
     _insert_minimal_cut,
     _query_collision,
     _solve_master,
@@ -234,6 +235,17 @@ def test_master_column_dominance_preserves_integer_and_lp_optima() -> None:
     assert master.cost == master.lower_bound == 4.0
     assert master.relaxation_bound == 4.0
     assert len(master.dual_prices) == len(cuts)
+
+
+def test_greedy_cut_discovery_point_covers_every_registered_cut() -> None:
+    costs = np.array([4.0, 1.0, 2.0])
+    cuts = (
+        np.array([1.0, 1.0, 0.0]),
+        np.array([1.0, 0.0, 1.0]),
+    )
+    selected = _greedy_cover(costs, cuts)
+    assert selected == (1, 2)
+    assert np.all(np.sum(np.asarray(cuts)[:, selected], axis=1) >= 1.0)
 
 
 def test_early_stop_bisection_matches_the_first_certified_prefix() -> None:

@@ -672,6 +672,28 @@ def _solve_master(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> _Master:
     return _Master(selected, float(integer.fun), lower_bound, float(relaxed.fun), dual)
 
 
+def _greedy_cover(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> Tuple[int, ...]:
+    """Build a cheap feasible master point used only for cut discovery."""
+
+    if not cuts:
+        return ()
+    cover = np.asarray(cuts, dtype=bool)
+    uncovered = np.ones(len(cuts), dtype=bool)
+    selected: List[int] = []
+    while np.any(uncovered):
+        gains = np.count_nonzero(cover[uncovered], axis=0)
+        available = np.flatnonzero(gains)
+        if not len(available):
+            raise RuntimeError("registered cuts contain an unseparable witness")
+        index = max(
+            available,
+            key=lambda item: (gains[item] / costs[item], -costs[item], -item),
+        )
+        selected.append(int(index))
+        uncovered &= ~cover[:, index]
+    return tuple(sorted(selected))
+
+
 def _cut_mask(cut: np.ndarray) -> int:
     mask = 0
     for index in np.flatnonzero(cut):
@@ -853,17 +875,25 @@ def synthesize_minimum_observation(
         cut_masks: List[int] = []
         witnesses: List[WorldPair] = []
         master = _solve_master(costs, cuts)
+        selected: Tuple[int, ...] = ()
+        exact_candidate = False
         for iteration in range(1, max_iterations + 1):
             batch = _collisions(
                 polytope,
                 thermal,
                 actions,
-                master.selected,
+                selected,
                 margin_k,
                 feasibility_tolerance,
                 separation_workers,
             )
             if not batch:
+                if not exact_candidate:
+                    master = _solve_master(costs, cuts)
+                    if master.selected != selected:
+                        selected = master.selected
+                        exact_candidate = True
+                        continue
                 gap = master.cost - master.lower_bound
                 return ObservationPlan(
                     status="OPTIMAL",
@@ -892,7 +922,7 @@ def synthesize_minimum_observation(
                     return ObservationPlan(
                         status="UNSYNTHESIZABLE",
                         selected_action_ids=tuple(
-                            actions[i].action_id for i in master.selected
+                            actions[i].action_id for i in selected
                         ),
                         exact_cost=None,
                         lower_bound=master.lower_bound,
@@ -907,7 +937,8 @@ def synthesize_minimum_observation(
                     added += 1
             if not added:
                 raise RuntimeError("collision separation produced no new master cut")
-            master = _solve_master(costs, cuts)
+            selected = _greedy_cover(costs, cuts)
+            exact_candidate = False
         return ObservationPlan(
             status="UNRESOLVED",
             selected_action_ids=tuple(actions[i].action_id for i in master.selected),
