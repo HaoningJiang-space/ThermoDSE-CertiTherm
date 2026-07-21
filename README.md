@@ -43,6 +43,7 @@ batch while retaining CPU HotSpot as the independent truth backend:
 ```bash
 make gpu-bootstrap
 CUDA_VISIBLE_DEVICES=0 make gpu-check
+CUDA_VISIBLE_DEVICES=0 make gpu-production-parity
 CUDA_VISIBLE_DEVICES=0 make reproduce-dev-gpu
 ```
 

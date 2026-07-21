@@ -11,7 +11,7 @@ SUPERLU_BLAS := $(SUPERLU_BUILD)/CBLAS/libblas.a
 CUDA_NVCC ?= /usr/local/cuda-12.8/bin/nvcc
 CUDA_ARCH ?= sm_80
 
-.PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity reproduce-dev reproduce-dev-gpu heldout package-dev package-heldout clean-generated
+.PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity gpu-production-parity reproduce-dev reproduce-dev-gpu heldout package-dev package-heldout clean-generated
 
 bootstrap:
 	git submodule sync --recursive
@@ -77,6 +77,12 @@ gpu-parity:
 	$(PYTHON) -m CertiTherm.gpu_benchmark \
 		--reference $(HOTSPOT_BIN) --exporter $(GPU_HOTSPOT_BIN) \
 		--solver $(GPU_SOLVER) --output artifacts/gpu-hotspot-dev
+
+gpu-production-parity:
+	$(PYTHON) -m CertiTherm.gpu_benchmark \
+		--reference $(HOTSPOT_BIN) --exporter $(GPU_HOTSPOT_BIN) \
+		--solver $(GPU_SOLVER) --case thermodse-227 \
+		--output artifacts/gpu-hotspot-production
 
 gpu-check: test hotspot-smoke gpu-parity
 	git diff --check

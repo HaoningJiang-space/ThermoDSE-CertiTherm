@@ -3,6 +3,7 @@ import struct
 import numpy as np
 import pytest
 
+from CertiTherm.gpu_benchmark import _read_placed_power
 from CertiTherm.gpu_hotspot import (
     GpuHotSpotBackend,
     _read_output,
@@ -56,3 +57,11 @@ def test_gpu_backend_accepts_fixed_linear_hotspot_config(tmp_path):
         encoding="utf-8",
     )
     _require_linear_config(config)
+
+
+def test_placed_power_trace_requires_exact_registry(tmp_path):
+    trace = tmp_path / "power.ptrace"
+    trace.write_text("a\tb\n1.5\t2.5\n", encoding="utf-8")
+    assert np.array_equal(_read_placed_power(trace, ("a", "b")), [1.5, 2.5])
+    with pytest.raises(RuntimeError, match="registry"):
+        _read_placed_power(trace, ("b", "a"))

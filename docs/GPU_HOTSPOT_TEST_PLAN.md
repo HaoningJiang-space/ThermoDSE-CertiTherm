@@ -18,6 +18,11 @@ and 181 right-hand sides. Invalid CSC pointers, missing diagonals,
 non-symmetric coefficients, non-positive curvature, NaN/Inf, truncated files,
 and iteration exhaustion must fail visibly without output admission.
 
+The fast development case is HotSpot `example1` (30 blocks). The production
+parity case is the pinned ThermoDSE-generated 227-block `output_3D.flp` plus its
+name-aligned placed-power trace. Both resolutions must pass; performance claims
+report them separately rather than extrapolating the small case.
+
 ## CUDA layout and access audit
 
 The dense batch layout is `value[node][rhs]`, with `rhs` contiguous. A 32-lane

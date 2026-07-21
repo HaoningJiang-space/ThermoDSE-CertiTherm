@@ -8,6 +8,7 @@ import hashlib
 from pathlib import Path
 import shutil
 import time
+from typing import Optional
 
 import numpy as np
 
@@ -17,6 +18,7 @@ from .hotspot import HotSpotModel, build_operator, replay_power
 
 ERROR_LIMIT_K = 0.01
 MODELS = ("grid64-avg", "grid128-avg")
+CASES = ("example1", "thermodse-227")
 
 
 def _sha256(path: Path) -> str:
@@ -35,13 +37,56 @@ def _write_tsv(path: Path, rows: list[dict[str, object]]) -> None:
         writer.writerows(rows)
 
 
-def run(reference: Path, exporter: Path, solver: Path, output: Path, device: int) -> None:
-    root = reference.parent
-    example = root / "examples" / "example1"
-    config = example / "example.config"
-    floorplan = example / "ev6.flp"
-    materials = example / "example.materials"
-    if any(not path.is_file() for path in (reference, exporter, solver, config, floorplan, materials)):
+def _read_placed_power(path: Path, units: tuple[str, ...]) -> np.ndarray:
+    lines = [line.split() for line in path.read_text(encoding="utf-8").splitlines()]
+    if len(lines) != 2 or tuple(lines[0]) != units or len(lines[1]) != len(units):
+        raise RuntimeError("placed-power trace does not match the floorplan registry")
+    power = np.asarray(lines[1], dtype=float)
+    if np.any(~np.isfinite(power)) or np.any(power < 0):
+        raise RuntimeError("placed-power trace must be finite and nonnegative")
+    return power
+
+
+def _case_inputs(
+    reference: Path, case_id: str
+) -> tuple[Path, Path, Path, Optional[Path]]:
+    if case_id == "example1":
+        example = reference.parent / "examples" / "example1"
+        return (
+            example / "example.config",
+            example / "ev6.flp",
+            example / "example.materials",
+            None,
+        )
+    if case_id == "thermodse-227":
+        template = (
+            reference.resolve().parents[2]
+            / "CertiTherm"
+            / "evidence"
+            / "thermodse_tmp_template"
+        )
+        return (
+            template / "example.config",
+            template / "floorplan" / "output_3D.flp",
+            template / "example.materials",
+            template / "ptrace" / "cores_3D_fixed.ptrace",
+        )
+    raise ValueError(f"unknown GPU benchmark case: {case_id}")
+
+
+def run(
+    reference: Path,
+    exporter: Path,
+    solver: Path,
+    output: Path,
+    device: int,
+    case_id: str,
+) -> None:
+    config, floorplan, materials, placed_trace = _case_inputs(reference, case_id)
+    required = (reference, exporter, solver, config, floorplan, materials)
+    if any(not path.is_file() for path in required) or (
+        placed_trace is not None and not placed_trace.is_file()
+    ):
         raise RuntimeError("GPU parity inputs are incomplete; run make gpu-bootstrap")
     if output.exists():
         shutil.rmtree(output)
@@ -81,6 +126,7 @@ def run(reference: Path, exporter: Path, solver: Path, output: Path, device: int
         rows.extend(
             (
                 {
+                    "input": case_id,
                     "model": model_id,
                     "case": "zero-ambient",
                     "max_abs_error_k": ambient_error,
@@ -88,6 +134,7 @@ def run(reference: Path, exporter: Path, solver: Path, output: Path, device: int
                     "status": "PASS" if ambient_error <= ERROR_LIMIT_K else "REJECT",
                 },
                 {
+                    "input": case_id,
                     "model": model_id,
                     "case": "all-unit-impulses",
                     "max_abs_error_k": response_error,
@@ -98,6 +145,7 @@ def run(reference: Path, exporter: Path, solver: Path, output: Path, device: int
         )
         timing.append(
             {
+                "input": case_id,
                 "model": model_id,
                 "cpu_seconds": cpu_seconds,
                 "gpu_seconds": gpu_seconds,
@@ -107,12 +155,14 @@ def run(reference: Path, exporter: Path, solver: Path, output: Path, device: int
         )
 
         rng = np.random.default_rng(20260721)
-        powers = (
+        powers = [
             ("zero", np.zeros(len(units))),
             ("uniform", np.full(len(units), 2.0)),
             ("ramp", np.linspace(0.25, 4.0, len(units))),
             ("random", rng.uniform(0.0, 5.0, len(units))),
-        )
+        ]
+        if placed_trace is not None:
+            powers.append(("placed", _read_placed_power(placed_trace, units)))
         for case, power in powers:
             direct = replay_power(
                 reference,
@@ -128,6 +178,7 @@ def run(reference: Path, exporter: Path, solver: Path, output: Path, device: int
             error = float(np.max(np.abs(direct - predicted)))
             rows.append(
                 {
+                    "input": case_id,
                     "model": model_id,
                     "case": case,
                     "max_abs_error_k": error,
@@ -150,6 +201,7 @@ def run(reference: Path, exporter: Path, solver: Path, output: Path, device: int
         "# GPU HotSpot development gate",
         "",
         f"- Parity cases: {len(rows) - len(rejected)}/{len(rows)} PASS",
+        f"- Physical input: `{case_id}`",
         f"- Faster operator builds: {len(timing) - len(slow)}/{len(timing)} PASS",
         f"- Maximum absolute temperature error: {max(float(row['max_abs_error_k']) for row in rows):.9g} K",
         f"- Minimum end-to-end speedup: {min(float(row['speedup']) for row in timing):.3f}x",
@@ -170,8 +222,16 @@ def main() -> None:
     parser.add_argument("--solver", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", type=int, default=0)
+    parser.add_argument("--case", choices=CASES, default="example1")
     args = parser.parse_args()
-    run(args.reference, args.exporter, args.solver, args.output, args.device)
+    run(
+        args.reference,
+        args.exporter,
+        args.solver,
+        args.output,
+        args.device,
+        args.case,
+    )
 
 
 if __name__ == "__main__":
