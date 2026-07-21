@@ -10,8 +10,9 @@ action library, model family, margins, and numerical tolerances.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from multiprocessing import get_context
 import os
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -38,6 +39,77 @@ class _Master:
     lower_bound: float
     relaxation_bound: float
     dual_prices: np.ndarray
+
+
+@dataclass(frozen=True)
+class _CollisionProblem:
+    n: int
+    objective: np.ndarray
+    common_a_ub: np.ndarray
+    common_b_ub: np.ndarray
+    a_eq: np.ndarray
+    b_eq: np.ndarray
+    bounds: Tuple[Tuple[float, float], ...]
+    response: np.ndarray
+    ambient: np.ndarray
+    error_k: np.ndarray
+    limit_k: float
+    margin_k: float
+    feasibility_tolerance: float
+    model_ids: Tuple[str, ...]
+
+
+_WORKER_COLLISION_PROBLEM: Optional[_CollisionProblem] = None
+
+
+def _initialize_collision_worker(problem: _CollisionProblem) -> None:
+    global _WORKER_COLLISION_PROBLEM
+    _WORKER_COLLISION_PROBLEM = problem
+
+
+def _solve_collision_spec(
+    problem: _CollisionProblem, spec: Tuple[int, int]
+) -> Optional[WorldPair]:
+    reject_model, point = spec
+    reject_row = np.concatenate(
+        (np.zeros(problem.n), -problem.response[reject_model, point])
+    )
+    reject_rhs = -(
+        problem.limit_k
+        + problem.margin_k
+        - problem.error_k[reject_model]
+        - problem.ambient[reject_model, point]
+    )
+    result = linprog(
+        problem.objective,
+        A_ub=np.vstack((problem.common_a_ub, reject_row)),
+        b_ub=np.append(problem.common_b_ub, reject_rhs),
+        A_eq=problem.a_eq,
+        b_eq=problem.b_eq,
+        bounds=problem.bounds,
+        method="highs",
+        options={
+            "primal_feasibility_tolerance": problem.feasibility_tolerance,
+            "dual_feasibility_tolerance": problem.feasibility_tolerance,
+        },
+    )
+    if result.status == 0:
+        return WorldPair(
+            safe_power_w=result.x[: problem.n].copy(),
+            unsafe_power_w=result.x[problem.n :].copy(),
+            safe_model_id="ROBUST_ENVELOPE",
+            unsafe_model_id=problem.model_ids[reject_model],
+            unsafe_point=point,
+        )
+    if result.status != 2:
+        raise RuntimeError(f"collision LP unresolved: {result.message}")
+    return None
+
+
+def _solve_collision_worker(spec: Tuple[int, int]) -> Optional[WorldPair]:
+    if _WORKER_COLLISION_PROBLEM is None:
+        raise RuntimeError("collision worker was not initialized")
+    return _solve_collision_spec(_WORKER_COLLISION_PROBLEM, spec)
 
 
 def _configured_workers(workers: Optional[int] = None) -> int:
@@ -101,7 +173,7 @@ def _collision_search(
         action_rows.extend((delta, -delta))
         action_rhs.extend((action.tolerance, action.tolerance))
 
-    bounds = list(zip(polytope.lower_w, polytope.upper_w)) * 2
+    bounds = tuple(zip(polytope.lower_w, polytope.upper_w)) * 2
     response = thermal.response_k_per_w
     ambient = thermal.ambient_k
     robust_rows, robust_rhs = _robust_safe_rows(thermal, margin_k)
@@ -119,45 +191,27 @@ def _collision_search(
         for point in range(response.shape[1])
     )
     worker_count = min(_configured_workers(workers), len(specs))
-
-    def solve(spec: Tuple[int, int]) -> Optional[WorldPair]:
-        reject_model, point = spec
-        reject_row = np.concatenate((np.zeros(n), -response[reject_model, point]))
-        reject_rhs = -(
-            thermal.limit_k
-            + margin_k
-            - thermal.error_k[reject_model]
-            - ambient[reject_model, point]
-        )
-        result = linprog(
-            np.zeros(2 * n),
-            A_ub=np.vstack((common_a_ub, reject_row)),
-            b_ub=np.append(common_b_ub, reject_rhs),
-            A_eq=a_eq,
-            b_eq=b_eq,
-            bounds=bounds,
-            method="highs",
-            options={
-                "primal_feasibility_tolerance": feasibility_tolerance,
-                "dual_feasibility_tolerance": feasibility_tolerance,
-            },
-        )
-        if result.status == 0:
-            return WorldPair(
-                safe_power_w=result.x[:n].copy(),
-                unsafe_power_w=result.x[n:].copy(),
-                safe_model_id="ROBUST_ENVELOPE",
-                unsafe_model_id=thermal.model_ids[reject_model],
-                unsafe_point=point,
-            )
-        if result.status != 2:
-            raise RuntimeError(f"collision LP unresolved: {result.message}")
-        return None
+    problem = _CollisionProblem(
+        n=n,
+        objective=np.zeros(2 * n),
+        common_a_ub=common_a_ub,
+        common_b_ub=common_b_ub,
+        a_eq=a_eq,
+        b_eq=b_eq,
+        bounds=bounds,
+        response=response,
+        ambient=ambient,
+        error_k=thermal.error_k,
+        limit_k=thermal.limit_k,
+        margin_k=margin_k,
+        feasibility_tolerance=feasibility_tolerance,
+        model_ids=thermal.model_ids,
+    )
 
     if worker_count == 1:
         collisions = []
         for spec in specs:
-            collision = solve(spec)
+            collision = _solve_collision_spec(problem, spec)
             if collision is not None:
                 collisions.append(collision)
                 if not exhaustive:
@@ -165,15 +219,33 @@ def _collision_search(
         return tuple(collisions)
 
     collisions: List[WorldPair] = []
-    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+    probe_count = 0 if exhaustive else min(worker_count, len(specs))
+    for spec in specs[:probe_count]:
+        collision = _solve_collision_spec(problem, spec)
+        if collision is not None:
+            return (collision,)
+    remaining = specs[probe_count:]
+    if not remaining:
+        return ()
+    with ProcessPoolExecutor(
+        max_workers=worker_count,
+        mp_context=get_context("spawn"),
+        initializer=_initialize_collision_worker,
+        initargs=(problem,),
+    ) as pool:
         if exhaustive:
             return tuple(
                 collision
-                for collision in pool.map(solve, specs)
+                for collision in pool.map(_solve_collision_worker, remaining)
                 if collision is not None
             )
-        for start in range(0, len(specs), worker_count):
-            batch = tuple(pool.map(solve, specs[start : start + worker_count]))
+        for start in range(0, len(remaining), worker_count):
+            batch = tuple(
+                pool.map(
+                    _solve_collision_worker,
+                    remaining[start : start + worker_count],
+                )
+            )
             collision = next((item for item in batch if item is not None), None)
             if collision is not None:
                 collisions.append(collision)
@@ -736,7 +808,6 @@ def synthesize_minimum_observation(
             known = {np.packbits(cut.astype(np.uint8)).tobytes() for cut in cuts}
             added = 0
             for witness in batch:
-                witnesses.append(witness)
                 delta = witness.safe_power_w - witness.unsafe_power_w
                 cut = np.asarray(
                     [
@@ -747,6 +818,7 @@ def synthesize_minimum_observation(
                     dtype=float,
                 )
                 if not np.any(cut):
+                    witnesses.append(witness)
                     return ObservationPlan(
                         status="UNSYNTHESIZABLE",
                         selected_action_ids=tuple(
@@ -762,6 +834,7 @@ def synthesize_minimum_observation(
                     )
                 key = np.packbits(cut.astype(np.uint8)).tobytes()
                 if key not in known:
+                    witnesses.append(witness)
                     cuts.append(cut)
                     known.add(key)
                     added += 1
