@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -140,10 +141,10 @@ __global__ void initialize_pcg(const double* __restrict__ b,
   }
 }
 
-__global__ void dot_columns(const double* __restrict__ left,
-                            const double* __restrict__ right,
-                            double* __restrict__ result,
-                            std::uint64_t nodes, std::uint64_t rhs) {
+__global__ void dot_columns_partial(const double* __restrict__ left,
+                                    const double* __restrict__ right,
+                                    double* __restrict__ partial_result,
+                                    std::uint64_t nodes, std::uint64_t rhs) {
   __shared__ double partial[kRowWarps][kRhsTile];
   const int lane = threadIdx.x;
   const int warp = threadIdx.y;
@@ -166,8 +167,22 @@ __global__ void dot_columns(const double* __restrict__ left,
 #pragma unroll
     for (int row_warp = 0; row_warp < kRowWarps; ++row_warp)
       sum += partial[row_warp][lane];
-    atomicAdd(&result[column], sum);
+    partial_result[static_cast<std::uint64_t>(blockIdx.x) * rhs + column] = sum;
   }
+}
+
+__global__ void finish_dot_columns(const double* __restrict__ partial_result,
+                                   double* __restrict__ result,
+                                   std::uint64_t row_blocks,
+                                   std::uint64_t rhs) {
+  const std::uint64_t column =
+      static_cast<std::uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (column >= rhs)
+    return;
+  double sum = 0.0;
+  for (std::uint64_t block = 0; block < row_blocks; ++block)
+    sum += partial_result[block * rhs + column];
+  result[column] = sum;
 }
 
 __global__ void update_solution_residual(
@@ -212,7 +227,10 @@ __global__ void mark_converged(const double* __restrict__ residual_norm2,
     return;
   const double residual = sqrt(fmax(residual_norm2[column], 0.0));
   const double scale = sqrt(fmax(rhs_norm2[column], 0.0));
-  if (isfinite(residual) && residual <= atol + rtol * scale)
+  // Recurrence residuals can be slightly optimistic after hundreds of PCG
+  // updates. Stop with a fixed safety margin; admission still uses a freshly
+  // computed b-Gx residual against the caller's unmodified tolerance.
+  if (isfinite(residual) && residual <= 0.5 * (atol + rtol * scale))
     active[column] = 0;
 }
 
@@ -284,12 +302,14 @@ void launch_spmm(const std::uint64_t* row_ptr,
 }
 
 void launch_dot(const double* left, const double* right, double* result,
-                std::uint64_t nodes, std::uint64_t rhs, int row_blocks) {
-  cuda_check(cudaMemset(result, 0, rhs * sizeof(double)), "zero reduction");
+                double* partial_result, std::uint64_t nodes,
+                std::uint64_t rhs, int row_blocks) {
   const dim3 block(kRhsTile, kRowWarps);
   const dim3 grid(std::max(1, row_blocks),
                   static_cast<unsigned>((rhs + kRhsTile - 1) / kRhsTile));
-  dot_columns<<<grid, block>>>(left, right, result, nodes, rhs);
+  dot_columns_partial<<<grid, block>>>(left, right, partial_result, nodes, rhs);
+  finish_dot_columns<<<static_cast<unsigned>((rhs + 255) / 256), 256>>>(
+      partial_result, result, static_cast<std::uint64_t>(row_blocks), rhs);
 }
 
 std::vector<std::uint64_t> csc_to_csr(
@@ -451,6 +471,8 @@ int main(int argc, char** argv) {
     auto d_curvature = device_alloc<double>(rhs);
     auto d_residual_norm2 = device_alloc<double>(rhs);
     auto d_rhs_norm2 = device_alloc<double>(rhs);
+    auto d_dot_partial = device_alloc<double>(
+        static_cast<std::size_t>(row_blocks) * rhs);
     std::vector<int> host_active(rhs, 1);
     auto d_active = device_copy(host_active);
     auto d_failed = device_alloc<int>(1);
@@ -464,21 +486,24 @@ int main(int argc, char** argv) {
     initialize_pcg<<<vector_grid, vector_block>>>(
         d_rhs, d_diagonal, d_x, d_residual, d_preconditioned, d_direction,
         header.nodes, rhs);
-    launch_dot(d_residual, d_preconditioned, d_rz_old, header.nodes, rhs, row_blocks);
-    launch_dot(d_rhs, d_rhs, d_rhs_norm2, header.nodes, rhs, row_blocks);
+    launch_dot(d_residual, d_preconditioned, d_rz_old, d_dot_partial,
+               header.nodes, rhs, row_blocks);
+    launch_dot(d_rhs, d_rhs, d_rhs_norm2, d_dot_partial,
+               header.nodes, rhs, row_blocks);
 
     int iterations = 0;
     for (; iterations < max_iterations; ++iterations) {
       launch_spmm(d_row_ptr, d_col_index, d_values, d_direction, d_product,
                    header.nodes, rhs, row_blocks);
-      launch_dot(d_direction, d_product, d_curvature, header.nodes, rhs, row_blocks);
+      launch_dot(d_direction, d_product, d_curvature, d_dot_partial,
+                 header.nodes, rhs, row_blocks);
       update_solution_residual<<<vector_grid, vector_block>>>(
           d_x, d_residual, d_preconditioned, d_direction, d_product, d_diagonal,
           d_rz_old, d_curvature, d_active, d_failed, header.nodes, rhs);
-      launch_dot(d_residual, d_preconditioned, d_rz_new, header.nodes, rhs,
-                 row_blocks);
-      launch_dot(d_residual, d_residual, d_residual_norm2, header.nodes, rhs,
-                 row_blocks);
+      launch_dot(d_residual, d_preconditioned, d_rz_new, d_dot_partial,
+                 header.nodes, rhs, row_blocks);
+      launch_dot(d_residual, d_residual, d_residual_norm2, d_dot_partial,
+                 header.nodes, rhs, row_blocks);
       mark_converged<<<static_cast<unsigned>((rhs + 255) / 256), 256>>>(
           d_residual_norm2, d_rhs_norm2, d_active, rhs, rtol, atol);
       update_direction<<<vector_grid, vector_block>>>(
@@ -510,8 +535,8 @@ int main(int argc, char** argv) {
                  header.nodes, rhs, row_blocks);
     true_residual<<<vector_grid, vector_block>>>(d_rhs, d_product, d_residual,
                                                   header.nodes, rhs);
-    launch_dot(d_residual, d_residual, d_residual_norm2, header.nodes, rhs,
-               row_blocks);
+    launch_dot(d_residual, d_residual, d_residual_norm2, d_dot_partial,
+               header.nodes, rhs, row_blocks);
     std::vector<double> residual_norm2(rhs), rhs_norm2(rhs);
     cuda_check(cudaMemcpy(residual_norm2.data(), d_residual_norm2,
                           rhs * sizeof(double), cudaMemcpyDeviceToHost),
@@ -525,8 +550,14 @@ int main(int argc, char** argv) {
       const double scale = std::sqrt(std::max(0.0, rhs_norm2[column]));
       max_relative_residual =
           std::max(max_relative_residual, residual / std::max(scale, 1e-300));
-      if (!std::isfinite(residual) || residual > atol + rtol * scale)
-        throw std::runtime_error("true residual failed the declared tolerance");
+      if (!std::isfinite(residual) || residual > atol + rtol * scale) {
+        std::ostringstream message;
+        message << std::setprecision(17)
+                << "true residual failed the declared tolerance at rhs "
+                << column << ": residual=" << residual
+                << ", limit=" << (atol + rtol * scale);
+        throw std::runtime_error(message.str());
+      }
     }
 
     auto d_block_temperature = device_alloc<double>(header.blocks * rhs);
@@ -599,6 +630,7 @@ int main(int argc, char** argv) {
     cudaFree(d_curvature);
     cudaFree(d_residual_norm2);
     cudaFree(d_rhs_norm2);
+    cudaFree(d_dot_partial);
     cudaFree(d_active);
     cudaFree(d_failed);
     cudaFree(d_block_temperature);

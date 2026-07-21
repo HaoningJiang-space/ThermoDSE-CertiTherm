@@ -35,11 +35,14 @@ No `double2` vector load is used because `nrhs = nblocks + 1` is not guaranteed
 even, so successive node rows are not guaranteed 16-byte aligned. Scalar FP64
 loads preserve coalescing without an unsafe alignment assumption.
 
-The reduction kernel uses `double partial[8][32]`. Warp `w`, lane `l` writes
+The first reduction kernel uses `double partial[8][32]`. Warp `w`, lane `l` writes
 element `32w+l`; for each 32-bit bank half, lanes map one-to-one to banks.
 Warp 0 then reads `partial[w][l]`, again one address per lane/bank. No padding
 or `cp.async` is justified: sparse indirection has no reusable rectangular
 global tile, and the only shared data are 2 KiB reduction partials.
+Each row block writes a distinct coalesced partial vector. A second kernel sums
+those vectors in ascending row-block order, so dot products are reproducible;
+no scheduling-dependent floating-point atomic reduction is admitted.
 
 ## Launch contract
 
