@@ -436,25 +436,6 @@ def _solve_master(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> _Master:
     return _Master(selected, float(integer.fun), lower_bound, float(relaxed.fun), dual)
 
 
-def _greedy_cover(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> Tuple[int, ...]:
-    """Cheap feasible cover used only to accumulate cuts before exact closure."""
-
-    if not cuts:
-        return ()
-    cover = np.asarray(cuts, dtype=bool)
-    selected = np.zeros(costs.size, dtype=bool)
-    uncovered = np.ones(len(cuts), dtype=bool)
-    while np.any(uncovered):
-        score = np.sum(cover[uncovered], axis=0) / costs
-        score[selected] = -np.inf
-        index = int(np.argmax(score))
-        if not np.isfinite(score[index]) or score[index] <= 0:
-            raise RuntimeError("discovered witness cuts are not coverable")
-        selected[index] = True
-        uncovered = ~np.any(cover[:, selected], axis=1)
-    return tuple(np.flatnonzero(selected).tolist())
-
-
 def dual_information_scores(
     actions: Sequence[MeasurementAction],
     cuts: Sequence[np.ndarray],
@@ -500,27 +481,17 @@ def synthesize_ordered_query(
         oracle_cache: Dict[
             Tuple[int, Tuple[int, ...], str, str], Optional[CandidateWorldPair]
         ] = {}
-        selected: Tuple[int, ...] = ()
-        master: Optional[_Master] = None
-        exact_check = False
+        master = _solve_master(costs, cuts)
         for iteration in range(1, max_iterations + 1):
             witness = _query_collision(
                 candidates,
                 actions,
-                selected,
+                master.selected,
                 margin_k,
                 feasibility_tolerance,
                 oracle_cache,
             )
             if witness is None:
-                if not exact_check:
-                    master = _solve_master(costs, cuts)
-                    if master.selected != selected:
-                        selected = master.selected
-                        exact_check = True
-                        continue
-                if master is None:
-                    raise RuntimeError("exact closure master is unavailable")
                 return QueryObservationPlan(
                     "OPTIMAL",
                     tuple(actions[i].action_id for i in master.selected),
@@ -553,28 +524,29 @@ def synthesize_ordered_query(
             if not np.any(cut):
                 return QueryObservationPlan(
                     "UNSYNTHESIZABLE",
-                    tuple(actions[i].action_id for i in selected),
+                    tuple(actions[i].action_id for i in master.selected),
                     None,
-                    master.lower_bound if master else 0.0,
-                    master.relaxation_bound if master else 0.0,
+                    master.lower_bound,
+                    master.relaxation_bound,
                     None,
                     iteration,
                     tuple(witnesses),
                     "full action library cannot separate a cross-decision model collision",
                 )
-            if selected and np.any(cut[np.asarray(selected, dtype=int)]):
+            if master.selected and np.any(
+                cut[np.asarray(master.selected, dtype=int)]
+            ):
                 raise RuntimeError(
                     "collision oracle and witness cut disagree within numerical tolerance"
                 )
             cuts.append(cut)
-            selected = _greedy_cover(costs, cuts)
-            exact_check = False
+            master = _solve_master(costs, cuts)
         return QueryObservationPlan(
             "UNRESOLVED",
-            tuple(actions[i].action_id for i in selected),
+            tuple(actions[i].action_id for i in master.selected),
             None,
-            master.lower_bound if master else None,
-            master.relaxation_bound if master else None,
+            master.lower_bound,
+            master.relaxation_bound,
             None,
             max_iterations,
             tuple(witnesses),
