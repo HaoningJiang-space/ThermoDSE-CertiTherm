@@ -88,8 +88,15 @@ results.
 
 | Severity | Objection | Closing evidence | Status |
 |---|---|---|---|
-| Critical | The GPU code may solve a simplified Rodinia RC model rather than HotSpot's package system. | Export and digest `G,q0,B,M` from the pinned HotSpot model; no fitted conversion. | OPEN |
-| Critical | A small residual may still exceed 0.01 K after an ill-conditioned solve. | Direct CPU replay over impulses and independent development powers. | OPEN |
-| Major | Kernel speedup may disappear after model export and host/device transfer. | Same-machine end-to-end wall-clock benchmark with warm and cold runs. | OPEN |
-| Major | PCG is invalid for non-symmetric microfluidic systems. | Explicit capability check and fail-closed CPU fallback. | OPEN |
-| Major | A GPU backend could compromise fresh-clone reproducibility. | Recursive submodule bootstrap, pinned CUDA build target, clean-clone CI instructions. | OPEN |
+| Critical | The GPU code may solve a simplified Rodinia RC model rather than HotSpot's package system. | Export and digest `G,q0,B,M` from the pinned HotSpot model; no fitted conversion. | FIXED |
+| Critical | A small residual may still exceed 0.01 K after an ill-conditioned solve. | Direct CPU replay over impulses and independent development powers. | FIXED |
+| Major | Kernel speedup may disappear after model export and host/device transfer. | Same-machine end-to-end wall-clock benchmark with warm and cold runs. | FIXED |
+| Major | PCG is invalid for non-symmetric microfluidic systems. | Explicit capability check and fail-closed CPU fallback. | SCOPE-EXCLUDED |
+| Major | A GPU backend could compromise fresh-clone reproducibility. | Recursive submodule bootstrap, pinned CUDA build target, clean-clone CI instructions. | FIXED |
+
+## Close status
+
+The limited grid-operator gate is closed. The claim-grade metrics, environment,
+digests, retained negative result, and final dissent are recorded in
+`docs/GPU_HOTSPOT_EVIDENCE.md`. Full DSOS dev/held-out runtime is not part of
+this backend gate and remains open.

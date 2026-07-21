@@ -53,6 +53,8 @@ natural-convection iteration, microchannels, unsupported mapping modes, and
 non-convergence fail visibly; they are never silently approximated. See
 `docs/GPU_HOTSPOT_ROUND.md` and `docs/GPU_HOTSPOT_TEST_PLAN.md` for the frozen
 accuracy, launch, and evidence contract.
+The claim-grade A800 result and artifact digests are recorded in
+`docs/GPU_HOTSPOT_EVIDENCE.md`.
 
 Generated evidence is written outside Git under `artifacts/` as
 TSV/CSV/NPZ/Markdown. No secret, machine-specific path, fitted power scale, or
