@@ -4,3 +4,6 @@
 [submodule "HotSpot"]
 	path = HotSpot
 	url = https://github.com/uvahotspot/HotSpot.git
+[submodule "Rodinia"]
+	path = Rodinia
+	url = https://github.com/yuhc/gpu-rodinia.git
