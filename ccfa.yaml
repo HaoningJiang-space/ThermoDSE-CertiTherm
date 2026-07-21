@@ -182,4 +182,5 @@ revision_ledger:
 open_risks:
   - "A GitHub PAT has appeared repeatedly in session transcripts. Source is a user-side goal template, not a repo file or hook config. Revocation is outstanding and cannot be performed from here."
   - "CERTIFIED_PLAN adds a fourth status value; peer review recommends orthogonal certification/optimality fields instead. Deferred until the dev run fixes the paper narrative."
-  - "docs/INFORMATION_THEORETIC_METHOD.md still states that every local iteration queries the exact master; the implementation uses greedy cut discovery and closes exactly only when separation is clean."
+  - "RESOLVED 2026-07-22: docs/INFORMATION_THEORETIC_METHOD.md claimed every local iteration queries the exact master. Corrected to describe greedy accumulation with exact closure on the collision-free branch. ccf-integrity-auditor confirmed exactness is preserved but only CONDITIONAL on _solve_master returning a true optimum and the separation oracle being sound and exhaustive; the unconditional phrasing was withdrawn."
+  - "The exactness of OPTIMAL rests on two assumptions the instrumentation does not establish: _solve_master returns a true optimum over accumulated cuts, and the separation oracle is sound and exhaustive across all worker modes. An empty _collisions result is currently indistinguishable from an incomplete search."

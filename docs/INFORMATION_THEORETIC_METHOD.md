@@ -40,15 +40,49 @@ The edge set is continuous and is never enumerated. Ordered DSE first admits
 an exact structural decomposition (Theorem 2). Each required candidate-local
 subproblem then uses:
 
-1. a minimum-cost hitting-set MILP over every discovered witness cut; and
+1. a cost-effectiveness greedy cover over the discovered witness cuts, used to
+   accumulate cuts cheaply;
 2. an exhaustive robust-SAFE × rejecting-model/peak-row LP separation oracle
-   on the current exact MILP plan.
+   on that plan; and
+3. a minimum-cost hitting-set MILP over every discovered cut, solved for
+   **exact closure only when separation returns no collision**.
 
-Every local iteration therefore queries the optimum of the current finite master,
-not a heuristic surrogate. If that plan has no collision, its lower bound and
-primal feasibility prove global optimality. If even the full library cannot separate a
+If the exact master then selects a different plan, that plan is separated
+again before `OPTIMAL` is returned, so optimality is always proved against a
+collision-free exact solution. If even the full library cannot separate a
 collision, the result is `UNSYNTHESIZABLE` with that witness. Solver or replay
 uncertainty returns `UNRESOLVED`, never a certificate.
+
+> **Documentation correction, 2026-07-22.** This section previously stated
+> that "every local iteration queries the optimum of the current finite
+> master, not a heuristic surrogate". That was false of the implementation:
+> `_solve_master` is reached only on the collision-free branch, while each
+> ordinary iteration rebuilds the cover with `_greedy_cover`. Instrumentation
+> on a 241-action instance recorded **one** `_solve_master` call across 5000
+> iterations.
+>
+> That single solve is not by itself evidence of a weakened claim: one exact
+> closure can suffice. Greedy accumulation preserves exactness by the standard
+> argument — every globally feasible plan must cover every valid discovered
+> cut, so the exact master's optimum over the discovered cuts lower-bounds the
+> true optimum; if exhaustive separation then finds no collision for that same
+> plan, it is itself feasible, and the two bounds meet. The code enforces the
+> required sequence: when the master picks a plan different from the separated
+> greedy cover, `exact_candidate` forces another separation of *that* plan
+> before `OPTIMAL` is returned.
+>
+> So the correction is that the old prose misdescribed the **iteration
+> policy**. The certificate remains exact **conditional on** `_solve_master`
+> returning a true optimum over the accumulated cuts and the separation oracle
+> being sound and exhaustive — both of which this document assumes elsewhere
+> but neither of which the instrumentation above establishes. Stating flatly
+> that "the prose, not the algorithm, was wrong" would overstate what has been
+> shown, so it is not claimed here.
+>
+> If instead the original text described the intended contract, then the
+> implementation — not this document — is what diverged, and that is a
+> method-level decision rather than a documentation fix. Flagged in
+> `ccfa.yaml` under `open_risks`.
 
 A dedicated full-library pre-pass is unnecessary. Whenever a returned local
 SAFE/REJECT witness is separated by no registered action, the corresponding
