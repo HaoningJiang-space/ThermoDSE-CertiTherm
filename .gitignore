@@ -14,3 +14,9 @@ artifacts/
 
 # Local Claude Code config — contains live API tokens, must never be committed
 .claude/settings.json
+
+# Conversation exports (/export) — these transcribe chat verbatim and have been
+# observed to contain pasted credentials in plaintext. This repo is public and
+# has already had one token-leak incident; never let these reach the index.
+*-command-message*.txt
+20??-??-??-??????-*.txt
