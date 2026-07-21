@@ -37,6 +37,22 @@ make heldout
 make package-dev package-heldout
 ```
 
+The optional custom FP64 CUDA backend builds all zero/impulse responses in one
+batch while retaining CPU HotSpot as the independent truth backend:
+
+```bash
+make gpu-bootstrap
+CUDA_VISIBLE_DEVICES=0 make gpu-check
+CUDA_VISIBLE_DEVICES=0 make reproduce-dev-gpu
+```
+
+The GPU path is currently admitted only for steady `grid64-avg` and
+`grid128-avg` models with fixed linear package physics. Leakage feedback,
+natural-convection iteration, microchannels, unsupported mapping modes, and
+non-convergence fail visibly; they are never silently approximated. See
+`docs/GPU_HOTSPOT_ROUND.md` and `docs/GPU_HOTSPOT_TEST_PLAN.md` for the frozen
+accuracy, launch, and evidence contract.
+
 Generated evidence is written outside Git under `artifacts/` as
 TSV/CSV/NPZ/Markdown. No secret, machine-specific path, fitted power scale, or
 3D-ICE conversion is part of the method.

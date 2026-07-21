@@ -60,6 +60,28 @@ def _write_zero_ptrace(path: Path, units: Sequence[str]) -> None:
     )
 
 
+def _require_linear_config(path: Path) -> None:
+    """Reject HotSpot feedback modes that do not define one affine operator."""
+
+    flags: dict[str, int] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        fields = raw_line.split("#", 1)[0].split()
+        if len(fields) >= 2 and fields[0] in {
+            "-leakage_used",
+            "-package_model_used",
+        }:
+            try:
+                flags[fields[0]] = int(fields[1])
+            except ValueError as exc:
+                raise ValueError(f"invalid HotSpot flag in {path}: {raw_line}") from exc
+    enabled = sorted(flag for flag, value in flags.items() if value != 0)
+    if enabled:
+        raise ValueError(
+            "GPU operator requires fixed linear physics; unsupported: "
+            + ", ".join(enabled)
+        )
+
+
 def _read_output(path: Path) -> tuple[np.ndarray, int, float, float]:
     with path.open("rb") as stream:
         raw = stream.read(_OUTPUT_HEADER.size)
@@ -108,6 +130,7 @@ def build_grid_operator_gpu(
     )
     if any(not path.is_file() for path in paths):
         raise FileNotFoundError("GPU HotSpot inputs and binaries must exist")
+    _require_linear_config(paths[1])
     workspace.mkdir(parents=True, exist_ok=True)
     units = _floorplan_units(paths[2])
     ptrace = workspace / "zero.ptrace"

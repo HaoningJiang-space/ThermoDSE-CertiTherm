@@ -52,20 +52,21 @@ global tile, and the only shared data are 2 KiB reduction partials.
 - no cooperative launch or cross-block synchronization;
 - `threadIdx.x` always indexes the stride-one RHS dimension.
 
-The provisional occupancy table below assumes at most 64 registers/thread and
-the A800 SM80 65536-register file. The remote `ptxas -v` record and
-`cudaOccupancyMaxActiveBlocksPerMultiprocessor` measurement replace the
-assumption before closing the gate.
+The A800 SM80 build uses at most 32 registers/thread in the SpMM/update path;
+the reduction uses 22 registers/thread and 2 KiB static shared memory. `ptxas
+-v` reports no spills. With the SM80 65536-register file, 2048-thread limit,
+and 32-block limit, every candidate launch below reaches the architectural
+thread limit; neither registers nor shared memory lower occupancy.
 
 | Threads/block | Register-limited blocks | Shared-memory-limited blocks | Thread-limited blocks | Occupancy |
 |---:|---:|---:|---:|---:|
-| 64 | 16 | >=16 | 32 | 50% |
-| 128 | 8 | >=16 | 16 | 50% |
-| 256 | 4 | >=16 | 8 | 50% |
-| 512 | 2 | >=16 | 4 | 50% |
+| 64 | 32 | >=32 | 32 | 100% |
+| 128 | 16 | >=16 | 16 | 100% |
+| 256 | 8 | >=8 | 8 | 100% |
+| 512 | 4 | >=4 | 4 | 100% |
 
 The selected 256-thread block amortizes one sparse row across a full RHS warp
-while retaining four resident blocks at the provisional register bound. For
+while permitting eight resident blocks at the measured register bound. For
 181 RHS, the last RHS tile has 21 active lanes (65.6% utilization in that tile,
 94.3% over all six tiles). Grid X uses persistent row strides, so arbitrary
 node counts and partial final row groups are covered.

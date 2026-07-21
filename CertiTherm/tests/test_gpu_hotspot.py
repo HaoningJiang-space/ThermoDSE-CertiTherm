@@ -3,7 +3,11 @@ import struct
 import numpy as np
 import pytest
 
-from CertiTherm.gpu_hotspot import GpuHotSpotBackend, _read_output
+from CertiTherm.gpu_hotspot import (
+    GpuHotSpotBackend,
+    _read_output,
+    _require_linear_config,
+)
 
 
 def test_gpu_output_parser_preserves_block_rhs_layout(tmp_path):
@@ -35,3 +39,20 @@ def test_gpu_backend_rejects_unsafe_controls(tmp_path):
             tmp_path / "solver",
             relative_tolerance=0,
         )
+
+
+@pytest.mark.parametrize("flag", ("-leakage_used", "-package_model_used"))
+def test_gpu_backend_rejects_nonlinear_hotspot_modes(tmp_path, flag):
+    config = tmp_path / "hotspot.config"
+    config.write_text(f"{flag} 1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=flag):
+        _require_linear_config(config)
+
+
+def test_gpu_backend_accepts_fixed_linear_hotspot_config(tmp_path):
+    config = tmp_path / "hotspot.config"
+    config.write_text(
+        "-leakage_used 0 # fixed power\n-package_model_used 0\n",
+        encoding="utf-8",
+    )
+    _require_linear_config(config)

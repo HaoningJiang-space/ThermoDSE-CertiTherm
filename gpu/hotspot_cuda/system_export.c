@@ -82,6 +82,10 @@ int certitherm_export_gpu_system(grid_model_t *model)
     return 0;
   if (model->map_mode != GRID_AVG)
     fatal("CertiTherm GPU exporter supports grid_map_mode=avg only\n");
+  if (model->config.leakage_used)
+    fatal("CertiTherm GPU exporter rejects temperature-dependent leakage\n");
+  if (model->config.package_model_used)
+    fatal("CertiTherm GPU exporter rejects iterative natural-convection package models\n");
   for (layer = 0; layer < model->n_layers; ++layer)
     if (model->layers[layer].is_microchannel)
       fatal("CertiTherm GPU exporter rejects non-symmetric microchannel systems\n");
