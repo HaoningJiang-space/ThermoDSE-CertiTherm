@@ -707,6 +707,82 @@ def _solve_master(
     return _Master(selected, float(integer.fun), lower_bound, float(relaxed.fun), dual)
 
 
+def _anytime_lower_bound(
+    costs: np.ndarray, cuts: Sequence[np.ndarray]
+) -> Optional[float]:
+    """Certified lower bound on the minimum-cost plan, from the cuts so far.
+
+    Valid GLOBALLY, not merely for the restricted master: every discovered cut
+    is a necessary condition for every feasible plan, so omitting the
+    undiscovered ones only enlarges the feasible set and the optimum over a
+    subset cannot exceed the true optimum. (If the instance is
+    UNSYNTHESIZABLE the true optimum is +inf and any finite bound stays valid,
+    merely uninformative.) Relaxing integrality lowers it further.
+
+    NOT simply `linprog(...).fun`. That is a floating-point PRIMAL objective;
+    solver tolerance can put it slightly ABOVE the exact LP optimum, which
+    would make it an invalid lower bound in exactly the regime where the bound
+    matters. Instead the solver's dual prices are used only as a *guess*, and
+    the returned number is computed here by weak duality:
+
+        L(y) = 1'y + sum_a min(0, c_a - (C'y)_a),   y >= 0
+
+    which lower-bounds the optimum for ANY nonnegative y, however inaccurate.
+    Solver error can therefore only make the bound loose, never wrong. A final
+    downward deflation absorbs floating-point error in evaluating L itself.
+
+    Monotone in principle as cuts accumulate; the caller keeps the maximum, so
+    a loose y on one call cannot lower an already-established bound.
+
+    Returns None when no bound can be justified. A bound is never fabricated.
+    """
+
+    costs = np.asarray(costs, dtype=float)
+    if costs.size == 0 or not np.all(np.isfinite(costs)):
+        return None
+    if np.any(costs < 0):
+        # The empty-cut bound of 0.0 and the min(0, .) term below both assume
+        # nonnegative costs. MeasurementAction enforces cost > 0, so this is a
+        # guard against a future caller, not a reachable state.
+        return None
+    if not cuts:
+        return 0.0
+
+    cover = np.asarray(cuts, dtype=float)
+    if cover.ndim != 2 or cover.shape[1] != costs.size:
+        # A ragged or mis-dimensioned cut set breaks the correspondence
+        # between cut columns and action costs, which is what the global-bound
+        # argument rests on.
+        return None
+
+    try:
+        relaxed = linprog(
+            costs,
+            A_ub=-cover,
+            b_ub=-np.ones(cover.shape[0]),
+            bounds=[(0.0, 1.0)] * costs.size,
+            method="highs",
+        )
+    except (ValueError, TypeError):
+        return None
+    if not relaxed.success or relaxed.ineqlin is None:
+        return None
+
+    # linprog was given -cover x <= -1, so its marginals are <= 0 for an active
+    # >= constraint; negate to obtain the y >= 0 of the form above.
+    dual = np.maximum(-np.asarray(relaxed.ineqlin.marginals, dtype=float), 0.0)
+    if not np.all(np.isfinite(dual)):
+        return None
+    reduced = costs - cover.T @ dual
+    bound = float(dual.sum() + np.minimum(reduced, 0.0).sum())
+    if not np.isfinite(bound):
+        return None
+    # Deflate by a relative epsilon so float error in evaluating L(y) cannot
+    # push the reported value above the true optimum.
+    bound -= 1e-9 * max(1.0, abs(bound))
+    return max(bound, 0.0)
+
+
 def _greedy_cover(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> Tuple[int, ...]:
     """Build a cheap feasible master point used only for cut discovery."""
 
@@ -906,8 +982,15 @@ def synthesize_minimum_observation(
     separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
     separation_workers: Optional[int] = None,
+    bound_interval: int = 0,
 ) -> ObservationPlan:
-    """Synthesize the exact minimum-cost non-adaptive observation plan."""
+    """Synthesize the exact minimum-cost non-adaptive observation plan.
+
+    `bound_interval` refreshes the anytime LP lower bound every N iterations
+    during cut discovery (0 disables periodic refresh). The bound is computed
+    once at exit regardless, so an unfinished run still reports how close its
+    accumulated cuts came to proving the candidate optimal.
+    """
 
     # Hoisted above the try so a failure at iteration N still reports the work
     # already done. The handler previously returned iterations=0 with empty
@@ -923,6 +1006,24 @@ def synthesize_minimum_observation(
     selected: Tuple[int, ...] = ()
     covered_cut_count = 0
     reached = 0
+    anytime_bound: Optional[float] = None
+    bound_cut_count = 0
+
+    def _refresh_bound() -> None:
+        """Keep the best certified bound seen; never lower it.
+
+        Deliberately does NOT catch broadly: `_anytime_lower_bound` already
+        converts expected solver/data failures into None, so anything escaping
+        it is a programming error and must not be swallowed into a silently
+        missing bound.
+        """
+        nonlocal anytime_bound, bound_cut_count
+        if costs is None:
+            return
+        value = _anytime_lower_bound(costs, cuts)
+        if value is not None and (anytime_bound is None or value > anytime_bound):
+            anytime_bound = value
+            bound_cut_count = len(cuts)
 
     def _candidate_fields() -> Tuple[Tuple[str, ...], Optional[float]]:
         """The last successfully computed working cover. NOT oracle-certified.
@@ -956,6 +1057,8 @@ def synthesize_minimum_observation(
             raise ValueError("measurement action IDs must be unique")
         if margin_k <= 0 or feasibility_tolerance <= 0 or separation_tolerance < 0:
             raise ValueError("invalid registered tolerance")
+        if bound_interval < 0:
+            raise ValueError("bound_interval must be nonnegative")
 
         costs = np.asarray([action.cost for action in actions])
         cut_masks: List[int] = []
@@ -1030,7 +1133,10 @@ def synthesize_minimum_observation(
             selected = _greedy_cover(costs, cuts)
             covered_cut_count = len(cuts)
             exact_candidate = False
+            if bound_interval and iteration % bound_interval == 0:
+                _refresh_bound()
         candidate_ids, candidate_cost = _candidate_fields()
+        _refresh_bound()
         return ObservationPlan(
             status="UNRESOLVED",
             # Nothing was certified: the loop only proves a plan collision-free
@@ -1041,8 +1147,15 @@ def synthesize_minimum_observation(
             # lower_bound of 0.0 that was never computed from any cut.
             selected_action_ids=(),
             exact_cost=None,
-            lower_bound=None,
-            relaxation_bound=None,
+            # A certified global lower bound from the discovered cuts (see
+            # `_anytime_lower_bound`), replacing the stale 0.0.
+            # NOTE: candidate_cost - lower_bound is NOT an optimality gap and
+            # NOT an overspending bound. candidate_cost is not a valid upper
+            # bound -- the cover is feasible for the restricted master only, so
+            # it may even be CHEAPER than every globally feasible plan. The
+            # difference bounds nothing about the true optimum.
+            lower_bound=anytime_bound,
+            relaxation_bound=anytime_bound,
             optimality_gap=None,
             iterations=max_iterations,
             witnesses=tuple(witnesses),
@@ -1056,8 +1169,11 @@ def synthesize_minimum_observation(
             status="UNRESOLVED",
             selected_action_ids=(),
             exact_cost=None,
-            lower_bound=None,
-            relaxation_bound=None,
+            # Whatever bound the cuts had already established survives the
+            # failure; _refresh_bound is not re-run here because the state that
+            # raised may be inconsistent.
+            lower_bound=anytime_bound,
+            relaxation_bound=anytime_bound,
             optimality_gap=None,
             iterations=reached,
             witnesses=tuple(witnesses),

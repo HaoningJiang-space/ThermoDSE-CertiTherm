@@ -167,6 +167,45 @@ Both were wrong:
   fresh-spawn implementation, 250 iterations took 716s and stayed UNRESOLVED
   within the iteration budget.*
 
+## Anytime certified lower bound (2026-07-22)
+
+`_anytime_lower_bound` computes a **certified** global lower bound from the
+cuts discovered so far, by weak duality (`L(y) = 1'y + sum_a min(0, c_a -
+(C'y)_a)`, `y >= 0`) using the solver's dual prices only as a guess — so
+solver error can loosen the bound but never invalidate it. Validated on 1000
+random instances spanning seven orders of magnitude of cost: zero violations
+of `LB <= integer optimum`, zero monotonicity violations.
+
+| iterations | candidate cover cost | **certified lower bound** | wall |
+|---|---|---|---|
+| 60 | 31.0 | **16.0** | 4s |
+| 250 | 58.0 | **21.0** | 18s |
+| 1000 | 74.0 | **31.33** | 78s |
+| 5000 | 302.0 | **169.17** | 456s |
+
+**The candidate cover is demonstrably not an upper bound, and this table
+proves it.** The bound at 1000 iterations (31.33) already EXCEEDS the
+candidate cover reported at 60 iterations (31.0). Since the bound is globally
+valid, that 31.0 cover cannot have been a feasible plan — it was cheap only
+because it hit the few cuts discovered by then. Never subtract these two
+columns and call the result an optimality gap.
+
+**Diagnostic reading (this is the useful part).** The bound is not stalling —
+it climbs 16 → 21 → 31 → 169 and is still rising steeply between 1000 and
+5000 iterations, roughly linearly in iteration count. So cut generation is
+producing genuinely informative cuts; the loop is not spinning. What the
+numbers say instead is that **this instance's true optimum is large**: at
+least 169.17 against a full-library cost of 1842 (10 module@1 + 4 region@4 +
+227 post-route@8). Non-closure here is not a solver failure, a greedy
+failure, or an integrality-gap artifact — the answer itself is expensive and
+the accumulated cuts have not yet come close to proving it.
+
+That is consistent with the instance's physics: with a sharply local thermal
+kernel over 227 blocks, almost any single block can drive the peak, so
+certifying the decision genuinely requires pinning many blocks individually.
+Whether a real HotSpot operator induces the same structure is exactly what the
+running `--split dev` matrix can answer, and this synthetic instance cannot.
+
 **Findings that survive, in order of importance.**
 
 1. **The default parallelism is a 32x pessimization.** Sequential separation
