@@ -201,6 +201,14 @@ class ObservationPlan:
     `selected_action_ids` is reserved for a plan the collision oracle has
     CERTIFIED collision-free. It is empty whenever no such plan was reached.
 
+    `status` separates two independent questions. `OPTIMAL` means a certified
+    plan whose minimum cost is proven. `CERTIFIED_PLAN` means the plan is
+    oracle-certified but the budget ran out before minimum cost could be
+    proven -- `lower_bound` and `optimality_gap` are then both real, since the
+    certified plan supplies a genuine upper bound. `UNSYNTHESIZABLE` means no
+    plan exists in the registered library. `UNRESOLVED` means nothing was
+    established.
+
     `candidate_action_ids` / `candidate_cost` carry the last working cover
     when synthesis ended without certification. That cover hits every cut
     discovered so far but has NOT been re-checked by the oracle since it was
@@ -220,6 +228,7 @@ class ObservationPlan:
     message: str
     candidate_action_ids: Tuple[str, ...] = ()
     candidate_cost: Optional[float] = None
+    upper_bound: Optional[float] = None
 
 
 @dataclass(frozen=True)

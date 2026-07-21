@@ -1204,8 +1204,77 @@ def synthesize_minimum_observation(
             exact_candidate = False
             if bound_interval and iteration % bound_interval == 0:
                 _refresh_bound()
-        candidate_ids, candidate_cost = _candidate_fields()
         _refresh_bound()
+
+        # The loop tests `selected` at the TOP of each iteration, so the cover
+        # produced by the final iteration's greedy rebuild has never been shown
+        # to the oracle. One more separation pass costs a single batch and can
+        # promote it from an uncertified candidate to a CERTIFIED plan -- which
+        # is what turns its cost into a genuine upper bound and makes an
+        # anytime gap meaningful at all. Without this a run could hold a
+        # provably collision-free plan and still report nothing usable.
+        final_batch = _collisions(
+            polytope,
+            thermal,
+            actions,
+            selected,
+            margin_k,
+            feasibility_tolerance,
+            separation_workers,
+        )
+        if not final_batch:
+            # `selected` may legitimately be EMPTY: if the decision is already
+            # invariant over every admissible world, the zero-cost contract is
+            # a valid certified plan. Requiring a nonempty plan here would have
+            # reported that case as UNRESOLVED.
+            certified_ids = tuple(actions[i].action_id for i in selected)
+            certified_cost = (
+                float(costs[list(selected)].sum()) if selected else 0.0
+            )
+            gap = None
+            if anytime_bound is not None:
+                raw = certified_cost - anytime_bound
+                if raw < -1e-6 * max(1.0, certified_cost):
+                    # A certified plan cheaper than a certified lower bound is
+                    # an invariant violation, not a small numerical artifact.
+                    raise UnresolvedComputation(
+                        f"certified plan cost {certified_cost} lies below the "
+                        f"certified lower bound {anytime_bound}"
+                    )
+                gap = max(0.0, raw)
+            return ObservationPlan(
+                status="CERTIFIED_PLAN",
+                # Oracle-certified: no admissible pair of worlds with different
+                # decisions survives these observations. NOT proven cheapest.
+                # Built directly from `selected` -- the exact set handed to the
+                # oracle -- so the reported certificate cannot drift from what
+                # was actually checked.
+                selected_action_ids=certified_ids,
+                exact_cost=None,
+                lower_bound=anytime_bound,
+                relaxation_bound=anytime_bound,
+                upper_bound=certified_cost,
+                # A REAL certified interval width: a feasible plan's cost minus
+                # a valid lower bound. Distinct from candidate_cost - bound,
+                # which bounds nothing because an uncertified cover need not be
+                # feasible. Includes the deliberate lower-bound deflation, so a
+                # tiny positive gap can appear where the true gap is zero.
+                optimality_gap=gap,
+                iterations=max_iterations,
+                witnesses=tuple(witnesses),
+                message=(
+                    "decision-identifying observation contract certified by an "
+                    "exhaustive final separation pass; minimum cost not proven "
+                    "within the registered constraint-generation budget"
+                ),
+                candidate_action_ids=(),
+                candidate_cost=None,
+            )
+        # The final pass found fresh collisions. They are the newest and most
+        # relevant counterexamples, so they belong in the returned evidence
+        # even though the budget prevents another rebuild.
+        witnesses.extend(final_batch)
+        candidate_ids, candidate_cost = _candidate_fields()
         return ObservationPlan(
             status="UNRESOLVED",
             # Nothing was certified: the loop only proves a plan collision-free
