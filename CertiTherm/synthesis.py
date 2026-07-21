@@ -10,7 +10,9 @@ action library, model family, margins, and numerical tolerances.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+import os
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -36,6 +38,15 @@ class _Master:
     lower_bound: float
     relaxation_bound: float
     dual_prices: np.ndarray
+
+
+def _configured_workers(workers: Optional[int] = None) -> int:
+    value = workers
+    if value is None:
+        value = int(os.environ.get("CERTITHERM_LP_WORKERS", "8"))
+    if value <= 0:
+        raise ValueError("LP separation workers must be positive")
+    return value
 
 
 def _pair_rows(polytope: PowerPolytope) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -68,15 +79,17 @@ def _robust_safe_rows(
     return rows, rhs
 
 
-def _collision(
+def _collision_search(
     polytope: PowerPolytope,
     thermal: ThermalFamily,
     actions: Sequence[MeasurementAction],
     selected: Iterable[int],
     margin_k: float,
     feasibility_tolerance: float,
-) -> Optional[WorldPair]:
-    """Return one safe/unsafe collision, or None after exhaustive LP search."""
+    workers: Optional[int],
+    exhaustive: bool,
+) -> Tuple[WorldPair, ...]:
+    """Separate safe/reject cells with deterministic parallel LP batches."""
 
     n = polytope.dimension
     a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
@@ -93,50 +106,127 @@ def _collision(
     ambient = thermal.ambient_k
     robust_rows, robust_rhs = _robust_safe_rows(thermal, margin_k)
     safe_rows = np.hstack((robust_rows, np.zeros_like(robust_rows)))
-    for reject_model in range(response.shape[0]):
-        for point in range(response.shape[1]):
-            reject_row = np.concatenate(
-                (np.zeros(n), -response[reject_model, point])
-            )[None, :]
-            reject_rhs = np.array(
-                [
-                    -(
-                        thermal.limit_k
-                        + margin_k
-                        - thermal.error_k[reject_model]
-                        - ambient[reject_model, point]
-                    )
-                ]
+    common_chunks = [base_a_ub, safe_rows]
+    common_rhs_chunks = [base_b_ub, robust_rhs]
+    if action_rows:
+        common_chunks.append(np.asarray(action_rows))
+        common_rhs_chunks.append(np.asarray(action_rhs))
+    common_a_ub = np.vstack(common_chunks)
+    common_b_ub = np.concatenate(common_rhs_chunks)
+    specs = tuple(
+        (reject_model, point)
+        for reject_model in range(response.shape[0])
+        for point in range(response.shape[1])
+    )
+    worker_count = min(_configured_workers(workers), len(specs))
+
+    def solve(spec: Tuple[int, int]) -> Optional[WorldPair]:
+        reject_model, point = spec
+        reject_row = np.concatenate((np.zeros(n), -response[reject_model, point]))
+        reject_rhs = -(
+            thermal.limit_k
+            + margin_k
+            - thermal.error_k[reject_model]
+            - ambient[reject_model, point]
+        )
+        result = linprog(
+            np.zeros(2 * n),
+            A_ub=np.vstack((common_a_ub, reject_row)),
+            b_ub=np.append(common_b_ub, reject_rhs),
+            A_eq=a_eq,
+            b_eq=b_eq,
+            bounds=bounds,
+            method="highs",
+            options={
+                "primal_feasibility_tolerance": feasibility_tolerance,
+                "dual_feasibility_tolerance": feasibility_tolerance,
+                "threads": 1,
+            },
+        )
+        if result.status == 0:
+            return WorldPair(
+                safe_power_w=result.x[:n].copy(),
+                unsafe_power_w=result.x[n:].copy(),
+                safe_model_id="ROBUST_ENVELOPE",
+                unsafe_model_id=thermal.model_ids[reject_model],
+                unsafe_point=point,
             )
-            chunks = [base_a_ub, safe_rows, reject_row]
-            rhs_chunks = [base_b_ub, robust_rhs, reject_rhs]
-            if action_rows:
-                chunks.append(np.asarray(action_rows))
-                rhs_chunks.append(np.asarray(action_rhs))
-            result = linprog(
-                np.zeros(2 * n),
-                A_ub=np.vstack(chunks),
-                b_ub=np.concatenate(rhs_chunks),
-                A_eq=a_eq,
-                b_eq=b_eq,
-                bounds=bounds,
-                method="highs",
-                options={
-                    "primal_feasibility_tolerance": feasibility_tolerance,
-                    "dual_feasibility_tolerance": feasibility_tolerance,
-                },
+        if result.status != 2:
+            raise RuntimeError(f"collision LP unresolved: {result.message}")
+        return None
+
+    if worker_count == 1:
+        collisions = []
+        for spec in specs:
+            collision = solve(spec)
+            if collision is not None:
+                collisions.append(collision)
+                if not exhaustive:
+                    break
+        return tuple(collisions)
+
+    collisions: List[WorldPair] = []
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        if exhaustive:
+            return tuple(
+                collision
+                for collision in pool.map(solve, specs)
+                if collision is not None
             )
-            if result.status == 0:
-                return WorldPair(
-                    safe_power_w=result.x[:n].copy(),
-                    unsafe_power_w=result.x[n:].copy(),
-                    safe_model_id="ROBUST_ENVELOPE",
-                    unsafe_model_id=thermal.model_ids[reject_model],
-                    unsafe_point=point,
-                )
-            if result.status != 2:
-                raise RuntimeError(f"collision LP unresolved: {result.message}")
-    return None
+        for start in range(0, len(specs), worker_count):
+            batch = tuple(pool.map(solve, specs[start : start + worker_count]))
+            collision = next((item for item in batch if item is not None), None)
+            if collision is not None:
+                collisions.append(collision)
+                break
+    return tuple(collisions)
+
+
+def _collision(
+    polytope: PowerPolytope,
+    thermal: ThermalFamily,
+    actions: Sequence[MeasurementAction],
+    selected: Iterable[int],
+    margin_k: float,
+    feasibility_tolerance: float,
+    workers: Optional[int] = None,
+) -> Optional[WorldPair]:
+    """Return the first collision; certify absence by parallel exhaustive scan."""
+
+    collisions = _collision_search(
+        polytope,
+        thermal,
+        actions,
+        selected,
+        margin_k,
+        feasibility_tolerance,
+        workers,
+        False,
+    )
+    return collisions[0] if collisions else None
+
+
+def _collisions(
+    polytope: PowerPolytope,
+    thermal: ThermalFamily,
+    actions: Sequence[MeasurementAction],
+    selected: Iterable[int],
+    margin_k: float,
+    feasibility_tolerance: float,
+    workers: Optional[int] = None,
+) -> Tuple[WorldPair, ...]:
+    """Return one collision per reachable reject cell in deterministic order."""
+
+    return _collision_search(
+        polytope,
+        thermal,
+        actions,
+        selected,
+        margin_k,
+        feasibility_tolerance,
+        workers,
+        True,
+    )
 
 
 def _state_specs(thermal: ThermalFamily, state: str) -> Iterable[Tuple[int, int]]:
@@ -490,6 +580,7 @@ def synthesize_ordered_query(
     feasibility_tolerance: float = 1e-10,
     separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
+    separation_workers: Optional[int] = None,
 ) -> QueryObservationPlan:
     """Exact least-cost plan, decomposed by ordered candidate decisions.
 
@@ -538,6 +629,7 @@ def synthesize_ordered_query(
                 feasibility_tolerance=feasibility_tolerance,
                 separation_tolerance=separation_tolerance,
                 max_iterations=max_iterations,
+                separation_workers=separation_workers,
             )
             selected_ids.extend(plan.selected_action_ids)
             iterations += plan.iterations
@@ -599,6 +691,7 @@ def synthesize_minimum_observation(
     feasibility_tolerance: float = 1e-10,
     separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
+    separation_workers: Optional[int] = None,
 ) -> ObservationPlan:
     """Synthesize the exact minimum-cost non-adaptive observation plan."""
 
@@ -619,15 +712,16 @@ def synthesize_minimum_observation(
         witnesses: List[WorldPair] = []
         master = _solve_master(costs, cuts)
         for iteration in range(1, max_iterations + 1):
-            witness = _collision(
+            batch = _collisions(
                 polytope,
                 thermal,
                 actions,
                 master.selected,
                 margin_k,
                 feasibility_tolerance,
+                separation_workers,
             )
-            if witness is None:
+            if not batch:
                 gap = master.cost - master.lower_bound
                 return ObservationPlan(
                     status="OPTIMAL",
@@ -640,29 +734,40 @@ def synthesize_minimum_observation(
                     witnesses=tuple(witnesses),
                     message="zero-error decision uncertainty is eliminated",
                 )
-            witnesses.append(witness)
-            delta = witness.safe_power_w - witness.unsafe_power_w
-            cut = np.asarray(
-                [
-                    abs(float(action.vector @ delta))
-                    > action.tolerance + separation_tolerance
-                    for action in actions
-                ],
-                dtype=float,
-            )
-            if not np.any(cut):
-                return ObservationPlan(
-                    status="UNSYNTHESIZABLE",
-                    selected_action_ids=tuple(actions[i].action_id for i in master.selected),
-                    exact_cost=None,
-                    lower_bound=master.lower_bound,
-                    relaxation_bound=master.relaxation_bound,
-                    optimality_gap=None,
-                    iterations=iteration,
-                    witnesses=tuple(witnesses),
-                    message=f"full action library cannot separate {witness.cause}",
+            known = {np.packbits(cut.astype(np.uint8)).tobytes() for cut in cuts}
+            added = 0
+            for witness in batch:
+                witnesses.append(witness)
+                delta = witness.safe_power_w - witness.unsafe_power_w
+                cut = np.asarray(
+                    [
+                        abs(float(action.vector @ delta))
+                        > action.tolerance + separation_tolerance
+                        for action in actions
+                    ],
+                    dtype=float,
                 )
-            cuts.append(cut)
+                if not np.any(cut):
+                    return ObservationPlan(
+                        status="UNSYNTHESIZABLE",
+                        selected_action_ids=tuple(
+                            actions[i].action_id for i in master.selected
+                        ),
+                        exact_cost=None,
+                        lower_bound=master.lower_bound,
+                        relaxation_bound=master.relaxation_bound,
+                        optimality_gap=None,
+                        iterations=iteration,
+                        witnesses=tuple(witnesses),
+                        message=f"full action library cannot separate {witness.cause}",
+                    )
+                key = np.packbits(cut.astype(np.uint8)).tobytes()
+                if key not in known:
+                    cuts.append(cut)
+                    known.add(key)
+                    added += 1
+            if not added:
+                raise RuntimeError("collision separation produced no new master cut")
             master = _solve_master(costs, cuts)
         return ObservationPlan(
             status="UNRESOLVED",

@@ -181,6 +181,31 @@ def test_query_constraint_generation_matches_all_subset_enumeration() -> None:
     assert plan.optimality_gap == 0.0
 
 
+def test_parallel_multicut_matches_serial_exact_plan() -> None:
+    polytope = PowerPolytope.box_with_total(np.zeros(3), np.ones(3), 1.0)
+    thermal = ThermalFamily(
+        ("block",),
+        np.array([[[2.0, 0.0, 0.0], [0.0, 2.0, 0.0]]]),
+        np.array([0.0]),
+        1.0,
+    )
+    actions = tuple(
+        MeasurementAction(f"p{index}", np.eye(3)[index], cost)
+        for index, cost in enumerate((3.0, 2.0, 1.0))
+    )
+    serial = synthesize_minimum_observation(
+        polytope, thermal, actions, separation_workers=1
+    )
+    parallel = synthesize_minimum_observation(
+        polytope, thermal, actions, separation_workers=4
+    )
+    assert serial.status == parallel.status == "OPTIMAL"
+    assert serial.selected_action_ids == parallel.selected_action_ids
+    assert serial.exact_cost == parallel.exact_cost
+    assert serial.lower_bound == parallel.lower_bound
+    assert serial.optimality_gap == parallel.optimality_gap == 0.0
+
+
 def test_ordered_decomposition_skips_unreachable_candidate_decisions() -> None:
     power = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
     ambiguous = ThermalFamily(

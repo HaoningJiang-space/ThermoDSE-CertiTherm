@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence, Tuple
 
@@ -9,7 +10,7 @@ import numpy as np
 from scipy.optimize import linprog
 
 from .core import CandidateSpace, MeasurementAction, WorldPair
-from .synthesis import _collision, _required_candidate_indices
+from .synthesis import _collision, _configured_workers, _required_candidate_indices
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,10 @@ def sequential_early_stop(
 
 
 def uncertainty_width_order(
-    candidates: Sequence[CandidateSpace], actions: Sequence[MeasurementAction]
+    candidates: Sequence[CandidateSpace],
+    actions: Sequence[MeasurementAction],
+    *,
+    workers: Optional[int] = None,
 ) -> Tuple[int, ...]:
     """Order by obtainable measurement range per cost; no decision information."""
 
@@ -127,8 +131,9 @@ def uncertainty_width_order(
     candidate_rank = {
         candidate.candidate_id: rank for rank, candidate in enumerate(candidates)
     }
-    scores = []
-    for index, action in enumerate(actions):
+
+    def score(item: Tuple[int, MeasurementAction]):
+        index, action = item
         polytope = candidate_map[action.candidate_id].power
         kwargs = dict(
             A_ub=polytope.a_ub,
@@ -137,20 +142,23 @@ def uncertainty_width_order(
             b_eq=polytope.b_eq,
             bounds=list(zip(polytope.lower_w, polytope.upper_w)),
             method="highs",
+            options={"threads": 1},
         )
         lower = linprog(action.vector, **kwargs)
         upper = linprog(-action.vector, **kwargs)
         if not lower.success or not upper.success:
             raise RuntimeError("width baseline LP unresolved")
         width = -float(upper.fun) - float(lower.fun)
-        scores.append(
-            (
-                width / action.cost,
-                candidate_rank[action.candidate_id],
-                action.action_id,
-                index,
-            )
+        return (
+            width / action.cost,
+            candidate_rank[action.candidate_id],
+            action.action_id,
+            index,
         )
+
+    worker_count = min(_configured_workers(workers), len(actions))
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        scores = list(pool.map(score, enumerate(actions)))
     return tuple(
         item[3] for item in sorted(scores, key=lambda item: (-item[0], item[1], item[2]))
     )
