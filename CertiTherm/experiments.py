@@ -1004,7 +1004,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "width_seconds": width_seconds,
                     "dual_seconds": dual_seconds,
                     "full_registry_cost": sum(action.cost for action in actions),
-                    "witnesses": len(exact.witnesses),
+                    "witnesses": len(exact.witnesses) if exact else 0,
                     "placed_robust_outcome": placed["robust_outcome"],
                     "placed_model_outcomes": ";".join(
                         f"{model}={outcome}"
