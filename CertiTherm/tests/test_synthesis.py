@@ -16,7 +16,11 @@ from CertiTherm.policies import (
     uncertainty_width_order,
 )
 from CertiTherm.adaptive import finite_adaptive_limit
-from CertiTherm.synthesis import _query_collision, _state_collision
+from CertiTherm.synthesis import (
+    _insert_minimal_cut,
+    _query_collision,
+    _state_collision,
+)
 
 
 def test_exact_plan_reaches_unit_cost_global_limit() -> None:
@@ -204,6 +208,15 @@ def test_parallel_multicut_matches_serial_exact_plan() -> None:
     assert serial.exact_cost == parallel.exact_cost
     assert serial.lower_bound == parallel.lower_bound
     assert serial.optimality_gap == parallel.optimality_gap == 0.0
+
+
+def test_hitting_set_cut_antichain_discards_supersets() -> None:
+    cuts = []
+    assert _insert_minimal_cut(cuts, np.array([1.0, 1.0, 0.0]))
+    assert not _insert_minimal_cut(cuts, np.array([1.0, 1.0, 1.0]))
+    assert _insert_minimal_cut(cuts, np.array([1.0, 0.0, 0.0]))
+    assert len(cuts) == 1
+    np.testing.assert_array_equal(cuts[0], [1.0, 0.0, 0.0])
 
 
 def test_early_stop_bisection_matches_the_first_certified_prefix() -> None:

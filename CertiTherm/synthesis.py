@@ -632,6 +632,22 @@ def _solve_master(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> _Master:
     return _Master(selected, float(integer.fun), lower_bound, float(relaxed.fun), dual)
 
 
+def _insert_minimal_cut(cuts: List[np.ndarray], cut: np.ndarray) -> bool:
+    """Maintain the inclusion-minimal antichain of hitting-set constraints."""
+
+    support = np.asarray(cut, dtype=bool)
+    existing_supports = [np.asarray(existing, dtype=bool) for existing in cuts]
+    if any(np.all(~existing | support) for existing in existing_supports):
+        return False
+    cuts[:] = [
+        existing
+        for existing, old_support in zip(cuts, existing_supports)
+        if not np.all(~support | old_support)
+    ]
+    cuts.append(np.asarray(cut, dtype=float))
+    return True
+
+
 def dual_information_scores(
     actions: Sequence[MeasurementAction],
     cuts: Sequence[np.ndarray],
@@ -808,7 +824,6 @@ def synthesize_minimum_observation(
                     witnesses=tuple(witnesses),
                     message="zero-error decision uncertainty is eliminated",
                 )
-            known = {np.packbits(cut.astype(np.uint8)).tobytes() for cut in cuts}
             added = 0
             for witness in batch:
                 delta = witness.safe_power_w - witness.unsafe_power_w
@@ -835,11 +850,8 @@ def synthesize_minimum_observation(
                         witnesses=tuple(witnesses),
                         message=f"full action library cannot separate {witness.cause}",
                     )
-                key = np.packbits(cut.astype(np.uint8)).tobytes()
-                if key not in known:
+                if _insert_minimal_cut(cuts, cut):
                     witnesses.append(witness)
-                    cuts.append(cut)
-                    known.add(key)
                     added += 1
             if not added:
                 raise RuntimeError("collision separation produced no new master cut")
