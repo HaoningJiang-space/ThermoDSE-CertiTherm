@@ -589,6 +589,7 @@ def _write_report(
         f"# CertiTherm {split} gate report",
         "",
         f"- Physical operators admitted: {len(operators)}",
+        f"- Direct operator replays: {len(calibration_errors)}",
         f"- Exact status: {statuses}",
         f"- Placed-reference false certificates: {false_certificates}",
         (
@@ -614,6 +615,28 @@ def _write_report(
         lines.append(
             f"| {row['workload']} | {row['objective_rank']} | "
             f"{row['architecture']} | {float(row['edyp']):.9g} |"
+        )
+    lines += [
+        "",
+        "## Query evidence",
+        "",
+        "| Workload | Package | Exact | Cost | MILP LB | LP LB | Gap | Fixed | Width | Dual | Full | Witnesses |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    numeric = lambda value: (
+        "" if value in (None, "") else f"{float(value):.9g}"
+    )
+    for row in rows:
+        lines.append(
+            f"| {row['workload']} | {row['package']} | {row['exact_status']} | "
+            f"{numeric(row.get('exact_cost'))} | "
+            f"{numeric(row.get('milp_lower_bound'))} | "
+            f"{numeric(row.get('lp_relaxation_bound'))} | "
+            f"{numeric(row.get('optimality_gap'))} | "
+            f"{numeric(row.get('fixed_cost'))} | "
+            f"{numeric(row.get('width_cost'))} | "
+            f"{numeric(row.get('dual_cost'))} | "
+            f"{numeric(row.get('full_registry_cost'))} | {row.get('witnesses', '')} |"
         )
     lines += [
         "",
