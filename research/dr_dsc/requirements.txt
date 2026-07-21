@@ -1,0 +1,13 @@
+# Isolated venv only -- do NOT merge into ../../requirements.lock, which is
+# CertiTherm's frozen, pinned environment. See README.md.
+#
+# scipy is REQUIRED, not optional: oracle.py imports CertiTherm.synthesis,
+# which does `from scipy.optimize import Bounds, LinearConstraint, linprog,
+# milp` at module scope. torch pulls in numpy but NOT scipy, so omitting it
+# makes Stage B die with ModuleNotFoundError at import time -- which looks
+# like a broken adapter rather than a missing dependency. Caught in peer
+# review before first run.
+torch>=2.2
+numpy>=1.24
+scipy>=1.10
+pytest>=8.0
