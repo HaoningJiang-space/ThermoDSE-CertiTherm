@@ -38,12 +38,10 @@ For finite obtainable action library \(\mathcal A\), DSOS solves
 
 The edge set is continuous and is never enumerated. The implementation uses:
 
-1. a full-library separation query, which immediately proves
-   `UNSYNTHESIZABLE` when even every registered channel leaves a collision;
-2. a deterministic cost-normalized greedy cover to accumulate violated
+1. a deterministic cost-normalized greedy cover to accumulate violated
    witness cuts without repeatedly solving an exact master;
-3. a minimum-cost hitting-set MILP over the accumulated cuts; and
-4. an exhaustive robust-SAFE × rejecting-model/peak-row LP separation oracle
+2. a minimum-cost hitting-set MILP over the accumulated cuts; and
+3. an exhaustive robust-SAFE × rejecting-model/peak-row LP separation oracle
    on that exact MILP plan.
 
 The greedy plan is only a separation accelerator and never produces a paper
@@ -53,6 +51,12 @@ If the MILP plan has no collision, its lower bound and primal feasibility
 prove global optimality. If even the full library cannot separate a
 collision, the result is `UNSYNTHESIZABLE` with that witness. Solver or replay
 uncertainty returns `UNRESOLVED`, never a certificate.
+
+A dedicated full-library pre-pass is unnecessary. Whenever a returned
+cross-decision witness is separated by no registered action, that witness
+already proves that the full library is insufficient. Avoiding the pre-pass
+removes one exhaustive oracle call from every identifiable query without
+changing the master, proof, or failure semantics.
 
 Every thermal decision uses the joint fail-closed upper envelope
 \(\max_m(T_m+\epsilon_m)\). SAFE therefore requires every registered

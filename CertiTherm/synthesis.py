@@ -500,44 +500,6 @@ def synthesize_ordered_query(
         oracle_cache: Dict[
             Tuple[int, Tuple[int, ...], str, str], Optional[CandidateWorldPair]
         ] = {}
-        full_witness = _query_collision(
-            candidates,
-            actions,
-            range(len(actions)),
-            margin_k,
-            feasibility_tolerance,
-            oracle_cache,
-        )
-        if full_witness is not None:
-            pairs = {pair.candidate_id: pair for pair in full_witness.candidates}
-            numerically_separated = any(
-                abs(
-                    float(
-                        action.vector
-                        @ (
-                            pairs[action.candidate_id].left_power_w
-                            - pairs[action.candidate_id].right_power_w
-                        )
-                    )
-                )
-                > action.tolerance + separation_tolerance
-                for action in actions
-            )
-            if numerically_separated:
-                raise RuntimeError(
-                    "full-library oracle violates the registered separation tolerance"
-                )
-            return QueryObservationPlan(
-                "UNSYNTHESIZABLE",
-                (),
-                None,
-                0.0,
-                0.0,
-                None,
-                1,
-                (full_witness,),
-                "full action library cannot separate a cross-decision collision",
-            )
         selected: Tuple[int, ...] = ()
         master: Optional[_Master] = None
         exact_check = False
