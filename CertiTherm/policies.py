@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.optimize import linprog
 
-from .core import CandidateSpace, MeasurementAction
-from .synthesis import _query_collision
+from .core import CandidateSpace, MeasurementAction, WorldPair
+from .synthesis import _collision, _required_candidate_indices
 
 
 @dataclass(frozen=True)
@@ -20,24 +20,59 @@ class PolicyResult:
     oracle_calls: int
 
 
-def _cut(witness, actions: Sequence[MeasurementAction], separation_tolerance: float) -> np.ndarray:
-    pairs = {pair.candidate_id: pair for pair in witness.candidates}
+def _cut(
+    candidate_id: str,
+    witness: WorldPair,
+    actions: Sequence[MeasurementAction],
+    separation_tolerance: float,
+) -> np.ndarray:
+    delta = witness.safe_power_w - witness.unsafe_power_w
     return np.asarray(
         [
-            abs(
-                float(
-                    action.vector
-                    @ (
-                        pairs[action.candidate_id].left_power_w
-                        - pairs[action.candidate_id].right_power_w
-                    )
-                )
-            )
+            action.candidate_id == candidate_id
+            and abs(float(action.vector @ delta))
             > action.tolerance + separation_tolerance
             for action in actions
         ],
         dtype=float,
     )
+
+
+def _local_collision(
+    candidates: Sequence[CandidateSpace],
+    actions: Sequence[MeasurementAction],
+    selected: Sequence[int],
+    required: Sequence[int],
+    margin_k: float,
+    feasibility_tolerance: float,
+    cache: Dict[Tuple[int, Tuple[int, ...]], Optional[WorldPair]],
+) -> Optional[Tuple[str, WorldPair]]:
+    selected_set = set(selected)
+    for candidate_index in required:
+        candidate = candidates[candidate_index]
+        global_indices = tuple(
+            index
+            for index, action in enumerate(actions)
+            if action.candidate_id == candidate.candidate_id
+        )
+        local_selected = tuple(
+            local
+            for local, index in enumerate(global_indices)
+            if index in selected_set
+        )
+        key = candidate_index, local_selected
+        if key not in cache:
+            cache[key] = _collision(
+                candidate.power,
+                candidate.thermal,
+                tuple(actions[index] for index in global_indices),
+                local_selected,
+                margin_k,
+                feasibility_tolerance,
+            )
+        if cache[key] is not None:
+            return candidate.candidate_id, cache[key]
+    return None
 
 
 def sequential_early_stop(
@@ -52,9 +87,18 @@ def sequential_early_stop(
     """Fair fixed/width baseline: same oracle, and stop immediately when certified."""
 
     selected, cache = [], {}
+    required = _required_candidate_indices(
+        candidates, margin_k, feasibility_tolerance
+    )
     for calls in range(len(order) + 1):
-        witness = _query_collision(
-            candidates, actions, selected, margin_k, feasibility_tolerance, cache
+        witness = _local_collision(
+            candidates,
+            actions,
+            selected,
+            required,
+            margin_k,
+            feasibility_tolerance,
+            cache,
         )
         if witness is None:
             return PolicyResult(
@@ -124,9 +168,18 @@ def dual_price_greedy(
 
     costs = np.asarray([action.cost for action in actions])
     selected, cuts, cache = [], [], {}
+    required = _required_candidate_indices(
+        candidates, margin_k, feasibility_tolerance
+    )
     for calls in range(len(actions) + 1):
-        witness = _query_collision(
-            candidates, actions, selected, margin_k, feasibility_tolerance, cache
+        witness = _local_collision(
+            candidates,
+            actions,
+            selected,
+            required,
+            margin_k,
+            feasibility_tolerance,
+            cache,
         )
         if witness is None:
             return PolicyResult(
@@ -135,7 +188,7 @@ def dual_price_greedy(
                 sum(actions[index].cost for index in selected),
                 calls + 1,
             )
-        cut = _cut(witness, actions, separation_tolerance)
+        cut = _cut(witness[0], witness[1], actions, separation_tolerance)
         if not np.any(cut):
             return PolicyResult(
                 "UNSYNTHESIZABLE",

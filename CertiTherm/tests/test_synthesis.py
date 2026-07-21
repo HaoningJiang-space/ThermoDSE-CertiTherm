@@ -120,6 +120,12 @@ def test_ordered_query_optimizes_cross_candidate_decision() -> None:
     dual = dual_price_greedy(candidates, actions)
     assert fixed.status == width.status == dual.status == "CERTIFIED"
     assert min(fixed.cost, width.cost, dual.cost) >= plan.exact_cost
+    action_index = {action.action_id: index for index, action in enumerate(actions)}
+    for policy in (fixed, width, dual):
+        selected = tuple(
+            action_index[action_id] for action_id in policy.selected_action_ids
+        )
+        assert _query_collision(candidates, actions, selected, 1e-4, 1e-8) is None
 
 
 def test_finite_adaptive_bellman_limit() -> None:

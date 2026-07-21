@@ -342,6 +342,38 @@ def _decision_states(candidate_count: int, decision: int) -> Tuple[str, ...]:
     )
 
 
+def _required_candidate_indices(
+    candidates: Sequence[CandidateSpace],
+    margin_k: float,
+    feasibility_tolerance: float,
+) -> Tuple[int, ...]:
+    """Candidates whose SAFE/REJECT ambiguity changes a reachable decision."""
+
+    state_exists = {
+        (index, state): _single_state_world(
+            candidate, state, margin_k, feasibility_tolerance
+        )
+        is not None
+        for index, candidate in enumerate(candidates)
+        for state in ("ANY", "SAFE", "REJECT")
+    }
+    reachable = tuple(
+        decision
+        for decision in range(len(candidates) + 1)
+        if all(
+            state_exists[index, state]
+            for index, state in enumerate(
+                _decision_states(len(candidates), decision)
+            )
+        )
+    )
+    return tuple(
+        decision
+        for decision in reachable[:-1]
+        if decision < len(candidates)
+    )
+
+
 def _query_collision(
     candidates: Sequence[CandidateSpace],
     actions: Sequence[MeasurementAction],
@@ -490,28 +522,8 @@ def synthesize_ordered_query(
             )
             for candidate in candidates
         }
-        state_exists = {
-            (index, state): _single_state_world(
-                candidate, state, margin_k, feasibility_tolerance
-            )
-            is not None
-            for index, candidate in enumerate(candidates)
-            for state in ("ANY", "SAFE", "REJECT")
-        }
-        reachable = tuple(
-            decision
-            for decision in range(len(candidates) + 1)
-            if all(
-                state_exists[index, state]
-                for index, state in enumerate(
-                    _decision_states(len(candidates), decision)
-                )
-            )
-        )
-        required = tuple(
-            decision
-            for decision in reachable[:-1]
-            if decision < len(candidates)
+        required = _required_candidate_indices(
+            candidates, margin_k, feasibility_tolerance
         )
         selected_ids: List[str] = []
         lower_bound = relaxation_bound = 0.0
