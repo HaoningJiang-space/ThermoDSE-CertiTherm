@@ -4,6 +4,10 @@ HOTSPOT_BIN := $(HOTSPOT_BUILD)/hotspot
 GPU_HOTSPOT_BUILD := .build/hotspot-gpu-export
 GPU_HOTSPOT_BIN := $(GPU_HOTSPOT_BUILD)/hotspot
 GPU_SOLVER := .build/hotspot-cuda/certitherm_hotspot_cuda
+SUPERLU_SOURCE_BUILD := .build/superlu-source
+SUPERLU_BUILD := .build/superlu
+SUPERLU_LIB := $(SUPERLU_BUILD)/SRC/libsuperlu.a
+SUPERLU_BLAS := $(SUPERLU_BUILD)/CBLAS/libblas.a
 CUDA_NVCC ?= /usr/local/cuda-12.8/bin/nvcc
 CUDA_ARCH ?= sm_80
 
@@ -25,6 +29,15 @@ bootstrap:
 	sha256sum $(HOTSPOT_BIN) > $(HOTSPOT_BUILD)/SHA256SUMS
 
 gpu-bootstrap: bootstrap
+	mkdir -p $(SUPERLU_SOURCE_BUILD) $(SUPERLU_BUILD)
+	find $(SUPERLU_SOURCE_BUILD) -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+	find $(SUPERLU_BUILD) -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+	git -C SuperLU archive HEAD | tar -xf - -C $(SUPERLU_SOURCE_BUILD)
+	cmake -S $(SUPERLU_SOURCE_BUILD) -B $(SUPERLU_BUILD) \
+		-DBUILD_SHARED_LIBS=OFF -Denable_blaslib=ON -Denable_tests=OFF \
+		-Denable_single=OFF -Denable_double=ON \
+		-Denable_complex=OFF -Denable_complex16=OFF
+	cmake --build $(SUPERLU_BUILD) --parallel
 	mkdir -p $(GPU_HOTSPOT_BUILD)
 	find $(GPU_HOTSPOT_BUILD) -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 	git -C HotSpot archive HEAD | tar -xf - -C $(GPU_HOTSPOT_BUILD)
@@ -34,6 +47,8 @@ gpu-bootstrap: bootstrap
 	install -m 0644 gpu/hotspot_cuda/system_export.c \
 		$(GPU_HOTSPOT_BUILD)/certitherm_gpu_export.c
 	$(MAKE) -C $(GPU_HOTSPOT_BUILD) SUPERLU=1 \
+		INCDIR=$(abspath $(SUPERLU_SOURCE_BUILD)/SRC) \
+		LIBS='$(abspath $(SUPERLU_LIB)) $(abspath $(SUPERLU_BLAS)) -lm' \
 		GRIDSRC='temperature_grid.c certitherm_gpu_export.c' \
 		GRIDOBJ='temperature_grid.o certitherm_gpu_export.o' hotspot
 	$(MAKE) -C gpu/hotspot_cuda NVCC=$(CUDA_NVCC) CUDA_ARCH=$(CUDA_ARCH)

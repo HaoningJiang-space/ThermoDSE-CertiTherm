@@ -29,6 +29,12 @@
 | Semantic delta | Rodinia's single-layer explicit transient stencil is replaced by the exact sparse conductance system exported by pinned HotSpot |
 | Release status | upstream archived; CertiTherm does not modify the submodule |
 
+The exporter also pins SuperLU `v5.2.1` at commit
+`b86f1388fc9c362ac9bfa4ed3a6d6e02c98b6544` as a build-only submodule. Its
+BSD-style license is retained in `SuperLU/License.txt`. SuperLU supplies the
+HotSpot sparse-matrix container/assembly dependency; it is built from an
+exported clean tree and does not solve or validate the CUDA result.
+
 ## First-principles mechanism
 
 For every fixed HotSpot grid model, the steady temperature satisfies

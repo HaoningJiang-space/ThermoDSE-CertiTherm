@@ -7,3 +7,6 @@
 [submodule "Rodinia"]
 	path = Rodinia
 	url = https://github.com/yuhc/gpu-rodinia.git
+[submodule "SuperLU"]
+	path = SuperLU
+	url = https://github.com/xiaoyeli/superlu.git
