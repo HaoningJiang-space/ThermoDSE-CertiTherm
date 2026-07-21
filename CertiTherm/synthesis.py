@@ -11,6 +11,7 @@ action library, model family, margins, and numerical tolerances.
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from multiprocessing import get_context
 import os
@@ -29,6 +30,60 @@ from .core import (
     QueryWorldPair,
     ThermalFamily,
     WorldPair,
+)
+
+
+class UnresolvedComputation(RuntimeError):
+    """A numerical or infrastructure failure that prevents any conclusion.
+
+    Raised ONLY where a failure is observed and known to be epistemic -- a
+    solver that did not converge, a numerical breakdown inside a solve, a dead
+    separation worker. The public boundary then turns it into UNRESOLVED.
+
+    Classifying at the origin rather than by exception class at the boundary is
+    deliberate. An earlier revision caught `ValueError`, `RuntimeError`,
+    `ArithmeticError` and `MemoryError` at the top level; peer review rejected
+    that, correctly. Those classes describe Python failure mechanics, not
+    epistemic meaning: numpy raises `ValueError` for shape errors, a
+    `ZeroDivisionError` is usually a missing precondition, and an arbitrary
+    `RuntimeError` from a future dependency is a defect. Catching them wholesale
+    turns a broken build into an apparently honest "cannot certify" -- exactly
+    the failure this project's fail-closed taxonomy exists to prevent.
+    """
+
+
+def _unresolved_solve(what: str, call, *args, **kwargs):
+    """Run a solver call, translating epistemic failures at their origin.
+
+    Numerical breakdown inside a solve genuinely means "no conclusion".
+    Everything else -- including a `ValueError` from a malformed matrix, which
+    is a defect in the caller, not a property of the instance -- propagates.
+    """
+    try:
+        return call(*args, **kwargs)
+    except (FloatingPointError, OverflowError, np.linalg.LinAlgError) as exc:
+        raise UnresolvedComputation(f"{what}: numerical breakdown: {exc}") from exc
+
+
+class ContractViolation(ValueError):
+    """Registered input does not satisfy the documented contract.
+
+    Subclasses `ValueError` so existing `pytest.raises(ValueError)` callers and
+    any external handler keep working, but lets the public boundary catch ONLY
+    deliberate validation failures.
+
+    Catching bare `ValueError` there is not sufficient: `np.linalg.LinAlgError`
+    is itself a `ValueError` subclass, so a raw singular-matrix failure arising
+    from a defect would be absorbed into UNRESOLVED. Numerical breakdown is
+    epistemic only when observed at a solver boundary, where
+    `_unresolved_solve` classifies it explicitly.
+    """
+
+
+# Caught at the public boundary -- deliberately classified failures only.
+_UNRESOLVED_FAILURES: Tuple[type, ...] = (
+    ContractViolation,
+    UnresolvedComputation,
 )
 
 
@@ -80,7 +135,9 @@ def _solve_collision_spec(
         - problem.error_k[reject_model]
         - problem.ambient[reject_model, point]
     )
-    result = linprog(
+    result = _unresolved_solve(
+        "collision LP",
+        linprog,
         problem.objective,
         A_ub=np.vstack((problem.common_a_ub, reject_row)),
         b_ub=np.append(problem.common_b_ub, reject_rhs),
@@ -102,13 +159,13 @@ def _solve_collision_spec(
             unsafe_point=point,
         )
     if result.status != 2:
-        raise RuntimeError(f"collision LP unresolved: {result.message}")
+        raise UnresolvedComputation(f"collision LP unresolved: {result.message}")
     return None
 
 
 def _solve_collision_worker(spec: Tuple[int, int]) -> Optional[WorldPair]:
     if _WORKER_COLLISION_PROBLEM is None:
-        raise RuntimeError("collision worker was not initialized")
+        raise UnresolvedComputation("collision worker was not initialized")
     return _solve_collision_spec(_WORKER_COLLISION_PROBLEM, spec)
 
 
@@ -117,7 +174,7 @@ def _configured_workers(workers: Optional[int] = None) -> int:
     if value is None:
         value = int(os.environ.get("CERTITHERM_LP_WORKERS", "8"))
     if value <= 0:
-        raise ValueError("LP separation workers must be positive")
+        raise ContractViolation("LP separation workers must be positive")
     return value
 
 
@@ -291,16 +348,23 @@ def _collisions(
 ) -> Tuple[WorldPair, ...]:
     """Return one collision per reachable reject cell in deterministic order."""
 
-    return _collision_search(
-        polytope,
-        thermal,
-        actions,
-        selected,
-        margin_k,
-        feasibility_tolerance,
-        workers,
-        True,
-    )
+    try:
+        return _collision_search(
+            polytope,
+            thermal,
+            actions,
+            selected,
+            margin_k,
+            feasibility_tolerance,
+            workers,
+            True,
+        )
+    except BrokenProcessPool as exc:
+        # A separation worker died. The batch as a whole cannot support any
+        # conclusion -- results from completed futures are discarded rather
+        # than committed, so no partially-consumed batch can leak into the
+        # cut set. Epistemic, not a defect.
+        raise UnresolvedComputation(f"separation worker pool broke: {exc}") from exc
 
 
 def _state_specs(thermal: ThermalFamily, state: str) -> Iterable[Tuple[int, int]]:
@@ -659,7 +723,7 @@ def _solve_master(
         method="highs",
     )
     if not relaxed.success:
-        raise RuntimeError("observation master did not solve to optimality")
+        raise UnresolvedComputation("observation master did not solve to optimality")
     dual = -np.asarray(relaxed.ineqlin.marginals)
     tolerance = 1e-8 * max(1.0, abs(float(relaxed.fun)))
 
@@ -867,18 +931,18 @@ def synthesize_ordered_query(
 
     try:
         if not candidates or not actions:
-            raise ValueError("ordered candidates and measurement actions are required")
+            raise ContractViolation("ordered candidates and measurement actions are required")
         candidate_map = {candidate.candidate_id: candidate for candidate in candidates}
         if len(candidate_map) != len(candidates):
-            raise ValueError("candidate IDs must be unique")
+            raise ContractViolation("candidate IDs must be unique")
         if len({action.action_id for action in actions}) != len(actions):
-            raise ValueError("measurement action IDs must be unique")
+            raise ContractViolation("measurement action IDs must be unique")
         for action in actions:
             candidate = candidate_map.get(action.candidate_id)
             if candidate is None or action.vector.shape != (candidate.power.dimension,):
-                raise ValueError("action target or dimension is not registered")
+                raise ContractViolation("action target or dimension is not registered")
         if margin_k <= 0 or feasibility_tolerance <= 0 or separation_tolerance < 0:
-            raise ValueError("invalid registered tolerance")
+            raise ContractViolation("invalid registered tolerance")
         local_actions = {
             candidate.candidate_id: tuple(
                 action
@@ -966,7 +1030,7 @@ def synthesize_ordered_query(
             (),
             "ordered-decision decomposition proves the global batch optimum",
         )
-    except (ValueError, RuntimeError) as exc:
+    except _UNRESOLVED_FAILURES as exc:
         return QueryObservationPlan(
             "UNRESOLVED", (), None, None, None, None, 0, (), str(exc)
         )
@@ -1048,17 +1112,17 @@ def synthesize_minimum_observation(
 
     try:
         if thermal.blocks != polytope.dimension:
-            raise ValueError("thermal and power dimensions differ")
+            raise ContractViolation("thermal and power dimensions differ")
         if not actions:
-            raise ValueError("at least one measurement action is required")
+            raise ContractViolation("at least one measurement action is required")
         if any(action.vector.shape != (polytope.dimension,) for action in actions):
-            raise ValueError("every measurement action must match the power dimension")
+            raise ContractViolation("every measurement action must match the power dimension")
         if len({action.action_id for action in actions}) != len(actions):
-            raise ValueError("measurement action IDs must be unique")
+            raise ContractViolation("measurement action IDs must be unique")
         if margin_k <= 0 or feasibility_tolerance <= 0 or separation_tolerance < 0:
-            raise ValueError("invalid registered tolerance")
+            raise ContractViolation("invalid registered tolerance")
         if bound_interval < 0:
-            raise ValueError("bound_interval must be nonnegative")
+            raise ContractViolation("bound_interval must be nonnegative")
 
         costs = np.asarray([action.cost for action in actions])
         cut_masks: List[int] = []
@@ -1129,7 +1193,12 @@ def synthesize_minimum_observation(
                     witnesses.append(witness)
                     added += 1
             if not added:
-                raise RuntimeError("collision separation produced no new master cut")
+                raise UnresolvedComputation(
+                    "collision separation produced no new master cut: the queried "
+                    "selection covers every stored cut yet the oracle still "
+                    "collides, which indicates a tolerance inconsistency rather "
+                    "than ordinary non-convergence"
+                )
             selected = _greedy_cover(costs, cuts)
             covered_cut_count = len(cuts)
             exact_candidate = False
@@ -1163,7 +1232,7 @@ def synthesize_minimum_observation(
             candidate_action_ids=candidate_ids,
             candidate_cost=candidate_cost,
         )
-    except (ValueError, RuntimeError) as exc:
+    except _UNRESOLVED_FAILURES as exc:
         candidate_ids, candidate_cost = _candidate_fields()
         return ObservationPlan(
             status="UNRESOLVED",
