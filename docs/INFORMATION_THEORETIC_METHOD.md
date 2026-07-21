@@ -38,10 +38,12 @@ For finite obtainable action library \(\mathcal A\), DSOS solves
 
 The edge set is continuous and is never enumerated. The implementation uses:
 
-1. a deterministic cost-normalized greedy cover to accumulate violated
+1. a full-library separation query, which immediately proves
+   `UNSYNTHESIZABLE` when even every registered channel leaves a collision;
+2. a deterministic cost-normalized greedy cover to accumulate violated
    witness cuts without repeatedly solving an exact master;
-2. a minimum-cost hitting-set MILP over the accumulated cuts; and
-3. an exhaustive safe-model × unsafe-model × peak-row LP separation oracle on
+3. a minimum-cost hitting-set MILP over the accumulated cuts; and
+4. an exhaustive safe-model × unsafe-model × peak-row LP separation oracle on
    that exact MILP plan.
 
 The greedy plan is only a separation accelerator and never produces a paper
@@ -51,6 +53,14 @@ If the MILP plan has no collision, its lower bound and primal feasibility
 prove global optimality. If even the full library cannot separate a
 collision, the result is `UNSYNTHESIZABLE` with that witness. Solver or replay
 uncertainty returns `UNRESOLVED`, never a certificate.
+
+Every thermal decision uses the fail-closed upper prediction
+\(T_{\rm nominal}+\epsilon\). SAFE therefore requires
+\(T_{\rm nominal}\le T_{\rm limit}-\delta-\epsilon\); rejection begins at
+\(T_{\rm nominal}\ge T_{\rm limit}+\delta-\epsilon\). The two inequalities
+share the same upper-bound convention and cannot overlap. The registered LP
+feasibility tolerance is \(10^{-10}\), one order tighter than the
+\(10^{-9}\) action-separation guard.
 
 This is a non-incremental algorithm: it synthesizes the entire least-cost
 observation contract before any physical measurement value is known. The

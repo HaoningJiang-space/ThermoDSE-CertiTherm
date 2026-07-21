@@ -81,7 +81,7 @@ def _collision(
         safe_rhs = (
             thermal.limit_k
             - margin_k
-            + thermal.error_k[safe_model]
+            - thermal.error_k[safe_model]
             - ambient[safe_model]
         )
         for unsafe_model in range(response.shape[0]):
@@ -161,7 +161,7 @@ def _state_constraints(
         rhs = (
             thermal.limit_k
             - margin_k
-            + thermal.error_k[model]
+            - thermal.error_k[model]
             - thermal.ambient_k[model]
         )
     else:
@@ -199,7 +199,7 @@ def _single_state_world(
                     power.b_ub,
                     thermal.limit_k
                     - margin_k
-                    + thermal.error_k[model]
+                    - thermal.error_k[model]
                     - thermal.ambient_k[model],
                 )
             )
@@ -453,7 +453,7 @@ def synthesize_ordered_query(
     actions: Sequence[MeasurementAction],
     *,
     margin_k: float = 1e-4,
-    feasibility_tolerance: float = 1e-8,
+    feasibility_tolerance: float = 1e-10,
     separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
 ) -> QueryObservationPlan:
@@ -471,9 +471,48 @@ def synthesize_ordered_query(
             candidate = candidate_map.get(action.candidate_id)
             if candidate is None or action.vector.shape != (candidate.power.dimension,):
                 raise ValueError("action target or dimension is not registered")
+        if margin_k <= 0 or feasibility_tolerance <= 0 or separation_tolerance < 0:
+            raise ValueError("invalid registered tolerance")
         costs = np.asarray([action.cost for action in actions])
         cuts: List[np.ndarray] = []
         witnesses: List[QueryWorldPair] = []
+        full_witness = _query_collision(
+            candidates,
+            actions,
+            range(len(actions)),
+            margin_k,
+            feasibility_tolerance,
+        )
+        if full_witness is not None:
+            pairs = {pair.candidate_id: pair for pair in full_witness.candidates}
+            numerically_separated = any(
+                abs(
+                    float(
+                        action.vector
+                        @ (
+                            pairs[action.candidate_id].left_power_w
+                            - pairs[action.candidate_id].right_power_w
+                        )
+                    )
+                )
+                > action.tolerance + separation_tolerance
+                for action in actions
+            )
+            if numerically_separated:
+                raise RuntimeError(
+                    "full-library oracle violates the registered separation tolerance"
+                )
+            return QueryObservationPlan(
+                "UNSYNTHESIZABLE",
+                (),
+                None,
+                0.0,
+                0.0,
+                None,
+                1,
+                (full_witness,),
+                "full action library cannot separate a cross-decision collision",
+            )
         selected: Tuple[int, ...] = ()
         master: Optional[_Master] = None
         exact_check = False
@@ -535,6 +574,10 @@ def synthesize_ordered_query(
                     tuple(witnesses),
                     "full action library cannot separate a cross-decision model collision",
                 )
+            if selected and np.any(cut[np.asarray(selected, dtype=int)]):
+                raise RuntimeError(
+                    "collision oracle and witness cut disagree within numerical tolerance"
+                )
             cuts.append(cut)
             selected = _greedy_cover(costs, cuts)
             exact_check = False
@@ -561,7 +604,7 @@ def synthesize_minimum_observation(
     actions: Sequence[MeasurementAction],
     *,
     margin_k: float = 1e-4,
-    feasibility_tolerance: float = 1e-8,
+    feasibility_tolerance: float = 1e-10,
     separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
 ) -> ObservationPlan:

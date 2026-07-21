@@ -29,6 +29,20 @@ An operator is admitted only if every replay obeys
 rejection, so negative evidence is not lost. The same two-sided band is
 propagated into every safe/unsafe LP constraint.
 
+The decision rule is deliberately one-sided and fail-closed even though the
+residual bound is two-sided. A candidate is selectable only when its upper
+temperature bound satisfies
+
+\[
+  T_{\rm nominal}(p)+\epsilon \le T_{\rm limit}-\delta.
+\]
+
+The rejected side begins when that same upper bound reaches
+\(T_{\rm limit}+\delta\). Thus error never makes a hot candidate easier to
+certify. Earlier development code used `+epsilon` on the right-hand side of
+the SAFE inequality; that sign was rejected before the method freeze because
+it allowed one nominal world to be both SAFE and UNSAFE.
+
 Held-out vectors test this bound but cannot enlarge it. Any violation rejects
 the operator and leaves the affected query `UNRESOLVED`. The 0.01 K value is
 therefore a frozen empirical registered-domain engineering contract. It is

@@ -436,7 +436,7 @@ def _placed_outcomes(
             peak = float(
                 np.max(thermal.ambient_k[model_index] + model @ power)
             )
-            if peak <= thermal.limit_k - margin_k + error:
+            if peak <= thermal.limit_k - margin_k - error:
                 states.add("SAFE")
             if peak >= thermal.limit_k + margin_k - error:
                 states.add("UNSAFE")

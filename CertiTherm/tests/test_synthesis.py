@@ -55,7 +55,25 @@ def test_same_power_cross_model_flip_is_unsynthesizable() -> None:
     assert plan.witnesses[-1].cause == "MODEL_NON_IDENTIFIABLE"
 
 
-def test_model_error_straddling_limit_cannot_be_measured_away() -> None:
+def test_ordered_query_proves_full_library_model_collision_immediately() -> None:
+    polytope = PowerPolytope.box_with_total(np.ones(1), np.ones(1), 1.0)
+    thermal = ThermalFamily(
+        model_ids=("cool", "hot"),
+        response_k_per_w=np.array([[[0.5]], [[1.5]]]),
+        ambient_k=np.array([0.0, 0.0]),
+        limit_k=1.0,
+    )
+    plan = synthesize_ordered_query(
+        (CandidateSpace("only", polytope, thermal),),
+        (MeasurementAction("full", np.ones(1), candidate_id="only"),),
+    )
+    assert plan.status == "UNSYNTHESIZABLE"
+    assert plan.iterations == 1
+    assert plan.selected_action_ids == ()
+    assert plan.witnesses[-1].left_decision != plan.witnesses[-1].right_decision
+
+
+def test_model_error_is_a_fail_closed_upper_temperature_bound() -> None:
     polytope = PowerPolytope.box_with_total(np.ones(1), np.ones(1), 1.0)
     thermal = ThermalFamily(
         model_ids=("block",),
@@ -69,8 +87,9 @@ def test_model_error_straddling_limit_cannot_be_measured_away() -> None:
         thermal,
         (MeasurementAction("full-power", np.ones(1)),),
     )
-    assert plan.status == "UNSYNTHESIZABLE"
-    assert plan.witnesses[-1].cause == "MODEL_NON_IDENTIFIABLE"
+    assert plan.status == "OPTIMAL"
+    assert plan.exact_cost == 0.0
+    assert not plan.witnesses
 
 
 def test_ordered_query_optimizes_cross_candidate_decision() -> None:

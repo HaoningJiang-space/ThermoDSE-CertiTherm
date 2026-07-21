@@ -46,7 +46,7 @@ def sequential_early_stop(
     order: Sequence[int],
     *,
     margin_k: float = 1e-4,
-    feasibility_tolerance: float = 1e-8,
+    feasibility_tolerance: float = 1e-10,
     separation_tolerance: float = 1e-9,
 ) -> PolicyResult:
     """Fair fixed/width baseline: same oracle, and stop immediately when certified."""
@@ -117,7 +117,7 @@ def dual_price_greedy(
     actions: Sequence[MeasurementAction],
     *,
     margin_k: float = 1e-4,
-    feasibility_tolerance: float = 1e-8,
+    feasibility_tolerance: float = 1e-10,
     separation_tolerance: float = 1e-9,
 ) -> PolicyResult:
     """Greedy zero-error InfoCertGain using decision-cut LP dual prices."""
