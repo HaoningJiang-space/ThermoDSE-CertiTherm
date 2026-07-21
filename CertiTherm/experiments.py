@@ -6,7 +6,6 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import csv
 import hashlib
-from itertools import product
 from pathlib import Path
 import re
 import shlex
@@ -27,6 +26,12 @@ from .measurements import (
     content_upper_bounds,
 )
 from .policies import dual_price_greedy, sequential_early_stop, uncertainty_width_order
+from .spectral import (
+    audit_ranks,
+    certified_tail_bound_k,
+    channel_spectral_leverage,
+    thermal_spectrum,
+)
 from .synthesis import synthesize_ordered_query
 
 
@@ -419,42 +424,65 @@ def _timed_call(function: Callable[[], _T]) -> tuple[Optional[_T], float, str]:
         signal.signal(signal.SIGALRM, previous)
 
 
-def _placed_outcomes(
+def _ordered_outcome(
+    candidates: tuple[CandidateSpace, ...], states: Iterable[str]
+) -> str:
+    for candidate, state in zip(candidates, states):
+        if state == "SAFE":
+            return candidate.candidate_id
+        if state == "NUMERICAL_GAP":
+            return "UNRESOLVED"
+    return "NO_FEASIBLE_CANDIDATE"
+
+
+def _placed_evidence(
     candidates: Iterable[CandidateSpace],
     placed_by_candidate: Mapping[str, np.ndarray],
     margin_k: float = 1e-4,
-) -> tuple[str, ...]:
-    state_sets = []
+) -> dict[str, object]:
     candidates = tuple(candidates)
+    model_ids = candidates[0].thermal.model_ids
+    if any(candidate.thermal.model_ids != model_ids for candidate in candidates):
+        raise ValueError("ordered candidates must share one thermal model registry")
+    per_model_states = {model_id: [] for model_id in model_ids}
+    robust_states = []
     for candidate in candidates:
         power = placed_by_candidate[candidate.candidate_id]
         thermal = candidate.thermal
-        states = set()
-        for model_index, (model, error) in enumerate(
-            zip(thermal.response_k_per_w, thermal.error_k)
-        ):
+        upper_peaks = []
+        for model_index, model_id in enumerate(model_ids):
             peak = float(
-                np.max(thermal.ambient_k[model_index] + model @ power)
+                np.max(
+                    thermal.ambient_k[model_index]
+                    + thermal.response_k_per_w[model_index] @ power
+                )
+                + thermal.error_k[model_index]
             )
-            if peak <= thermal.limit_k - margin_k - error:
-                states.add("SAFE")
-            if peak >= thermal.limit_k + margin_k - error:
-                states.add("UNSAFE")
-        if not states:
-            states.add("NUMERICAL_GAP")
-        state_sets.append(tuple(sorted(states)))
-    outcomes = set()
-    for states in product(*state_sets):
-        decision = "NO_FEASIBLE_CANDIDATE"
-        for candidate, state in zip(candidates, states):
-            if state == "SAFE":
-                decision = candidate.candidate_id
-                break
-            if state == "NUMERICAL_GAP":
-                decision = "UNRESOLVED"
-                break
-        outcomes.add(decision)
-    return tuple(sorted(outcomes))
+            upper_peaks.append(peak)
+            per_model_states[model_id].append(
+                "SAFE"
+                if peak <= thermal.limit_k - margin_k
+                else "REJECT"
+                if peak >= thermal.limit_k + margin_k
+                else "NUMERICAL_GAP"
+            )
+        robust_peak = max(upper_peaks)
+        robust_states.append(
+            "SAFE"
+            if robust_peak <= thermal.limit_k - margin_k
+            else "REJECT"
+            if robust_peak >= thermal.limit_k + margin_k
+            else "NUMERICAL_GAP"
+        )
+    model_outcomes = tuple(
+        (model_id, _ordered_outcome(candidates, states))
+        for model_id, states in per_model_states.items()
+    )
+    return {
+        "robust_outcome": _ordered_outcome(candidates, robust_states),
+        "model_outcomes": model_outcomes,
+        "model_disagreement": int(len({outcome for _, outcome in model_outcomes}) > 1),
+    }
 
 
 def _save_unsynth_witness(path: Path, plan) -> bool:
@@ -500,47 +528,57 @@ def _replay_unsynth_witness(
         ):
             if model_id == "UNCONSTRAINED":
                 continue
-            model_index = family.model_ids.index(model_id)
-            work = output / "work" / f"operator--{pair.candidate_id}--{package_id}"
-            direct = replay_power(
-                HOTSPOT,
-                work / "package.config",
-                work / "floorplan.flp",
-                TEMPLATE / "example.materials",
-                model_id,
-                blocks,
-                power,
-                output
-                / "work"
-                / "witness-replay"
-                / query_id
-                / pair.candidate_id
-                / side,
+            replay_models = (
+                family.model_ids if model_id == "ROBUST_ENVELOPE" else (model_id,)
             )
-            predicted = (
-                family.ambient_k[model_index]
-                + family.response_k_per_w[model_index] @ power
-            )
-            error = float(np.max(np.abs(direct - predicted)))
-            current_pass = error <= float(family.error_k[model_index])
-            accepted &= current_pass
-            key = f"{pair.candidate_id}--{side}"
-            payload[f"{key}--direct_temperature_k"] = direct
-            payload[f"{key}--predicted_temperature_k"] = predicted
-            rows.append(
-                {
-                    "query_id": query_id,
-                    "candidate": pair.candidate_id,
-                    "side": side,
-                    "registered_state": state,
-                    "model_id": model_id,
-                    "predicted_peak_k": float(np.max(predicted)),
-                    "direct_peak_k": float(np.max(direct)),
-                    "max_abs_error_k": error,
-                    "registered_error_k": float(family.error_k[model_index]),
-                    "replay_status": "PASS" if current_pass else "REJECT",
-                }
-            )
+            for replay_model in replay_models:
+                model_index = family.model_ids.index(replay_model)
+                work = (
+                    output
+                    / "work"
+                    / f"operator--{pair.candidate_id}--{package_id}"
+                )
+                direct = replay_power(
+                    HOTSPOT,
+                    work / "package.config",
+                    work / "floorplan.flp",
+                    TEMPLATE / "example.materials",
+                    replay_model,
+                    blocks,
+                    power,
+                    output
+                    / "work"
+                    / "witness-replay"
+                    / query_id
+                    / pair.candidate_id
+                    / side
+                    / replay_model,
+                )
+                predicted = (
+                    family.ambient_k[model_index]
+                    + family.response_k_per_w[model_index] @ power
+                )
+                error = float(np.max(np.abs(direct - predicted)))
+                current_pass = error <= float(family.error_k[model_index])
+                accepted &= current_pass
+                key = f"{pair.candidate_id}--{side}--{replay_model}"
+                payload[f"{key}--direct_temperature_k"] = direct
+                payload[f"{key}--predicted_temperature_k"] = predicted
+                rows.append(
+                    {
+                        "query_id": query_id,
+                        "candidate": pair.candidate_id,
+                        "side": side,
+                        "registered_state": state,
+                        "model_role": model_id,
+                        "model_id": replay_model,
+                        "predicted_peak_k": float(np.max(predicted)),
+                        "direct_peak_k": float(np.max(direct)),
+                        "max_abs_error_k": error,
+                        "registered_error_k": float(family.error_k[model_index]),
+                        "replay_status": "PASS" if current_pass else "REJECT",
+                    }
+                )
     if payload:
         replay_path = output / "witness_replays" / f"{query_id}.npz"
         replay_path.parent.mkdir(parents=True, exist_ok=True)
@@ -555,8 +593,13 @@ def _write_report(
     results: Iterable[dict[str, object]],
     order_rows: Iterable[dict[str, object]],
     failures: Iterable[dict[str, object]],
+    spectral_rows: Iterable[dict[str, object]],
 ) -> None:
-    rows, failures = list(results), list(failures)
+    rows, failures, spectral_rows = (
+        list(results),
+        list(failures),
+        list(spectral_rows),
+    )
     statuses = {
         status: sum(row.get("exact_status") == status for row in rows)
         for status in ("OPTIMAL", "UNSYNTHESIZABLE", "UNRESOLVED")
@@ -574,6 +617,9 @@ def _write_report(
     false_certificates = sum(
         int(row.get("false_certificate") or 0) for row in rows
     )
+    model_disagreements = sum(
+        int(row.get("placed_model_disagreement") or 0) for row in rows
+    )
     comparable = [
         row for row in resolved if row.get("dual_cost") != "" and row.get("width_cost") != ""
     ]
@@ -585,13 +631,25 @@ def _write_report(
     for operator in operators.values():
         for row in _rows(operator.with_suffix(".calibration.tsv")):
             calibration_errors.append(float(row["max_abs_error_k"]))
+    full_tail = [
+        float(row["certified_peak_tail_k"])
+        for row in spectral_rows
+        if int(row["rank"]) == int(row["dimension"])
+    ]
     lines = [
         f"# CertiTherm {split} gate report",
         "",
         f"- Physical operators admitted: {len(operators)}",
         f"- Direct operator replays: {len(calibration_errors)}",
+        f"- Certified spectral-envelope records: {len(spectral_rows)}",
+        (
+            f"- Maximum full-rank spectral residual: {max(full_tail):.9g} K"
+            if full_tail
+            else "- Maximum full-rank spectral residual: unavailable"
+        ),
         f"- Exact status: {statuses}",
         f"- Placed-reference false certificates: {false_certificates}",
+        f"- Archived placed-reference model disagreements: {model_disagreements}",
         (
             f"- Maximum direct-replay residual: {max(calibration_errors):.9g} K "
             f"(frozen bound {MODEL_ERROR_LIMIT_K:.3g} K)"
@@ -699,7 +757,8 @@ def run(split: str, output: Path, frozen: bool) -> None:
                         "message": str(exc),
                     }
                 )
-    results, order_rows, registry_rows = [], [], []
+    results, order_rows, registry_rows, spectral_rows = [], [], [], []
+    spectra = {}
     plan_rows, witness_rows, witness_replay_rows = [], [], []
     for workload in workloads:
         ordered_arches = _ordered_architectures(
@@ -753,6 +812,27 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     raise RuntimeError("power/operator block identity mismatch")
                 candidates.append(CandidateSpace(candidate_id, power, family))
                 placed_by_candidate[candidate_id] = placed
+                spectrum_key = candidate_id, package["package_id"]
+                spectrum = spectra.get(spectrum_key)
+                if spectrum is None:
+                    spectrum = thermal_spectrum(family)
+                    spectra[spectrum_key] = spectrum
+                for rank in audit_ranks(power.dimension):
+                    tail = certified_tail_bound_k(power, family, spectrum, rank)
+                    spectral_rows.append(
+                        {
+                            "split": split,
+                            "workload": workload["workload_id"],
+                            "package": package["package_id"],
+                            "candidate": candidate_id,
+                            "dimension": power.dimension,
+                            "rank": rank,
+                            "retained_operator_energy": spectrum.retained_energy(rank),
+                            "certified_peak_tail_k": tail,
+                        }
+                    )
+                    if rank == power.dimension and tail > 1e-7:
+                        raise RuntimeError("full-rank spectral envelope is not exact")
                 candidate_actions = build_measurement_library(
                     candidate_id,
                     blocks,
@@ -773,6 +853,9 @@ def run(split: str, output: Path, frozen: bool) -> None:
                             "action_class": action_class,
                             "cost": action.cost,
                             "support_size": int(np.count_nonzero(action.vector)),
+                            "thermal_spectral_leverage": channel_spectral_leverage(
+                                action, spectrum
+                            ),
                         }
                     )
             query_id = f"{workload['workload_id']}--{package['package_id']}"
@@ -892,7 +975,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                         "selected_action_ids": ";".join(selected),
                     }
                 )
-            placed_outcomes = _placed_outcomes(candidates, placed_by_candidate)
+            placed = _placed_evidence(candidates, placed_by_candidate)
             results.append(
                 {
                     "freeze_id": "method-freeze-v1",
@@ -922,10 +1005,14 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "dual_seconds": dual_seconds,
                     "full_registry_cost": sum(action.cost for action in actions),
                     "witnesses": len(exact.witnesses),
-                    "placed_reachable_outcomes": ";".join(placed_outcomes),
-                    "placed_outcome_count": len(placed_outcomes),
+                    "placed_robust_outcome": placed["robust_outcome"],
+                    "placed_model_outcomes": ";".join(
+                        f"{model}={outcome}"
+                        for model, outcome in placed["model_outcomes"]
+                    ),
+                    "placed_model_disagreement": placed["model_disagreement"],
                     "false_certificate": (
-                        int(len(placed_outcomes) != 1)
+                        int(placed["robust_outcome"] == "UNRESOLVED")
                         if exact is not None and exact.status == "OPTIMAL"
                         else ""
                     ),
@@ -939,6 +1026,8 @@ def run(split: str, output: Path, frozen: bool) -> None:
     _write_tsv(output / "candidate_order.tsv", order_rows)
     if registry_rows:
         _write_tsv(output / "measurement_registry.tsv", registry_rows)
+    if spectral_rows:
+        _write_tsv(output / "spectral_envelopes.tsv", spectral_rows)
     if plan_rows:
         _write_tsv(output / "plans.tsv", plan_rows)
     if witness_rows:
@@ -954,6 +1043,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
         results,
         order_rows,
         failures,
+        spectral_rows,
     )
     git_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -997,6 +1087,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                             "REPORT.md",
                             "witnesses.tsv",
                             "witness_replays.tsv",
+                            "spectral_envelopes.tsv",
                         }
                         or "witnesses" in path.parts
                         or "witness_replays" in path.parts

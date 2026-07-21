@@ -53,6 +53,21 @@ def _pair_rows(polytope: PowerPolytope) -> Tuple[np.ndarray, np.ndarray, np.ndar
     return a_eq, b_eq, a_ub, b_ub
 
 
+def _robust_safe_rows(
+    thermal: ThermalFamily, margin_k: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """All model/point upper bounds defining one fail-closed SAFE cell."""
+
+    rows = thermal.response_k_per_w.reshape(-1, thermal.blocks)
+    rhs = (
+        thermal.limit_k
+        - margin_k
+        - thermal.error_k[:, None]
+        - thermal.ambient_k
+    ).reshape(-1)
+    return rows, rhs
+
+
 def _collision(
     polytope: PowerPolytope,
     thermal: ThermalFamily,
@@ -76,57 +91,51 @@ def _collision(
     bounds = list(zip(polytope.lower_w, polytope.upper_w)) * 2
     response = thermal.response_k_per_w
     ambient = thermal.ambient_k
-    for safe_model in range(response.shape[0]):
-        safe_rows = np.hstack((response[safe_model], np.zeros_like(response[safe_model])))
-        safe_rhs = (
-            thermal.limit_k
-            - margin_k
-            - thermal.error_k[safe_model]
-            - ambient[safe_model]
-        )
-        for unsafe_model in range(response.shape[0]):
-            for point in range(response.shape[1]):
-                unsafe_row = np.concatenate(
-                    (np.zeros(n), -response[unsafe_model, point])
-                )[None, :]
-                unsafe_rhs = np.array(
-                    [
-                        -(
-                            thermal.limit_k
-                            + margin_k
-                            - thermal.error_k[unsafe_model]
-                            - ambient[unsafe_model, point]
-                        )
-                    ]
-                )
-                chunks = [base_a_ub, safe_rows, unsafe_row]
-                rhs_chunks = [base_b_ub, safe_rhs, unsafe_rhs]
-                if action_rows:
-                    chunks.append(np.asarray(action_rows))
-                    rhs_chunks.append(np.asarray(action_rhs))
-                result = linprog(
-                    np.zeros(2 * n),
-                    A_ub=np.vstack(chunks),
-                    b_ub=np.concatenate(rhs_chunks),
-                    A_eq=a_eq,
-                    b_eq=b_eq,
-                    bounds=bounds,
-                    method="highs",
-                    options={
-                        "primal_feasibility_tolerance": feasibility_tolerance,
-                        "dual_feasibility_tolerance": feasibility_tolerance,
-                    },
-                )
-                if result.status == 0:
-                    return WorldPair(
-                        safe_power_w=result.x[:n].copy(),
-                        unsafe_power_w=result.x[n:].copy(),
-                        safe_model_id=thermal.model_ids[safe_model],
-                        unsafe_model_id=thermal.model_ids[unsafe_model],
-                        unsafe_point=point,
+    robust_rows, robust_rhs = _robust_safe_rows(thermal, margin_k)
+    safe_rows = np.hstack((robust_rows, np.zeros_like(robust_rows)))
+    for reject_model in range(response.shape[0]):
+        for point in range(response.shape[1]):
+            reject_row = np.concatenate(
+                (np.zeros(n), -response[reject_model, point])
+            )[None, :]
+            reject_rhs = np.array(
+                [
+                    -(
+                        thermal.limit_k
+                        + margin_k
+                        - thermal.error_k[reject_model]
+                        - ambient[reject_model, point]
                     )
-                if result.status not in (2,):
-                    raise RuntimeError(f"collision LP unresolved: {result.message}")
+                ]
+            )
+            chunks = [base_a_ub, safe_rows, reject_row]
+            rhs_chunks = [base_b_ub, robust_rhs, reject_rhs]
+            if action_rows:
+                chunks.append(np.asarray(action_rows))
+                rhs_chunks.append(np.asarray(action_rhs))
+            result = linprog(
+                np.zeros(2 * n),
+                A_ub=np.vstack(chunks),
+                b_ub=np.concatenate(rhs_chunks),
+                A_eq=a_eq,
+                b_eq=b_eq,
+                bounds=bounds,
+                method="highs",
+                options={
+                    "primal_feasibility_tolerance": feasibility_tolerance,
+                    "dual_feasibility_tolerance": feasibility_tolerance,
+                },
+            )
+            if result.status == 0:
+                return WorldPair(
+                    safe_power_w=result.x[:n].copy(),
+                    unsafe_power_w=result.x[n:].copy(),
+                    safe_model_id="ROBUST_ENVELOPE",
+                    unsafe_model_id=thermal.model_ids[reject_model],
+                    unsafe_point=point,
+                )
+            if result.status != 2:
+                raise RuntimeError(f"collision LP unresolved: {result.message}")
     return None
 
 
@@ -134,8 +143,8 @@ def _state_specs(thermal: ThermalFamily, state: str) -> Iterable[Tuple[int, int]
     if state == "ANY":
         return ((-1, -1),)
     if state == "SAFE":
-        return ((model, -1) for model in range(len(thermal.model_ids)))
-    if state == "UNSAFE":
+        return ((-1, -1),)
+    if state == "REJECT":
         return (
             (model, point)
             for model in range(len(thermal.model_ids))
@@ -155,16 +164,10 @@ def _state_constraints(
     n = thermal.blocks
     if state == "ANY":
         return np.empty((0, 2 * n)), np.empty(0)
-    response = thermal.response_k_per_w[model]
     if state == "SAFE":
-        rows = response
-        rhs = (
-            thermal.limit_k
-            - margin_k
-            - thermal.error_k[model]
-            - thermal.ambient_k[model]
-        )
+        rows, rhs = _robust_safe_rows(thermal, margin_k)
     else:
+        response = thermal.response_k_per_w[model]
         rows = -response[point][None, :]
         rhs = np.array(
             [
@@ -193,17 +196,15 @@ def _single_state_world(
         if state == "ANY":
             rows, rhs, model_id = power.a_ub, power.b_ub, "UNCONSTRAINED"
         elif state == "SAFE":
-            rows = np.vstack((power.a_ub, thermal.response_k_per_w[model]))
+            safe_rows, safe_rhs = _robust_safe_rows(thermal, margin_k)
+            rows = np.vstack((power.a_ub, safe_rows))
             rhs = np.concatenate(
                 (
                     power.b_ub,
-                    thermal.limit_k
-                    - margin_k
-                    - thermal.error_k[model]
-                    - thermal.ambient_k[model],
+                    safe_rhs,
                 )
             )
-            model_id = thermal.model_ids[model]
+            model_id = "ROBUST_ENVELOPE"
         else:
             rows = np.vstack(
                 (power.a_ub, -thermal.response_k_per_w[model, point][None, :])
@@ -242,6 +243,14 @@ def _single_state_world(
         if result.status != 2:
             raise RuntimeError(f"state feasibility LP unresolved: {result.message}")
     return None
+
+
+def _state_model_id(thermal: ThermalFamily, state: str, model: int) -> str:
+    if state == "SAFE":
+        return "ROBUST_ENVELOPE"
+    if state == "ANY":
+        return "UNCONSTRAINED"
+    return thermal.model_ids[model]
 
 
 def _state_collision(
@@ -312,13 +321,11 @@ def _state_collision(
                     right_power_w=result.x[n:].copy(),
                     left_state=left_state,
                     right_state=right_state,
-                    left_model_id=(
-                        thermal.model_ids[left_model] if left_model >= 0 else "UNCONSTRAINED"
+                    left_model_id=_state_model_id(
+                        thermal, left_state, left_model
                     ),
-                    right_model_id=(
-                        thermal.model_ids[right_model]
-                        if right_model >= 0
-                        else "UNCONSTRAINED"
+                    right_model_id=_state_model_id(
+                        thermal, right_state, right_model
                     ),
                 )
             if result.status != 2:
@@ -328,9 +335,9 @@ def _state_collision(
 
 def _decision_states(candidate_count: int, decision: int) -> Tuple[str, ...]:
     if decision == candidate_count:
-        return ("UNSAFE",) * candidate_count
+        return ("REJECT",) * candidate_count
     return tuple(
-        "UNSAFE" if index < decision else "SAFE" if index == decision else "ANY"
+        "REJECT" if index < decision else "SAFE" if index == decision else "ANY"
         for index in range(candidate_count)
     )
 

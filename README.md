@@ -58,8 +58,10 @@ one-watt impulses and bound to the binary/config/floorplan/material digests.
 The exported build tightens HotSpot's grid steady-state convergence threshold
 from `1e-6` to `1e-7` and records that patch; this changes numerical
 convergence, not the thermal equations or stack.
-Cross-model disagreement at identical power is reported explicitly as
-`MODEL_NON_IDENTIFIABLE`.
+The three models form one fail-closed upper envelope: a candidate is SAFE
+only when every registered model is below the limit. Per-model placed
+decisions are still archived so disagreement remains visible, but power
+channels are never asked to identify an unobservable simulator label.
 
 ## Code map
 
@@ -69,6 +71,7 @@ Cross-model disagreement at identical power is reported explicitly as
 - `CertiTherm/hotspot.py` — official HotSpot operator construction;
 - `CertiTherm/cli.py` — NPZ/TSV command line;
 - `docs/INFORMATION_THEORETIC_METHOD.md` — objective and proof contract;
+- `docs/SPECTRAL_DECISION_ENVELOPE.md` — frequency/modal observability audit;
 - `docs/MEASUREMENT_LIBRARY.md` — obtainable EDA channels and costs;
 - `docs/THERMAL_ERROR_CONTRACT.md` — direct-replay error gate;
 - `docs/HELDOUT_PROTOCOL.md` — frozen 4×3×3 evaluation.

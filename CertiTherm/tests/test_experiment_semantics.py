@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from CertiTherm.experiments import _bounded_power, _ordered_architectures
+from CertiTherm import CandidateSpace, PowerPolytope, ThermalFamily
+from CertiTherm.experiments import (
+    _bounded_power,
+    _ordered_architectures,
+    _placed_evidence,
+)
 from CertiTherm.measurements import (
     build_measurement_library,
     coarse_power_space,
@@ -91,3 +96,36 @@ def test_content_bounds_and_calibration_vectors_preserve_registered_domain() -> 
     assert np.isclose(np.sum(power), np.sum(placed))
     assert np.all(power >= 0)
     assert np.all(power <= upper)
+
+
+def test_placed_reference_uses_envelope_and_archives_model_disagreement() -> None:
+    power = PowerPolytope.box_with_total(np.ones(1), np.ones(1), 1.0)
+    first = CandidateSpace(
+        "first",
+        power,
+        ThermalFamily(
+            ("cool", "hot"),
+            np.array([[[0.5]], [[1.5]]]),
+            np.zeros(2),
+            1.0,
+        ),
+    )
+    second = CandidateSpace(
+        "second",
+        power,
+        ThermalFamily(
+            ("cool", "hot"),
+            np.array([[[0.5]], [[0.5]]]),
+            np.zeros(2),
+            1.0,
+        ),
+    )
+    evidence = _placed_evidence(
+        (first, second), {"first": np.ones(1), "second": np.ones(1)}
+    )
+    assert evidence["robust_outcome"] == "second"
+    assert evidence["model_disagreement"] == 1
+    assert evidence["model_outcomes"] == (
+        ("cool", "first"),
+        ("hot", "second"),
+    )

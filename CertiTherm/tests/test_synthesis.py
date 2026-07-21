@@ -38,7 +38,7 @@ def test_exact_plan_reaches_unit_cost_global_limit() -> None:
     assert len(plan.selected_action_ids) == 1
 
 
-def test_same_power_cross_model_flip_is_unsynthesizable() -> None:
+def test_model_family_is_one_fail_closed_robust_envelope() -> None:
     polytope = PowerPolytope.box_with_total(np.ones(1), np.ones(1), 1.0)
     thermal = ThermalFamily(
         model_ids=("cool", "hot"),
@@ -51,11 +51,12 @@ def test_same_power_cross_model_flip_is_unsynthesizable() -> None:
         thermal,
         (MeasurementAction("full-power", np.ones(1)),),
     )
-    assert plan.status == "UNSYNTHESIZABLE"
-    assert plan.witnesses[-1].cause == "MODEL_NON_IDENTIFIABLE"
+    assert plan.status == "OPTIMAL"
+    assert plan.exact_cost == 0.0
+    assert not plan.witnesses
 
 
-def test_ordered_query_proves_full_library_model_collision_immediately() -> None:
+def test_ordered_query_does_not_ask_power_channels_to_identify_models() -> None:
     polytope = PowerPolytope.box_with_total(np.ones(1), np.ones(1), 1.0)
     thermal = ThermalFamily(
         model_ids=("cool", "hot"),
@@ -67,10 +68,9 @@ def test_ordered_query_proves_full_library_model_collision_immediately() -> None
         (CandidateSpace("only", polytope, thermal),),
         (MeasurementAction("full", np.ones(1), candidate_id="only"),),
     )
-    assert plan.status == "UNSYNTHESIZABLE"
-    assert plan.iterations == 1
+    assert plan.status == "OPTIMAL"
     assert plan.selected_action_ids == ()
-    assert plan.witnesses[-1].left_decision != plan.witnesses[-1].right_decision
+    assert not plan.witnesses
 
 
 def test_model_error_is_a_fail_closed_upper_temperature_bound() -> None:
@@ -185,6 +185,6 @@ def test_equal_query_states_use_exact_diagonal_coupling() -> None:
     assert pair is not None
     np.testing.assert_array_equal(pair.left_power_w, pair.right_power_w)
     assert (
-        _state_collision(candidate, (), (), "UNSAFE", "UNSAFE", 1e-4, 1e-8)
+        _state_collision(candidate, (), (), "REJECT", "REJECT", 1e-4, 1e-8)
         is None
     )

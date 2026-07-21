@@ -65,7 +65,7 @@ the registered content-derived upper bounds. Development froze a 0.01 K
 two-sided model-error band
 after the first grid replay exposed a 0.00327 K numerical superposition
 residual. Every vector identity and digest is archived. The band is included
-in every safe/unsafe LP; held-out replay may reject it but may not enlarge it.
+in every robust SAFE/REJECT LP; held-out replay may reject it but may not enlarge it.
 This is a frozen empirical registered-domain error contract, not a formal
 all-power floating-point error proof.
 

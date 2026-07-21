@@ -11,7 +11,7 @@ question: which observations eliminate every pair of worlds that imply
 different DSE decisions?
 
 For a selected action set \(S\), two worlds are confusable when both obey the
-registered power constraints and model family, have different thermal
+registered power constraints and robust model envelope, have different thermal
 decisions, and
 
 \[
@@ -43,8 +43,8 @@ The edge set is continuous and is never enumerated. The implementation uses:
 2. a deterministic cost-normalized greedy cover to accumulate violated
    witness cuts without repeatedly solving an exact master;
 3. a minimum-cost hitting-set MILP over the accumulated cuts; and
-4. an exhaustive safe-model × unsafe-model × peak-row LP separation oracle on
-   that exact MILP plan.
+4. an exhaustive robust-SAFE × rejecting-model/peak-row LP separation oracle
+   on that exact MILP plan.
 
 The greedy plan is only a separation accelerator and never produces a paper
 claim. Once it is collision-free, the exact MILP is solved. If the MILP plan
@@ -54,11 +54,13 @@ prove global optimality. If even the full library cannot separate a
 collision, the result is `UNSYNTHESIZABLE` with that witness. Solver or replay
 uncertainty returns `UNRESOLVED`, never a certificate.
 
-Every thermal decision uses the fail-closed upper prediction
-\(T_{\rm nominal}+\epsilon\). SAFE therefore requires
-\(T_{\rm nominal}\le T_{\rm limit}-\delta-\epsilon\); rejection begins at
-\(T_{\rm nominal}\ge T_{\rm limit}+\delta-\epsilon\). The two inequalities
-share the same upper-bound convention and cannot overlap. The registered LP
+Every thermal decision uses the joint fail-closed upper envelope
+\(\max_m(T_m+\epsilon_m)\). SAFE therefore requires every registered
+model/point to obey
+\(T_m\le T_{\rm limit}-\delta-\epsilon_m\); REJECT needs one registered
+model/point with
+\(T_m\ge T_{\rm limit}+\delta-\epsilon_m\). The two cells share the same
+upper-bound convention and cannot overlap. The registered LP
 feasibility tolerance is \(10^{-10}\), one order tighter than the
 \(10^{-9}\) action-separation guard.
 
@@ -114,16 +116,16 @@ An implementation iteration cap or a solver failure weakens this to
 ### Lemma 3: diagonal coupling for equal candidate states
 
 For one candidate whose required state is identical in two compared query
-outcomes (`SAFE/SAFE`, `UNSAFE/UNSAFE`, or `ANY/ANY`), a confusable composite
+outcomes (`SAFE/SAFE`, `REJECT/REJECT`, or `ANY/ANY`), a confusable composite
 pair exists for that candidate if and only if the single state is feasible.
-Choose the same admissible power and model world on both sides. Every
+Choose the same admissible power world on both sides. Every
 registered action then agrees automatically. Conversely, either side of any
 pair is itself a feasible single-state world.
 
 The oracle therefore performs one single-world feasibility search for an
-equal-state candidate. It enumerates the two-world model × peak Cartesian
-product only when the candidate's states differ. This is an exact reduction,
-not pruning, and prevents an unnecessary quadratic LP explosion.
+equal-state candidate. A differing state pair uses one robust SAFE polytope
+and enumerates only the disjunctive rejecting model/peak rows. This is an
+exact reduction, not pruning.
 
 The implementation reports three different quantities. The exact plan cost
 is a primal feasible bound, the solved binary master value is the MILP lower
@@ -138,7 +140,7 @@ all \(2^{|\mathcal A|}\) batch subsets on a hand-specified ordered
 two-candidate instance, calls the continuous collision oracle for every
 subset, and checks that DSOS returns exactly the cheapest feasible subset
 cost with zero MILP gap. The existing analytic two-variable tests separately
-check the known one-channel optimum and a full-library model collision. These
+check the known one-channel optimum and a full-library collision. These
 tests validate the implementation route; they do not replace Theorems 1–2.
 
 ## Information–certification score
@@ -181,13 +183,14 @@ adaptive proof.
 The result is conditional on:
 
 - the registered compact power polytope;
-- the finite, provenance-bound HotSpot model family;
+- the finite, provenance-bound HotSpot robust envelope;
 - the finite obtainable measurement library, costs, and tolerances;
 - the thermal margin and numerical tolerances.
 
-It is not an assertion about all possible sensors or silicon truth. A
-cross-model flip at identical full power is reported as
-`MODEL_NON_IDENTIFIABLE`; no power sensor is allowed to hide it.
+It is not an assertion about all possible sensors or silicon truth. Individual
+HotSpot models may disagree at identical power; that disagreement is archived,
+while the active decision conservatively takes their upper envelope. No power
+sensor is asked to infer a simulator-model label.
 
 The word “limit” in all continuous-world result tables therefore means:
 minimum non-adaptive batch cost under the finite, provenance-bound registered

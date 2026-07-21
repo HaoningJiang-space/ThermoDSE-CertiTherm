@@ -9,7 +9,7 @@ attachment:
 - a MILP synthesizes the minimum-cost batch observation set;
 - continuous LP separation generates only necessary cross-decision cuts;
 - exact results expose primal cost, MILP bound, LP-relaxation bound, and gap;
-- unseparable same-power model flips return a witness;
+- registered HotSpot models form one fail-closed upper envelope;
 - dual-price InfoCertGain, width, and fixed order use the same query oracle;
 - fixed and width baselines stop at the first universal certificate.
 
@@ -39,7 +39,7 @@ output-format-only patch raises emitted temperature precision from two to ten
 decimal places; the resulting binary digest is the registered executable.
 The first grid64 replay exposed a 0.00327 K numerical superposition residual.
 Development therefore froze a 0.01 K two-sided per-model error band, inserted
-it into every safe/unsafe LP, and replays all development powers. Held-out may
+it into every robust SAFE/REJECT LP, and replays all development powers. Held-out may
 reject this bound but may not enlarge it.
 
 ## Scientific corrections
