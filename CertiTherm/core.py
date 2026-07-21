@@ -196,6 +196,19 @@ class QueryWorldPair:
 
 @dataclass(frozen=True)
 class ObservationPlan:
+    """Result of one synthesis run.
+
+    `selected_action_ids` is reserved for a plan the collision oracle has
+    CERTIFIED collision-free. It is empty whenever no such plan was reached.
+
+    `candidate_action_ids` / `candidate_cost` carry the last working cover
+    when synthesis ended without certification. That cover hits every cut
+    discovered so far but has NOT been re-checked by the oracle since it was
+    last recomputed, so its cost is NOT a valid upper bound on the optimum and
+    must never be reported as one. Promoting a candidate to
+    `selected_action_ids` requires an oracle pass proving it collision-free.
+    """
+
     status: str
     selected_action_ids: Tuple[str, ...]
     exact_cost: Optional[float]
@@ -205,10 +218,23 @@ class ObservationPlan:
     iterations: int
     witnesses: Tuple[WorldPair, ...]
     message: str
+    candidate_action_ids: Tuple[str, ...] = ()
+    candidate_cost: Optional[float] = None
 
 
 @dataclass(frozen=True)
 class QueryObservationPlan:
+    """Result of an ordered multi-candidate query.
+
+    `selected_action_ids` is a plan certified for the WHOLE ordered query. It
+    is empty unless `status == "OPTIMAL"`.
+
+    `certified_prefix_action_ids` carries the actions from candidates that did
+    complete when a later candidate did not. Those candidates are individually
+    certified, but a prefix is not a plan for the full query, so it must not be
+    read as one.
+    """
+
     status: str
     selected_action_ids: Tuple[str, ...]
     exact_cost: Optional[float]
@@ -218,3 +244,4 @@ class QueryObservationPlan:
     iterations: int
     witnesses: Tuple[QueryWorldPair, ...]
     message: str
+    certified_prefix_action_ids: Tuple[str, ...] = ()

@@ -848,16 +848,32 @@ def synthesize_ordered_query(
                             "local and global unsynthesizability certificates disagree"
                         )
                     witnesses = (witness,)
+                # Only certified prefixes belong in selected_ids. The failing
+                # candidate contributes its working cover as a CANDIDATE, never
+                # as part of a certified plan -- this path previously appended
+                # the failing local plan's (empty) selected_action_ids and
+                # summed its uncomputed lower_bound of 0.0 into the query bound.
+                # selected_action_ids must mean "certified for the WHOLE
+                # query". A prefix of individually-certified candidates is not
+                # that, so it moves to its own field rather than masquerading
+                # as a plan. Local bounds are also dropped: summing them into a
+                # query-level bound needs an additivity proof the decomposition
+                # does not currently supply (actions are deduplicated later,
+                # so blind summation could double count).
                 return QueryObservationPlan(
                     plan.status,
-                    tuple(selected_ids),
+                    (),
                     None,
-                    lower_bound,
-                    relaxation_bound,
+                    None,
+                    None,
                     None,
                     iterations,
                     witnesses,
-                    f"candidate-local decomposition: {plan.message}",
+                    f"candidate-local decomposition: {plan.message}; "
+                    f"certified prefix={len(selected_ids)} actions, "
+                    f"failing candidate carries "
+                    f"{len(plan.candidate_action_ids)} uncertified candidate actions",
+                    tuple(selected_ids),
                 )
         selected_set = set(selected_ids)
         exact_cost = sum(
@@ -893,6 +909,42 @@ def synthesize_minimum_observation(
 ) -> ObservationPlan:
     """Synthesize the exact minimum-cost non-adaptive observation plan."""
 
+    # Hoisted above the try so a failure at iteration N still reports the work
+    # already done. The handler previously returned iterations=0 with empty
+    # witnesses, discarding every discovered cut and witness on any numerical
+    # error -- an evidence-destroying failure mode in a project that
+    # deliberately retains negative results.
+    # Declared, not populated, above the try: building `costs` can itself raise
+    # on a malformed action collection, and that must still be converted to
+    # UNRESOLVED rather than escaping the documented three-status API.
+    costs: Optional[np.ndarray] = None
+    cuts: List[np.ndarray] = []
+    witnesses: List[WorldPair] = []
+    selected: Tuple[int, ...] = ()
+    covered_cut_count = 0
+    reached = 0
+
+    def _candidate_fields() -> Tuple[Tuple[str, ...], Optional[float]]:
+        """The last successfully computed working cover. NOT oracle-certified.
+
+        It hits every cut that existed when it was last recomputed -- which on
+        an exceptional path may be fewer than the cuts now in `cuts`, if the
+        failure happened after insertion but before the cover was rebuilt.
+        `covered_cut_count` records which generation it corresponds to.
+
+        Must never raise: it runs inside the exception handler, where throwing
+        would mask the original error.
+        """
+        try:
+            if not selected or costs is None:
+                return (), None
+            return (
+                tuple(actions[i].action_id for i in selected),
+                float(costs[list(selected)].sum()),
+            )
+        except Exception:  # pragma: no cover - defensive, must not mask errors
+            return (), None
+
     try:
         if thermal.blocks != polytope.dimension:
             raise ValueError("thermal and power dimensions differ")
@@ -906,13 +958,11 @@ def synthesize_minimum_observation(
             raise ValueError("invalid registered tolerance")
 
         costs = np.asarray([action.cost for action in actions])
-        cuts: List[np.ndarray] = []
         cut_masks: List[int] = []
-        witnesses: List[WorldPair] = []
         master = _solve_master(costs, cuts)
-        selected: Tuple[int, ...] = ()
         exact_candidate = False
         for iteration in range(1, max_iterations + 1):
+            reached = iteration
             batch = _collisions(
                 polytope,
                 thermal,
@@ -954,18 +1004,23 @@ def synthesize_minimum_observation(
                 )
                 if not np.any(cut):
                     witnesses.append(witness)
+                    candidate_ids, candidate_cost = _candidate_fields()
                     return ObservationPlan(
                         status="UNSYNTHESIZABLE",
-                        selected_action_ids=tuple(
-                            actions[i].action_id for i in selected
-                        ),
+                        selected_action_ids=(),
                         exact_cost=None,
-                        lower_bound=master.lower_bound,
-                        relaxation_bound=master.relaxation_bound,
+                        # Cost optimality is NOT_APPLICABLE here: no plan can
+                        # exist, so a bound on the cost of the best plan is
+                        # meaningless. Reporting the stale empty-cut master's
+                        # 0.0 implied a computed bound that was never computed.
+                        lower_bound=None,
+                        relaxation_bound=None,
                         optimality_gap=None,
                         iterations=iteration,
                         witnesses=tuple(witnesses),
                         message=f"full action library cannot separate {witness.cause}",
+                        candidate_action_ids=candidate_ids,
+                        candidate_cost=candidate_cost,
                     )
                 if _insert_minimal_cut(cuts, cut, cut_masks):
                     witnesses.append(witness)
@@ -973,19 +1028,30 @@ def synthesize_minimum_observation(
             if not added:
                 raise RuntimeError("collision separation produced no new master cut")
             selected = _greedy_cover(costs, cuts)
+            covered_cut_count = len(cuts)
             exact_candidate = False
+        candidate_ids, candidate_cost = _candidate_fields()
         return ObservationPlan(
             status="UNRESOLVED",
-            selected_action_ids=tuple(actions[i].action_id for i in master.selected),
+            # Nothing was certified: the loop only proves a plan collision-free
+            # on the `not batch` branch, which budget exhaustion never reached.
+            # This field previously reported `master.selected`, which on this
+            # path is still the empty-cut master from initialisation -- so a run
+            # holding an 11-action working cover reported zero actions and a
+            # lower_bound of 0.0 that was never computed from any cut.
+            selected_action_ids=(),
             exact_cost=None,
-            lower_bound=master.lower_bound,
-            relaxation_bound=master.relaxation_bound,
+            lower_bound=None,
+            relaxation_bound=None,
             optimality_gap=None,
             iterations=max_iterations,
             witnesses=tuple(witnesses),
             message="registered constraint-generation budget exhausted",
+            candidate_action_ids=candidate_ids,
+            candidate_cost=candidate_cost,
         )
     except (ValueError, RuntimeError) as exc:
+        candidate_ids, candidate_cost = _candidate_fields()
         return ObservationPlan(
             status="UNRESOLVED",
             selected_action_ids=(),
@@ -993,7 +1059,9 @@ def synthesize_minimum_observation(
             lower_bound=None,
             relaxation_bound=None,
             optimality_gap=None,
-            iterations=0,
-            witnesses=(),
+            iterations=reached,
+            witnesses=tuple(witnesses),
             message=str(exc),
+            candidate_action_ids=candidate_ids,
+            candidate_cost=candidate_cost,
         )
