@@ -1,0 +1,185 @@
+version: "0.1.0"
+project:
+  title: "CertiTherm: Decision-Sufficient Observation Synthesis for Thermal Chiplet DSE"
+  short_name: "CertiTherm"
+  root: "."
+target_venue:
+  name: "DAC/ICCAD/DATE"
+  year: "TBD"
+  mode: "research"
+stage:
+  current: "anytime_proof_carrying_dsos"
+  gate: "in_progress"
+  updated_at: "2026-07-22"
+active_contract: "docs/INFORMATION_THEORETIC_METHOD.md"
+
+# Why this file exists. A ccf-integrity-auditor pass on 2026-07-22 marked a
+# large fraction of this project's claims "unsupported" -- not because the
+# evidence was absent, but because it was scattered across a README, commit
+# messages and remote log files with no central index tying claim to artifact.
+# Sibling repos (ChipletThermalEnvelope, ChipletOrchestrationRegret,
+# CertifiedChipletPlacement) all carry this ledger; CertiTherm did not.
+# That same audit also caught a fabricated number here (see revision_ledger).
+
+artifacts:
+  method: "docs/INFORMATION_THEORETIC_METHOD.md"
+  measurement_library: "docs/MEASUREMENT_LIBRARY.md"
+  thermal_error_contract: "docs/THERMAL_ERROR_CONTRACT.md"
+  heldout_protocol: "docs/HELDOUT_PROTOCOL.md"
+  implementation: "CertiTherm/synthesis.py"
+  data_model: "CertiTherm/core.py"
+  experiments: "CertiTherm/experiments.py"
+  scale_study: "research/dr_dsc/"
+
+claims:
+  - id: "C0"
+    status: "implemented_verified"
+    text: >-
+      Constraint generation reports a CERTIFIED plan distinctly from an
+      uncertified working cover, and never presents the latter as an upper
+      bound or a certificate.
+    evidence:
+      - "CertiTherm/synthesis.py: ObservationPlan.selected_action_ids vs candidate_action_ids"
+      - "commit 4b9d14f (bug: budget exhaustion returned the empty-cut master's selection)"
+      - "103/103 tests; measured 11-action cover of cost 31.0 previously reported as zero actions"
+
+  - id: "C1"
+    status: "implemented_verified"
+    text: >-
+      An anytime lower bound on the minimum-cost contract is certified by weak
+      duality rather than trusted from the solver, so solver error can loosen
+      it but never invalidate it.
+    evidence:
+      - "CertiTherm/synthesis.py::_anytime_lower_bound"
+      - "commit 9427668"
+      - "1000 random instances, costs 1e-3..1e3: 0 violations of LB <= integer optimum, 0 monotonicity violations"
+    caveat: >-
+      Empirically validated, NOT proved at the floating-point level. The
+      deliberate downward deflation means a small positive gap can be reported
+      where the true gap is zero.
+
+  - id: "C2"
+    status: "implemented_verified"
+    text: >-
+      A final exhaustive separation pass promotes the last cover to a certified
+      plan when it holds, yielding a genuine upper bound and a real gap; the
+      empty contract is a valid certified plan when the decision is already
+      invariant.
+    evidence:
+      - "CertiTherm/synthesis.py: CERTIFIED_PLAN branch; commit a3b6e97"
+      - "toy: max_iterations=1 -> CERTIFIED_PLAN, LB=0.999999999, UB=1.0, gap=1e-9; max_iterations>=2 -> OPTIMAL, gap=0.0"
+      - "241-action instance: correctly does NOT promote at 60/250/1000 iterations"
+
+  - id: "C3"
+    status: "implemented_verified"
+    text: >-
+      Epistemic failures become progress-preserving UNRESOLVED while
+      programming defects keep propagating, classified at the origin rather
+      than by exception class at the API boundary.
+    evidence:
+      - "CertiTherm/synthesis.py: UnresolvedComputation, ContractViolation; commit 9c4a9bc"
+      - "fault injection: 9 defect classes propagate; classified failures preserve iterations/witnesses/candidate"
+      - "load-bearing detail: np.linalg.LinAlgError subclasses ValueError, so a boundary ValueError catch absorbed defect-origin singular-matrix failures"
+
+  - id: "C4"
+    status: "measured_synthetic_only"
+    text: >-
+      The default 8-worker separation configuration is a ~32x pessimization at
+      this instance size: a fresh spawn-context pool is built per iteration to
+      dispatch twelve ~5-6 ms LPs.
+    evidence:
+      - "sequential 1.59s/25 iters (0.064 s/iter) vs 8-worker 51.72s/25 iters (2.07 s/iter); ratio 32.5x"
+      - "research/dr_dsc/profile_synthesis.py; commit 11d057a"
+    caveat: >-
+      Measured on the synthetic-operator instance only. The ~2 s/iteration
+      overhead is an unseparated mixture of spawn, per-worker import, pickling,
+      IPC and teardown and must not be attributed to any single one.
+
+  - id: "C5"
+    status: "measured_synthetic_only_not_generalizable"
+    text: >-
+      On a 241-action instance with a synthetic sharply-local thermal kernel,
+      constraint generation does not close within 5000 sequential iterations,
+      and the certified lower bound reaches 169.17 against a full-library cost
+      of 1842 while still rising.
+    evidence:
+      - "sequential 5000 iters, 461s, UNRESOLVED, antichain 5840 cuts, exactly 2 collisions/iteration"
+      - "bound sweep 16.0 / 21.0 / 31.325 / 169.167 at 60 / 250 / 1000 / 5000 iterations"
+    caveat: >-
+      The placed power vector and thermal operator are SYNTHETIC; only the
+      floorplan and action registry are real. This says nothing about real
+      HotSpot operators. Non-closure is shown, not explained -- a positive
+      lower bound indicates intrinsic expense but does not exclude separation
+      or heuristic quality as contributors.
+
+  - id: "C6"
+    status: "negative_retained"
+    text: >-
+      A differentiable proposal over the frozen action library (DR-DSC) does
+      not beat plain cost-effectiveness greedy at realistic scale.
+    evidence:
+      - "241 actions, matched 60-round budget: learned 85.0 vs greedy 24.0, neither converged"
+      - "research/dr_dsc/README.md; commit f23782f"
+    caveat: >-
+      Both runs unconverged, so this is not a comparison of final optima.
+      Retained as a negative result per project policy. A known asymmetry
+      favours greedy (adaptive gain recomputation vs a static learned order).
+
+  - id: "C7"
+    status: "blocked_on_dev_run"
+    text: >-
+      The behaviour above reproduces on real HotSpot operators rather than
+      being an artifact of the synthetic kernel.
+    evidence: []
+    blocking: >-
+      `CertiTherm.experiments --split dev` has been running ~5h on moe-server
+      and is still building operators; no query results exist yet.
+
+experiments:
+  - id: "DEV"
+    status: "in_progress"
+    command: "python -m CertiTherm.experiments --split dev --output artifacts/dev-gpu"
+    host: "moe-server"
+    note: "authoritative for C7; do not interrupt"
+  - id: "SCALE-SYNTH"
+    status: "complete"
+    command: "python -m research.dr_dsc.profile_synthesis / benchmark"
+    note: "supports C4, C5, C6; synthetic operator"
+
+reviews:
+  - id: "codex-dr-dsc-prototype"
+    date: "2026-07-21"
+    outcome: "5 defects found in unexecuted code, 3 of which would have produced misleading passes"
+  - id: "codex-anytime-lower-bound"
+    date: "2026-07-22"
+    outcome: "rejected returning linprog(...).fun as a bound; weak-duality reformulation adopted"
+  - id: "codex-exception-taxonomy"
+    date: "2026-07-22"
+    outcome: "rejected boundary classification by exception class; origin classification adopted"
+  - id: "codex-verified-upper-bound"
+    date: "2026-07-22"
+    outcome: "2 real bugs found (zero-cost contract misreported, final witnesses discarded); both fixed"
+  - id: "ccf-integrity-auditor"
+    date: "2026-07-22"
+    outcome: "1 fabricated number found and corrected; see revision_ledger"
+
+revision_ledger:
+  - date: "2026-07-22"
+    change: >-
+      Withdrew "n=11" on the 5000-iteration exact-DSOS row. It was copied from
+      the 60-iteration run; candidate_cost=302.0 with a max per-action cost of
+      8 requires at least 38 actions. Corrected to measured values (11/17/19 at
+      60/250/1000) with the 5000 count stated only as a lower bound.
+  - date: "2026-07-22"
+    change: >-
+      Withdrew "the bound rises roughly linearly in iteration count". Four
+      checkpoints give interval slopes of ~0.026, 0.014 and 0.034.
+  - date: "2026-07-22"
+    change: >-
+      Withdrew "MILP is too slow, measured" and the ~8-hour extrapolation. The
+      exact master never ran with real cuts in that experiment.
+
+open_risks:
+  - "A GitHub PAT has appeared repeatedly in session transcripts. Source is a user-side goal template, not a repo file or hook config. Revocation is outstanding and cannot be performed from here."
+  - "CERTIFIED_PLAN adds a fourth status value; peer review recommends orthogonal certification/optimality fields instead. Deferred until the dev run fixes the paper narrative."
+  - "docs/INFORMATION_THEORETIC_METHOD.md still states that every local iteration queries the exact master; the implementation uses greedy cut discovery and closes exactly only when separation is clean."
