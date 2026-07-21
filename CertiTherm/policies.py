@@ -106,55 +106,52 @@ def sequential_early_stop(
     feasibility_tolerance: float = 1e-10,
     separation_tolerance: float = 1e-9,
 ) -> PolicyResult:
-    """Fair fixed/width baseline: same oracle, and stop immediately when certified."""
+    """Return the same first certified prefix as literal sequential replay.
 
-    selected, cache = [], {}
+    Certification is monotone under adding observations. Bisection therefore
+    finds the exact early-stop prefix with logarithmically many oracle calls;
+    it changes evaluation time, not policy order, selected channels, or cost.
+    """
+
+    cache = {}
     required = _required_candidate_indices(
         candidates, margin_k, feasibility_tolerance
     )
-    calls = 1
-    witness = _local_collision(
-        candidates,
-        actions,
-        selected,
-        required,
-        margin_k,
-        feasibility_tolerance,
-        cache,
-    )
-    if witness is None:
-        return PolicyResult("CERTIFIED", (), 0.0, calls)
-    for index in order:
-        selected.append(index)
-        candidate_id, pair = witness
-        action = actions[index]
-        delta = pair.safe_power_w - pair.unsafe_power_w
-        if (
-            action.candidate_id != candidate_id
-            or abs(float(action.vector @ delta)) <= action.tolerance
-        ):
-            # The current LP witness satisfies the new observation exactly,
-            # so it remains a constructive ambiguity certificate.
-            continue
+    calls = 0
+
+    def collision(prefix: int) -> Optional[Tuple[str, WorldPair]]:
+        nonlocal calls
         calls += 1
-        witness = _local_collision(
+        return _local_collision(
             candidates,
             actions,
-            selected,
+            tuple(order[:prefix]),
             required,
             margin_k,
             feasibility_tolerance,
             cache,
         )
-        if witness is None:
-            return PolicyResult(
-                "CERTIFIED",
-                tuple(actions[index].action_id for index in selected),
-                sum(actions[index].cost for index in selected),
-                calls,
-            )
+
+    if collision(0) is None:
+        return PolicyResult("CERTIFIED", (), 0.0, calls)
+    if collision(len(order)) is not None:
+        selected = tuple(order)
+        return PolicyResult(
+            "UNSYNTHESIZABLE",
+            tuple(actions[index].action_id for index in selected),
+            sum(actions[index].cost for index in selected),
+            calls,
+        )
+    low, high = 0, len(order)
+    while high - low > 1:
+        middle = (low + high) // 2
+        if collision(middle) is None:
+            high = middle
+        else:
+            low = middle
+    selected = tuple(order[:high])
     return PolicyResult(
-        "UNSYNTHESIZABLE",
+        "CERTIFIED",
         tuple(actions[index].action_id for index in selected),
         sum(actions[index].cost for index in selected),
         calls,

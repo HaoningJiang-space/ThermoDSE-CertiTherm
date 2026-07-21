@@ -206,7 +206,7 @@ def test_parallel_multicut_matches_serial_exact_plan() -> None:
     assert serial.optimality_gap == parallel.optimality_gap == 0.0
 
 
-def test_early_stop_reuses_a_witness_until_an_action_separates_it() -> None:
+def test_early_stop_bisection_matches_the_first_certified_prefix() -> None:
     polytope = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
     thermal = ThermalFamily(
         ("block",), np.array([[[2.0, 0.0]]]), np.array([0.0]), 1.0
@@ -220,7 +220,8 @@ def test_early_stop_reuses_a_witness_until_an_action_separates_it() -> None:
     )
     assert result.status == "CERTIFIED"
     assert result.selected_action_ids[-1] == "decisive"
-    assert result.oracle_calls == 2
+    assert result.selected_action_ids == tuple(action.action_id for action in actions)
+    assert result.oracle_calls <= 6
 
 
 def test_ordered_decomposition_skips_unreachable_candidate_decisions() -> None:
