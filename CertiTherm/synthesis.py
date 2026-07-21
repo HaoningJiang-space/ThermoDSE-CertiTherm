@@ -605,28 +605,68 @@ def _query_collision(
     return None
 
 
+def _undominated_columns(
+    costs: np.ndarray, cover: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Remove hitting-set columns dominated in coverage and cost.
+
+    Column ``right`` dominates ``left`` when it covers every cut covered by
+    ``left`` at no greater cost.  Replacing ``left`` by ``right`` preserves
+    both integer and fractional feasibility, so this reduction preserves the
+    MILP optimum and its LP lower bound.
+    """
+
+    column_masks = []
+    for column in range(cover.shape[1]):
+        mask = 0
+        for row in np.flatnonzero(cover[:, column]):
+            mask |= 1 << int(row)
+        column_masks.append(mask)
+    keep = []
+    for left, (left_cost, left_mask) in enumerate(zip(costs, column_masks)):
+        if left_mask == 0:
+            continue
+        dominated = False
+        for right, (right_cost, right_mask) in enumerate(zip(costs, column_masks)):
+            if left == right or right_cost > left_cost:
+                continue
+            if left_mask & right_mask != left_mask:
+                continue
+            if right_cost < left_cost or right_mask != left_mask or right < left:
+                dominated = True
+                break
+        if not dominated:
+            keep.append(left)
+    indices = np.asarray(keep, dtype=int)
+    return indices, cover[:, indices]
+
+
 def _solve_master(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> _Master:
     if not cuts:
         return _Master((), 0.0, 0.0, 0.0, np.empty(0))
     cover = np.asarray(cuts, dtype=float)
-    constraint = LinearConstraint(cover, np.ones(len(cuts)), np.full(len(cuts), np.inf))
+    columns, reduced_cover = _undominated_columns(costs, cover)
+    reduced_costs = costs[columns]
+    constraint = LinearConstraint(
+        reduced_cover, np.ones(len(cuts)), np.full(len(cuts), np.inf)
+    )
     integer = milp(
-        c=costs,
-        integrality=np.ones(costs.size),
-        bounds=Bounds(np.zeros(costs.size), np.ones(costs.size)),
+        c=reduced_costs,
+        integrality=np.ones(reduced_costs.size),
+        bounds=Bounds(np.zeros(reduced_costs.size), np.ones(reduced_costs.size)),
         constraints=constraint,
         options={"mip_rel_gap": 0.0},
     )
     relaxed = linprog(
-        costs,
-        A_ub=-cover,
+        reduced_costs,
+        A_ub=-reduced_cover,
         b_ub=-np.ones(len(cuts)),
-        bounds=[(0.0, 1.0)] * costs.size,
+        bounds=[(0.0, 1.0)] * reduced_costs.size,
         method="highs",
     )
     if not integer.success or not relaxed.success:
         raise RuntimeError("observation master did not solve to optimality")
-    selected = tuple(np.flatnonzero(integer.x > 0.5).tolist())
+    selected = tuple(columns[np.flatnonzero(integer.x > 0.5)].tolist())
     dual = -np.asarray(relaxed.ineqlin.marginals)
     lower_bound = float(getattr(integer, "mip_dual_bound", integer.fun))
     return _Master(selected, float(integer.fun), lower_bound, float(relaxed.fun), dual)

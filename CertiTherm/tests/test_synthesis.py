@@ -19,6 +19,7 @@ from CertiTherm.adaptive import finite_adaptive_limit
 from CertiTherm.synthesis import (
     _insert_minimal_cut,
     _query_collision,
+    _solve_master,
     _state_collision,
 )
 
@@ -217,6 +218,22 @@ def test_hitting_set_cut_antichain_discards_supersets() -> None:
     assert _insert_minimal_cut(cuts, np.array([1.0, 0.0, 0.0]))
     assert len(cuts) == 1
     np.testing.assert_array_equal(cuts[0], [1.0, 0.0, 0.0])
+
+
+def test_master_column_dominance_preserves_integer_and_lp_optima() -> None:
+    costs = np.array([3.0, 2.0, 2.0, 5.0, 0.1])
+    cuts = (
+        np.array([1.0, 1.0, 0.0, 1.0, 0.0]),
+        np.array([0.0, 1.0, 1.0, 1.0, 0.0]),
+        np.array([0.0, 0.0, 1.0, 1.0, 0.0]),
+    )
+    master = _solve_master(costs, cuts)
+    # Column 3 covers every cut but is more expensive than columns 1+2.
+    # Column 0 is dominated by column 1, and column 4 covers no cut.
+    assert master.selected == (1, 2)
+    assert master.cost == master.lower_bound == 4.0
+    assert master.relaxation_bound == 4.0
+    assert len(master.dual_prices) == len(cuts)
 
 
 def test_early_stop_bisection_matches_the_first_certified_prefix() -> None:
