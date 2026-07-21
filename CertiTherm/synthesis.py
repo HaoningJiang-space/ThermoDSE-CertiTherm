@@ -641,12 +641,55 @@ def _undominated_columns(
     return indices, cover[:, indices]
 
 
-def _solve_master(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> _Master:
+def _solve_master(
+    costs: np.ndarray,
+    cuts: Sequence[np.ndarray],
+    incumbent: Optional[Sequence[int]] = None,
+) -> _Master:
     if not cuts:
         return _Master((), 0.0, 0.0, 0.0, np.empty(0))
     cover = np.asarray(cuts, dtype=float)
     columns, reduced_cover = _undominated_columns(costs, cover)
     reduced_costs = costs[columns]
+    relaxed = linprog(
+        reduced_costs,
+        A_ub=-reduced_cover,
+        b_ub=-np.ones(len(cuts)),
+        bounds=[(0.0, 1.0)] * reduced_costs.size,
+        method="highs",
+    )
+    if not relaxed.success:
+        raise RuntimeError("observation master did not solve to optimality")
+    dual = -np.asarray(relaxed.ineqlin.marginals)
+    tolerance = 1e-8 * max(1.0, abs(float(relaxed.fun)))
+
+    rounded = np.rint(relaxed.x)
+    if (
+        np.max(np.abs(relaxed.x - rounded)) <= 1e-8
+        and np.all(reduced_cover @ rounded >= 1.0 - 1e-8)
+    ):
+        selected = tuple(columns[np.flatnonzero(rounded > 0.5)].tolist())
+        exact_cost = float(np.sum(costs[list(selected)]))
+        if abs(exact_cost - float(relaxed.fun)) <= tolerance:
+            return _Master(selected, exact_cost, exact_cost, float(relaxed.fun), dual)
+
+    if incumbent is not None:
+        selected = tuple(sorted(int(index) for index in incumbent))
+        incumbent_vector = np.zeros(costs.size)
+        incumbent_vector[list(selected)] = 1.0
+        incumbent_cost = float(costs @ incumbent_vector)
+        if (
+            np.all(cover @ incumbent_vector >= 1.0 - 1e-8)
+            and abs(incumbent_cost - float(relaxed.fun)) <= tolerance
+        ):
+            return _Master(
+                selected,
+                incumbent_cost,
+                incumbent_cost,
+                float(relaxed.fun),
+                dual,
+            )
+
     constraint = LinearConstraint(
         reduced_cover, np.ones(len(cuts)), np.full(len(cuts), np.inf)
     )
@@ -657,17 +700,9 @@ def _solve_master(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> _Master:
         constraints=constraint,
         options={"mip_rel_gap": 0.0},
     )
-    relaxed = linprog(
-        reduced_costs,
-        A_ub=-reduced_cover,
-        b_ub=-np.ones(len(cuts)),
-        bounds=[(0.0, 1.0)] * reduced_costs.size,
-        method="highs",
-    )
-    if not integer.success or not relaxed.success:
+    if not integer.success:
         raise RuntimeError("observation master did not solve to optimality")
     selected = tuple(columns[np.flatnonzero(integer.x > 0.5)].tolist())
-    dual = -np.asarray(relaxed.ineqlin.marginals)
     lower_bound = float(getattr(integer, "mip_dual_bound", integer.fun))
     return _Master(selected, float(integer.fun), lower_bound, float(relaxed.fun), dual)
 
@@ -889,7 +924,7 @@ def synthesize_minimum_observation(
             )
             if not batch:
                 if not exact_candidate:
-                    master = _solve_master(costs, cuts)
+                    master = _solve_master(costs, cuts, incumbent=selected)
                     if master.selected != selected:
                         selected = master.selected
                         exact_candidate = True

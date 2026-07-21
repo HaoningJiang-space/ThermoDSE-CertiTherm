@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
 from CertiTherm import (
@@ -235,6 +237,46 @@ def test_master_column_dominance_preserves_integer_and_lp_optima() -> None:
     assert master.cost == master.lower_bound == 4.0
     assert master.relaxation_bound == 4.0
     assert len(master.dual_prices) == len(cuts)
+
+
+def test_integral_lp_master_skips_branch_and_bound(monkeypatch) -> None:
+    def unexpected_milp(*args, **kwargs):
+        raise AssertionError("integral LP must not invoke MILP")
+
+    monkeypatch.setattr("CertiTherm.synthesis.milp", unexpected_milp)
+    master = _solve_master(
+        np.array([1.0, 2.0]),
+        (np.array([1.0, 1.0]),),
+    )
+    assert master.selected == (0,)
+    assert master.cost == master.lower_bound == 1.0
+
+
+def test_lp_bound_matching_incumbent_skips_branch_and_bound(monkeypatch) -> None:
+    def unexpected_milp(*args, **kwargs):
+        raise AssertionError("closed primal-dual gap must not invoke MILP")
+
+    def fractional_relaxation(*args, **kwargs):
+        return SimpleNamespace(
+            success=True,
+            fun=2.0,
+            x=np.array([0.5, 0.5, 0.5]),
+            ineqlin=SimpleNamespace(marginals=np.array([-0.5, -0.5, -0.5])),
+        )
+
+    monkeypatch.setattr("CertiTherm.synthesis.milp", unexpected_milp)
+    monkeypatch.setattr("CertiTherm.synthesis.linprog", fractional_relaxation)
+    master = _solve_master(
+        np.array([1.0, 1.0, 2.0]),
+        (
+            np.array([1.0, 1.0, 0.0]),
+            np.array([0.0, 1.0, 1.0]),
+            np.array([1.0, 0.0, 1.0]),
+        ),
+        incumbent=(0, 1),
+    )
+    assert master.selected == (0, 1)
+    assert master.cost == master.lower_bound == 2.0
 
 
 def test_greedy_cut_discovery_point_covers_every_registered_cut() -> None:
