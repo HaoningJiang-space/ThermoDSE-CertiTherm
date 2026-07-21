@@ -175,6 +175,40 @@ def test_query_constraint_generation_matches_all_subset_enumeration() -> None:
     assert plan.optimality_gap == 0.0
 
 
+def test_ordered_decomposition_skips_unreachable_candidate_decisions() -> None:
+    power = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
+    ambiguous = ThermalFamily(
+        ("block",), np.array([[[2.0, 0.0]]]), np.array([0.0]), 1.0
+    )
+    always_reject = ThermalFamily(
+        ("block",), np.array([[[2.0, 2.0]]]), np.array([0.0]), 1.0
+    )
+    candidates = (
+        CandidateSpace("first", power, ambiguous),
+        CandidateSpace("unreachable", power, always_reject),
+        CandidateSpace("last", power, ambiguous),
+    )
+    actions = tuple(
+        MeasurementAction(
+            candidate,
+            np.array([1.0, 0.0]),
+            cost,
+            candidate_id=candidate,
+        )
+        for candidate, cost in (
+            ("first", 2.0),
+            ("unreachable", 0.5),
+            ("last", 3.0),
+        )
+    )
+    plan = synthesize_ordered_query(candidates, actions)
+    assert plan.status == "OPTIMAL"
+    assert plan.selected_action_ids == ("first", "last")
+    assert plan.exact_cost == plan.lower_bound == 5.0
+    assert _query_collision(candidates, actions, (0, 2), 1e-4, 1e-8) is None
+    assert _query_collision(candidates, actions, (0,), 1e-4, 1e-8) is not None
+
+
 def test_equal_query_states_use_exact_diagonal_coupling() -> None:
     power = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
     thermal = ThermalFamily(

@@ -36,23 +36,25 @@ For finite obtainable action library \(\mathcal A\), DSOS solves
  \quad\text{for every confusable edge }e .
 \]
 
-The edge set is continuous and is never enumerated. The implementation uses:
+The edge set is continuous and is never enumerated. Ordered DSE first admits
+an exact structural decomposition (Theorem 2). Each required candidate-local
+subproblem then uses:
 
 1. a minimum-cost hitting-set MILP over every discovered witness cut; and
 2. an exhaustive robust-SAFE × rejecting-model/peak-row LP separation oracle
    on the current exact MILP plan.
 
-Every iteration therefore queries the optimum of the current finite master,
+Every local iteration therefore queries the optimum of the current finite master,
 not a heuristic surrogate. If that plan has no collision, its lower bound and
 primal feasibility prove global optimality. If even the full library cannot separate a
 collision, the result is `UNSYNTHESIZABLE` with that witness. Solver or replay
 uncertainty returns `UNRESOLVED`, never a certificate.
 
-A dedicated full-library pre-pass is unnecessary. Whenever a returned
-cross-decision witness is separated by no registered action, that witness
-already proves that the full library is insufficient. Avoiding the pre-pass
-removes one exhaustive oracle call from every identifiable query without
-changing the master, proof, or failure semantics.
+A dedicated full-library pre-pass is unnecessary. Whenever a returned local
+SAFE/REJECT witness is separated by no registered action, the corresponding
+required subproblem is insufficient. One final global replay then constructs
+the cross-decision witness without charging identifiable queries for an
+exhaustive pre-pass.
 
 Every thermal decision uses the joint fail-closed upper envelope
 \(\max_m(T_m+\epsilon_m)\). SAFE therefore requires every registered
@@ -90,7 +92,40 @@ observation have the same decision. That common decision is therefore
 well-defined and certifiable. The minimum-cost sufficient batch is exactly
 the minimum-cost hitting set. \(\square\)
 
-### Theorem 2: exactness and finite termination of constraint generation
+### Theorem 2: ordered-decision decomposition
+
+Let candidates \(0,\ldots,m-1\) be ordered by the non-thermal DSE objective,
+with candidate-local world sets and candidate-local measurement actions.
+Decision \(i<m\) means candidates \(k<i\) are REJECT and candidate \(i\) is
+SAFE; decision \(m\) means every candidate is REJECT. For two reachable
+decisions \(i<j\), their state pairs are SAFE/REJECT at candidate \(i\),
+ANY/REJECT or ANY/SAFE between \(i\) and \(j\), and equal elsewhere.
+
+Every pair containing ANY is confusable whenever its constrained state is
+feasible: choose the same constrained power world on both sides. Equal states
+are likewise confusable by diagonal coupling. Hence decisions \(i\) and \(j\)
+are distinguishable if and only if the selected actions of candidate \(i\)
+distinguish all of its SAFE/REJECT worlds.
+
+Let \(R\) contain every reachable candidate decision \(i\) for which a later
+decision is also reachable. Because action libraries are disjoint across
+candidates,
+
+\[
+ C^\star_{\rm batch}=\sum_{i\in R} C^\star_i,
+\]
+
+where \(C^\star_i\) is the candidate-local minimum-cost SAFE/REJECT hitting
+set. Necessity follows by pairing decision \(i\) with any later reachable
+decision; sufficiency follows because every pair of reachable decisions is
+separated at its earlier candidate. The decomposition therefore preserves
+global optimality. \(\square\)
+
+This result is specific to ordered first-feasible selection, independent
+candidate power spaces, and candidate-local actions. Shared sensors or
+cross-candidate physical coupling require the general global formulation.
+
+### Theorem 3: exactness and finite termination of constraint generation
 
 At exact-closure iteration \(t\), the master contains a finite subset \(E_t\)
 of valid cross-decision edges. Its optimum \(L_t\) is a lower bound on
@@ -112,7 +147,7 @@ most \(2^{|\mathcal A|}\) oracle iterations with either:
 An implementation iteration cap or a solver failure weakens this to
 `UNRESOLVED`; it never weakens into a certificate. \(\square\)
 
-### Lemma 3: diagonal coupling for equal candidate states
+### Lemma 4: diagonal coupling for equal candidate states
 
 For one candidate whose required state is identical in two compared query
 outcomes (`SAFE/SAFE`, `REJECT/REJECT`, or `ANY/ANY`), a confusable composite
@@ -138,7 +173,9 @@ registered numerical tolerance.
 all \(2^{|\mathcal A|}\) batch subsets on a hand-specified ordered
 two-candidate instance, calls the continuous collision oracle for every
 subset, and checks that DSOS returns exactly the cheapest feasible subset
-cost with zero MILP gap. The existing analytic two-variable tests separately
+cost with zero MILP gap. This checks the decomposition against the unreduced
+global collision oracle rather than against itself. The existing analytic
+two-variable tests separately
 check the known one-channel optimum and a full-library collision. These
 tests validate the implementation route; they do not replace Theorems 1–2.
 

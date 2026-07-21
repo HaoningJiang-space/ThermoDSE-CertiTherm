@@ -459,7 +459,14 @@ def synthesize_ordered_query(
     separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
 ) -> QueryObservationPlan:
-    """Exact least-cost plan for an objective-ordered thermal DSE query."""
+    """Exact least-cost plan, decomposed by ordered candidate decisions.
+
+    For two reachable decisions ``i < j``, candidate ``i`` is SAFE on the
+    left and REJECT on the right.  Every other unequal state pair contains
+    ANY, so the two sides may use the same power vector and no power channel
+    can distinguish them.  Candidate-local action libraries therefore make
+    the global optimum the sum of the required local SAFE/REJECT optima.
+    """
 
     try:
         if not candidates or not actions:
@@ -475,82 +482,95 @@ def synthesize_ordered_query(
                 raise ValueError("action target or dimension is not registered")
         if margin_k <= 0 or feasibility_tolerance <= 0 or separation_tolerance < 0:
             raise ValueError("invalid registered tolerance")
-        costs = np.asarray([action.cost for action in actions])
-        cuts: List[np.ndarray] = []
-        witnesses: List[QueryWorldPair] = []
-        oracle_cache: Dict[
-            Tuple[int, Tuple[int, ...], str, str], Optional[CandidateWorldPair]
-        ] = {}
-        master = _solve_master(costs, cuts)
-        for iteration in range(1, max_iterations + 1):
-            witness = _query_collision(
-                candidates,
-                actions,
-                master.selected,
-                margin_k,
-                feasibility_tolerance,
-                oracle_cache,
+        local_actions = {
+            candidate.candidate_id: tuple(
+                action
+                for action in actions
+                if action.candidate_id == candidate.candidate_id
             )
-            if witness is None:
-                return QueryObservationPlan(
-                    "OPTIMAL",
-                    tuple(actions[i].action_id for i in master.selected),
-                    master.cost,
-                    master.lower_bound,
-                    master.relaxation_bound,
-                    master.cost - master.lower_bound,
-                    iteration,
-                    tuple(witnesses),
-                    "zero-error ordered DSE decision uncertainty is eliminated",
+            for candidate in candidates
+        }
+        state_exists = {
+            (index, state): _single_state_world(
+                candidate, state, margin_k, feasibility_tolerance
+            )
+            is not None
+            for index, candidate in enumerate(candidates)
+            for state in ("ANY", "SAFE", "REJECT")
+        }
+        reachable = tuple(
+            decision
+            for decision in range(len(candidates) + 1)
+            if all(
+                state_exists[index, state]
+                for index, state in enumerate(
+                    _decision_states(len(candidates), decision)
                 )
-            witnesses.append(witness)
-            pairs = {pair.candidate_id: pair for pair in witness.candidates}
-            cut = np.asarray(
-                [
-                    abs(
-                        float(
-                            action.vector
-                            @ (
-                                pairs[action.candidate_id].left_power_w
-                                - pairs[action.candidate_id].right_power_w
-                            )
-                        )
+            )
+        )
+        required = tuple(
+            decision
+            for decision in reachable[:-1]
+            if decision < len(candidates)
+        )
+        selected_ids: List[str] = []
+        lower_bound = relaxation_bound = 0.0
+        iterations = 0
+        for candidate_index in required:
+            candidate = candidates[candidate_index]
+            plan = synthesize_minimum_observation(
+                candidate.power,
+                candidate.thermal,
+                local_actions[candidate.candidate_id],
+                margin_k=margin_k,
+                feasibility_tolerance=feasibility_tolerance,
+                separation_tolerance=separation_tolerance,
+                max_iterations=max_iterations,
+            )
+            selected_ids.extend(plan.selected_action_ids)
+            iterations += plan.iterations
+            lower_bound += plan.lower_bound or 0.0
+            relaxation_bound += plan.relaxation_bound or 0.0
+            if plan.status != "OPTIMAL":
+                witnesses: Tuple[QueryWorldPair, ...] = ()
+                if plan.status == "UNSYNTHESIZABLE":
+                    witness = _query_collision(
+                        candidates,
+                        actions,
+                        range(len(actions)),
+                        margin_k,
+                        feasibility_tolerance,
                     )
-                    > action.tolerance + separation_tolerance
-                    for action in actions
-                ],
-                dtype=float,
-            )
-            if not np.any(cut):
+                    if witness is None:
+                        raise RuntimeError(
+                            "local and global unsynthesizability certificates disagree"
+                        )
+                    witnesses = (witness,)
                 return QueryObservationPlan(
-                    "UNSYNTHESIZABLE",
-                    tuple(actions[i].action_id for i in master.selected),
+                    plan.status,
+                    tuple(selected_ids),
                     None,
-                    master.lower_bound,
-                    master.relaxation_bound,
+                    lower_bound,
+                    relaxation_bound,
                     None,
-                    iteration,
-                    tuple(witnesses),
-                    "full action library cannot separate a cross-decision model collision",
+                    iterations,
+                    witnesses,
+                    f"candidate-local decomposition: {plan.message}",
                 )
-            if master.selected and np.any(
-                cut[np.asarray(master.selected, dtype=int)]
-            ):
-                raise RuntimeError(
-                    "collision oracle and witness cut disagree within numerical tolerance"
-                )
-            cuts.append(cut)
-            master = _solve_master(costs, cuts)
+        selected_set = set(selected_ids)
+        exact_cost = sum(
+            action.cost for action in actions if action.action_id in selected_set
+        )
         return QueryObservationPlan(
-            "UNRESOLVED",
-            tuple(actions[i].action_id for i in master.selected),
-            None,
-            master.lower_bound,
-            master.relaxation_bound,
-            None,
-            max_iterations,
-            tuple(witnesses),
-            "registered constraint-generation budget exhausted",
+            "OPTIMAL",
+            tuple(selected_ids),
+            exact_cost,
+            lower_bound,
+            relaxation_bound,
+            exact_cost - lower_bound,
+            iterations,
+            (),
+            "ordered-decision decomposition proves the global batch optimum",
         )
     except (ValueError, RuntimeError) as exc:
         return QueryObservationPlan(

@@ -3,13 +3,14 @@
 CertiTherm synthesizes the least-cost physical observation contract needed to
 make an objective-ordered thermal chiplet-DSE decision identifiable.
 
-The current method is **Decision-Sufficient Observation Synthesis (DSOS)**:
-a minimum-cost hitting-set MILP and a continuous LP counterexample oracle
-solve the zero-error decision-information problem. An `OPTIMAL` result carries
-the selected channels, exact cost, MILP lower bound, LP-relaxation bound, and
-zero gap. `UNSYNTHESIZABLE` carries a cross-decision witness that the complete
-registered channel library cannot separate. Numerical uncertainty is always
-`UNRESOLVED`.
+The current method is **Decision-Sufficient Observation Synthesis (DSOS)**.
+An ordered-decision decomposition reduces the global query exactly to
+independent candidate-local minimum-cost hitting sets, and continuous LP
+counterexample oracles solve those zero-error subproblems. An `OPTIMAL` result
+carries the selected channels, exact cost, MILP lower bound, LP-relaxation
+bound, and zero gap. `UNSYNTHESIZABLE` carries a cross-decision witness that
+the complete registered channel library cannot separate. Numerical
+uncertainty is always `UNRESOLVED`.
 
 This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
