@@ -1205,16 +1205,24 @@ def synthesize_ordered_query(
                 # selected_action_ids must mean "certified for the WHOLE
                 # query". A prefix of individually-certified candidates is not
                 # that, so it moves to its own field rather than masquerading
-                # as a plan. Local bounds are also dropped: summing them into a
-                # query-level bound needs an additivity proof the decomposition
-                # does not currently supply (actions are deduplicated later,
-                # so blind summation could double count).
+                # as a plan.
+                #
+                # Local bounds ARE summed, correcting an earlier over-caution
+                # that returned None here. Theorem 2 gives
+                # C*_query = sum over required candidates of C*_i, and action
+                # libraries are candidate-local and disjoint, so there is no
+                # double counting. Bounds are non-negative, so summing only the
+                # candidates reached before the failure still yields a valid --
+                # merely weaker -- query lower bound. Dropping it meant every
+                # timed-out dev query reported no bound at all, which is
+                # precisely the evidence the anytime path exists to produce.
+                partial_bound = lower_bound + (plan.lower_bound or 0.0)
                 return QueryObservationPlan(
                     plan.status,
                     (),
                     None,
-                    None,
-                    None,
+                    partial_bound if partial_bound > 0 else None,
+                    partial_bound if partial_bound > 0 else None,
                     None,
                     iterations,
                     witnesses,

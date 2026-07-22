@@ -145,7 +145,15 @@ claims:
       its iterations, witnesses, candidate cover and a freshly refreshed
       anytime lower bound. Verified under a real SIGALRM: 74 iterations, 234
       witnesses, an 11-action candidate at cost 26.0, and LB 15.0 all survive.
-      The dev queries must be re-run to populate these columns; the existing
+      A follow-up audit then found the first fix did NOT reach the reported
+      symptom: the experiment calls synthesize_ordered_query, whose non-OPTIMAL
+      path I had myself made return lower_bound=None out of over-caution about
+      additivity. Theorem 2 gives C*_query = sum of required local optima and
+      the action libraries are candidate-local and disjoint, so no double
+      counting arises; bounds are non-negative, so summing only the candidates
+      reached before a failure is a valid, merely weaker, query bound. Verified
+      on the ordered path under a forced timeout: lower_bound 14.0 where it was
+      previously None. The dev queries must be re-run to populate these columns; the existing
       dev artifacts predate the fix and their empty bounds are an artifact of
       it, not evidence that no bound was computable.
     consequence: >-
