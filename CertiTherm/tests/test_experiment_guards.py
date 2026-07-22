@@ -110,6 +110,27 @@ def test_hotspot_binary_must_match_bootstrap_receipt(tmp_path) -> None:
         experiments._verified_binary_digest(binary, receipt)
 
 
+def test_multi_binary_receipt_matches_each_binary_by_name(tmp_path) -> None:
+    exporter = tmp_path / "hotspot"
+    solver = tmp_path / "certitherm_hotspot_cuda"
+    receipt = tmp_path / "GPU_SHA256SUMS"
+    exporter.write_bytes(b"exporter")
+    solver.write_bytes(b"solver")
+    exporter_digest = experiments._sha256(exporter)
+    solver_digest = experiments._sha256(solver)
+    receipt.write_text(
+        f"{exporter_digest}  .build/hotspot-gpu-export/hotspot\n"
+        f"{solver_digest}  .build/hotspot-cuda/certitherm_hotspot_cuda\n",
+        encoding="utf-8",
+    )
+
+    assert (
+        experiments._verified_binary_digest(exporter, receipt)
+        == exporter_digest
+    )
+    assert experiments._verified_binary_digest(solver, receipt) == solver_digest
+
+
 def test_cache_receipt_binds_inputs_and_every_cached_file(tmp_path) -> None:
     artifact = tmp_path / "operator.npz"
     calibration = tmp_path / "operator.calibration.tsv"

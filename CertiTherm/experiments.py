@@ -110,6 +110,9 @@ class NonthermalCandidateInvalid(RuntimeError):
 def _gpu_backend() -> Optional[GpuHotSpotBackend]:
     if os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") != "1":
         return None
+    receipt = GPU_HOTSPOT_BUILD / "GPU_SHA256SUMS"
+    _verified_binary_digest(GPU_HOTSPOT_EXPORTER, receipt)
+    _verified_binary_digest(GPU_HOTSPOT_SOLVER, receipt)
     return GpuHotSpotBackend(
         GPU_HOTSPOT_EXPORTER,
         GPU_HOTSPOT_SOLVER,
@@ -240,10 +243,17 @@ def _operator_cache_signature(
         "gpu_enabled": gpu_enabled,
     }
     if gpu_enabled:
+        gpu_receipt = GPU_HOTSPOT_BUILD / "GPU_SHA256SUMS"
         inputs.update(
             {
-                "gpu_exporter_sha256": _sha256(GPU_HOTSPOT_EXPORTER),
-                "gpu_solver_sha256": _sha256(GPU_HOTSPOT_SOLVER),
+                "gpu_exporter_sha256": _verified_binary_digest(
+                    GPU_HOTSPOT_EXPORTER,
+                    gpu_receipt,
+                ),
+                "gpu_solver_sha256": _verified_binary_digest(
+                    GPU_HOTSPOT_SOLVER,
+                    gpu_receipt,
+                ),
                 "gpu_device": int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
             }
         )
@@ -278,11 +288,17 @@ def _verified_binary_digest(binary: Path, receipt: Path) -> str:
 
     if not binary.is_file() or not receipt.is_file():
         raise RuntimeError("HotSpot build or bootstrap digest receipt is missing")
-    fields = receipt.read_text(encoding="utf-8").split()
-    if not fields:
-        raise RuntimeError("HotSpot bootstrap digest receipt is empty")
+    entries = []
+    for line in receipt.read_text(encoding="utf-8").splitlines():
+        fields = line.split(maxsplit=1)
+        if len(fields) == 2 and Path(fields[1].lstrip("*")).name == binary.name:
+            entries.append(fields[0])
+    if len(entries) != 1:
+        raise RuntimeError(
+            "HotSpot bootstrap receipt does not identify the binary uniquely"
+        )
     actual = _sha256(binary)
-    if fields[0] != actual:
+    if entries[0] != actual:
         raise RuntimeError("HotSpot binary no longer matches its bootstrap receipt")
     return actual
 
@@ -2024,6 +2040,19 @@ def _run_receipt(
         name.lower(): os.environ.get(name, "")
         for name in FROZEN_NUMERIC_THREAD_VARIABLES
     }
+    gpu_digests = {}
+    if os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") == "1":
+        gpu_receipt = GPU_HOTSPOT_BUILD / "GPU_SHA256SUMS"
+        gpu_digests = {
+            "gpu_exporter_sha256": _verified_binary_digest(
+                GPU_HOTSPOT_EXPORTER,
+                gpu_receipt,
+            ),
+            "gpu_solver_sha256": _verified_binary_digest(
+                GPU_HOTSPOT_SOLVER,
+                gpu_receipt,
+            ),
+        }
     return {
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "protocol_state": _SPLIT_PROTOCOL_STATE[split],
@@ -2039,6 +2068,7 @@ def _run_receipt(
         "git_sha": _git_revision(ROOT),
         **submodules,
         "hotspot_binary_sha256": hotspot_digest,
+        **gpu_digests,
         "operator_backend": (
             "gpu-proposal+cpu-hotspot-calibration"
             if os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") == "1"
