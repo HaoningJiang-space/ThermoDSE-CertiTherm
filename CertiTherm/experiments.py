@@ -217,22 +217,14 @@ def _thermodse_evaluator(
     workload: dict[str, str],
     sim: Path,
 ):
-    """Build the pinned evaluator with the one documented compatibility shim."""
+    """Build the pinned evaluator after installing narrow API shims."""
 
     thermodse_path = str(THERMODSE)
     if thermodse_path not in sys.path:
         sys.path.insert(0, thermodse_path)
     from core.chiplet_eva import chiplet_evaluator  # type: ignore
-    from core.layer import GemmLayer  # type: ignore
 
-    # The base and Conv APIs default to one-byte words; the pinned Gemm
-    # override accidentally dropped that default. Keep the submodule clean
-    # and restore only the upstream interface convention at runtime.
-    original_filter_size = GemmLayer.total_filter_size
-    if original_filter_size.__defaults__ is None:
-        GemmLayer.total_filter_size = (  # type: ignore[assignment]
-            lambda self, word_bytes=1: original_filter_size(self, word_bytes)
-        )
+    _install_thermodse_compatibility()
 
     evaluator = chiplet_evaluator(
         hotspot_path=str(HOTSPOT.parent),
@@ -250,6 +242,46 @@ def _thermodse_evaluator(
     evaluator.b_exe = [int(workload["b_exe"])]
     evaluator.sparsty = [float(workload["sparsity"])]
     return evaluator
+
+
+def _install_thermodse_compatibility() -> None:
+    """Repair two pinned-upstream API drifts without modifying the submodule."""
+
+    from core.layer import GemmLayer  # type: ignore
+    from core.network import Network  # type: ignore
+
+    # The base and Conv APIs default to one-byte words; the pinned Gemm
+    # override accidentally dropped that default. Keep the submodule clean
+    # and restore only the upstream interface convention at runtime.
+    original_filter_size = GemmLayer.total_filter_size
+    if original_filter_size.__defaults__ is None:
+        def filter_size_with_default(self, word_bytes=1):
+            return original_filter_size(self, word_bytes)
+
+        GemmLayer.total_filter_size = filter_size_with_default  # type: ignore[assignment]
+
+    # Two bundled upstream network definitions still use the predecessor
+    # keyword `prevs`; the pinned Network implementation renamed it to
+    # `ifm_prevs`. Preserve one implementation and expose only that alias.
+    original_add = Network.add
+    if not getattr(original_add, "_certitherm_accepts_prevs", False):
+        def add_with_prevs(
+            self,
+            layer_name,
+            layer,
+            ifm_prevs=None,
+            wgt_prevs=None,
+            *,
+            prevs=None,
+        ):
+            if prevs is not None:
+                if ifm_prevs is not None:
+                    raise TypeError("specify only one of prevs and ifm_prevs")
+                ifm_prevs = prevs
+            return original_add(self, layer_name, layer, ifm_prevs, wgt_prevs)
+
+        add_with_prevs._certitherm_accepts_prevs = True  # type: ignore[attr-defined]
+        Network.add = add_with_prevs  # type: ignore[assignment]
 
 
 def _capture(

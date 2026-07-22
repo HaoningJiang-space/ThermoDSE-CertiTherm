@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from CertiTherm import experiments
@@ -108,3 +110,15 @@ def test_nonthermal_sim_has_two_independent_hotspot_guards(tmp_path) -> None:
     )
     assert not tuple((sim / "outputs").glob("*.steady"))
     assert "HotSpot is forbidden" in (sim / "run.sh").read_text(encoding="utf-8")
+
+
+def test_compatibility_layer_loads_frozen_legacy_workloads() -> None:
+    thermodse_path = str(experiments.THERMODSE)
+    if thermodse_path not in sys.path:
+        sys.path.insert(0, thermodse_path)
+    experiments._install_thermodse_compatibility()
+
+    from nns import import_network  # type: ignore
+
+    for workload in ("alex_net", "lstm_gnmt"):
+        assert import_network(workload).net_name

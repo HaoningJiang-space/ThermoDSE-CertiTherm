@@ -94,7 +94,9 @@ thermal limit, or gate thresholds. The check has three possible outcomes:
 - `REPLACEMENT_REQUIRED`: an evaluator completed with an explicitly invalid
   metric, or at least one adjacent EDYP gap is below 1%;
 - `UNRESOLVED`: an unexpected software or environment failure occurred. This
-  outcome authorizes diagnosis, but **not** architecture replacement.
+  outcome authorizes diagnosis and an identical rerun from a committed fix,
+  but **not** architecture replacement. Every unresolved attempt remains
+  archived and disclosed.
 
 To avoid choosing which member of a close EDYP pair to discard after seeing
 the values, any `REPLACEMENT_REQUIRED` outcome replaces the entire primary set
