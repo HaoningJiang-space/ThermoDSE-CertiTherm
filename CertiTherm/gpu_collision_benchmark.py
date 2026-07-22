@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 from pathlib import Path
 import time
 
 import numpy as np
 from scipy.optimize import linprog
 
+from .core import CandidateSpace, MeasurementAction, PowerPolytope, ThermalFamily
 from .collision_proof import LinearFeasibilitySystem, ProposalKind
 from .gpu_collision import SharedCollisionBatch, propose_collision_batch
 from .gpu_collision_broker import CollisionBroker
+from .synthesis import _state_collision
 
 
 _BATCH_SIZES = (1, 7, 31, 32, 33, 127, 128, 129, 541)
@@ -56,6 +59,51 @@ def _cpu_status(batch: SharedCollisionBatch):
     return tuple(statuses), 1000.0 * (time.perf_counter() - started)
 
 
+def _claim_path_parity(solver: Path, socket_path: Path) -> None:
+    power = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
+    candidate = CandidateSpace(
+        "candidate",
+        power,
+        ThermalFamily(
+            ("block",), np.array([[[2.0, 0.0]]]), np.zeros(1), 1.0
+        ),
+    )
+    actions = (
+        MeasurementAction(
+            "p0", np.array([1.0, 0.0]), candidate_id="candidate"
+        ),
+    )
+    previous = {
+        name: os.environ.get(name)
+        for name in (
+            "CERTITHERM_GPU_SEPARATION",
+            "CERTITHERM_GPU_COLLISION_SOCKET",
+            "CERTITHERM_GPU_COLLISION_SOLVER",
+        )
+    }
+    try:
+        os.environ["CERTITHERM_GPU_SEPARATION"] = "0"
+        cpu_open = _state_collision(candidate, actions, (), "SAFE", "REJECT", 1e-4, 1e-10)
+        cpu_closed = _state_collision(candidate, actions, (0,), "SAFE", "REJECT", 1e-4, 1e-10)
+        os.environ.update(
+            {
+                "CERTITHERM_GPU_SEPARATION": "1",
+                "CERTITHERM_GPU_COLLISION_SOCKET": str(socket_path),
+                "CERTITHERM_GPU_COLLISION_SOLVER": str(solver),
+            }
+        )
+        gpu_open = _state_collision(candidate, actions, (), "SAFE", "REJECT", 1e-4, 1e-10)
+        gpu_closed = _state_collision(candidate, actions, (0,), "SAFE", "REJECT", 1e-4, 1e-10)
+        if (cpu_open is None) != (gpu_open is None) or (cpu_closed is None) != (gpu_closed is None):
+            raise RuntimeError("GPU claim-path collision result disagrees with HiGHS")
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--solver", type=Path, required=True)
@@ -93,6 +141,7 @@ def main() -> None:
                     "wrong_accepted": wrong,
                 }
             )
+        _claim_path_parity(args.solver.resolve(), broker.socket_path)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=rows[0], delimiter="\t")

@@ -17,6 +17,7 @@
 namespace {
 
 constexpr int kThreads = 256;
+constexpr int kWarps = kThreads / 32;
 
 struct InputHeader {
   char magic[8];
@@ -121,6 +122,21 @@ __global__ void update_equality_dual(const double* product,
   }
 }
 
+__device__ double block_sum(double value) {
+  for (int offset = 16; offset; offset /= 2)
+    value += __shfl_down_sync(0xffffffff, value, offset);
+  __shared__ double warp_sums[kWarps];
+  const int lane = threadIdx.x & 31;
+  const int warp = threadIdx.x >> 5;
+  if (lane == 0) warp_sums[warp] = value;
+  __syncthreads();
+  value = threadIdx.x < kWarps ? warp_sums[lane] : 0.0;
+  if (warp == 0)
+    for (int offset = 16; offset; offset /= 2)
+      value += __shfl_down_sync(0xffffffff, value, offset);
+  return value;
+}
+
 __global__ void update_spec_dual(const double* rows, const double* rhs,
                                  const double* q_bar, double* dual,
                                  const int* active, double sigma,
@@ -132,15 +148,9 @@ __global__ void update_spec_dual(const double* rows, const double* rhs,
   for (std::uint64_t variable = threadIdx.x; variable < variables;
        variable += blockDim.x)
     sum += rows[cell * variables + variable] * q_bar[variable * batch + cell];
-  __shared__ double partial[kThreads];
-  partial[threadIdx.x] = sum;
-  __syncthreads();
-  for (int offset = blockDim.x / 2; offset; offset /= 2) {
-    if (threadIdx.x < offset) partial[threadIdx.x] += partial[threadIdx.x + offset];
-    __syncthreads();
-  }
+  sum = block_sum(sum);
   if (threadIdx.x == 0)
-    dual[cell] = fmax(0.0, dual[cell] + sigma * (partial[0] - rhs[cell]));
+    dual[cell] = fmax(0.0, dual[cell] + sigma * (sum - rhs[cell]));
 }
 
 __global__ void update_primal(double* q, double* q_bar,
@@ -208,15 +218,9 @@ __global__ void spec_violation(const double* rows, const double* rhs,
   for (std::uint64_t variable = threadIdx.x; variable < variables;
        variable += blockDim.x)
     sum += rows[cell * variables + variable] * q[variable * batch + cell];
-  __shared__ double partial[kThreads];
-  partial[threadIdx.x] = sum;
-  __syncthreads();
-  for (int offset = blockDim.x / 2; offset; offset /= 2) {
-    if (threadIdx.x < offset) partial[threadIdx.x] += partial[threadIdx.x + offset];
-    __syncthreads();
-  }
+  sum = block_sum(sum);
   if (threadIdx.x == 0)
-    atomic_max_positive(&violation[cell], fmax(0.0, partial[0] - rhs[cell]));
+    atomic_max_positive(&violation[cell], fmax(0.0, sum - rhs[cell]));
 }
 
 __global__ void mark_feasible(const double* violation, int* active,

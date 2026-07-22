@@ -17,6 +17,7 @@ from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from multiprocessing import get_context
 import os
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -545,6 +546,147 @@ def _state_model_id(thermal: ThermalFamily, state: str, model: int) -> str:
     return thermal.model_ids[model]
 
 
+def _gpu_state_collision(
+    candidate: CandidateSpace,
+    actions: Sequence[MeasurementAction],
+    selected: Iterable[int],
+    left_state: str,
+    right_state: str,
+    margin_k: float,
+    feasibility_tolerance: float,
+) -> Tuple[bool, Optional[CandidateWorldPair]]:
+    """Try one proof-gated shared-matrix GPU batch, with per-cell fallback."""
+
+    if os.environ.get("CERTITHERM_GPU_SEPARATION", "0") != "1":
+        return False, None
+    reject_sides = [
+        side for side, state in enumerate((left_state, right_state))
+        if state == "REJECT"
+    ]
+    if len(reject_sides) != 1:
+        return False, None
+    try:
+        from .collision_proof import LinearFeasibilitySystem, ProposalKind
+        from .gpu_collision import SharedCollisionBatch, propose_collision_batch
+
+        polytope, thermal = candidate.power, candidate.thermal
+        n = polytope.dimension
+        a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
+        chunks = [base_a_ub]
+        rhs_chunks = [base_b_ub]
+        for side, state in enumerate((left_state, right_state)):
+            if state != "REJECT":
+                rows, rhs = _state_constraints(
+                    thermal, state, -1, -1, side, margin_k
+                )
+                chunks.append(rows)
+                rhs_chunks.append(rhs)
+        for index in selected:
+            delta = np.concatenate((actions[index].vector, -actions[index].vector))
+            chunks.append(np.vstack((delta, -delta)))
+            rhs_chunks.append(np.full(2, actions[index].tolerance))
+        reject_side = reject_sides[0]
+        specs = tuple(_state_specs(thermal, "REJECT"))
+        spec_rows, spec_rhs = zip(
+            *(
+                _state_constraints(
+                    thermal, "REJECT", model, point, reject_side, margin_k
+                )
+                for model, point in specs
+            )
+        )
+        bounds = tuple(zip(polytope.lower_w, polytope.upper_w)) * 2
+        common = LinearFeasibilitySystem(
+            np.vstack(chunks),
+            np.concatenate(rhs_chunks),
+            a_eq,
+            b_eq,
+            np.asarray([bound[0] for bound in bounds]),
+            np.asarray([bound[1] for bound in bounds]),
+        )
+        batch = SharedCollisionBatch(
+            common,
+            np.vstack([row[0] for row in spec_rows]),
+            np.asarray([rhs[0] for rhs in spec_rhs]),
+        )
+        solver = Path(
+            os.environ.get(
+                "CERTITHERM_GPU_COLLISION_SOLVER",
+                Path(__file__).resolve().parents[1]
+                / ".build/collision-cuda/certitherm_collision_cuda",
+            )
+        )
+        socket_value = os.environ.get("CERTITHERM_GPU_COLLISION_SOCKET")
+        proposals, checks, _receipt = propose_collision_batch(
+            batch,
+            solver,
+            device=int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
+            verification_tolerance=feasibility_tolerance,
+            broker_socket=Path(socket_value) if socket_value else None,
+        )
+        fallback = []
+        for cell, (proposal, check) in enumerate(zip(proposals, checks)):
+            if check.accepted and check.kind == ProposalKind.FEASIBLE:
+                model, _point = specs[cell]
+                power = proposal.primal
+                return True, CandidateWorldPair(
+                    candidate_id=candidate.candidate_id,
+                    left_power_w=power[:n].copy(),
+                    right_power_w=power[n:].copy(),
+                    left_state=left_state,
+                    right_state=right_state,
+                    left_model_id=_state_model_id(
+                        thermal, left_state, model if reject_side == 0 else -1
+                    ),
+                    right_model_id=_state_model_id(
+                        thermal, right_state, model if reject_side == 1 else -1
+                    ),
+                )
+            if not (check.accepted and check.kind == ProposalKind.INFEASIBLE):
+                fallback.append(cell)
+        for cell in fallback:
+            system = batch.system(cell)
+            result = run_highs(
+                linprog,
+                np.zeros(2 * n),
+                A_ub=system.a_ub,
+                b_ub=system.b_ub,
+                A_eq=system.a_eq,
+                b_eq=system.b_eq,
+                bounds=list(zip(system.lower, system.upper)),
+                method="highs",
+                label="GPU-fallback query collision LP",
+                options={
+                    "primal_feasibility_tolerance": feasibility_tolerance,
+                    "dual_feasibility_tolerance": feasibility_tolerance,
+                },
+            )
+            if result.status == 0:
+                model, _point = specs[cell]
+                return True, CandidateWorldPair(
+                    candidate_id=candidate.candidate_id,
+                    left_power_w=result.x[:n].copy(),
+                    right_power_w=result.x[n:].copy(),
+                    left_state=left_state,
+                    right_state=right_state,
+                    left_model_id=_state_model_id(
+                        thermal, left_state, model if reject_side == 0 else -1
+                    ),
+                    right_model_id=_state_model_id(
+                        thermal, right_state, model if reject_side == 1 else -1
+                    ),
+                )
+            if result.status != 2:
+                raise UnresolvedComputation(
+                    f"GPU-fallback collision LP unresolved: {result.message}"
+                )
+        return True, None
+    except (OSError, RuntimeError, ValueError):
+        # GPU acceleration is optional. A malformed proposal, broker failure,
+        # or unavailable device restores the frozen CPU oracle, never a verdict.
+        return False, None
+
+
 def _state_collision(
     candidate: CandidateSpace,
     actions: Sequence[MeasurementAction],
@@ -571,6 +713,17 @@ def _state_collision(
             left_model_id=model_id,
             right_model_id=model_id,
         )
+    gpu_handled, gpu_pair = _gpu_state_collision(
+        candidate,
+        actions,
+        selected,
+        left_state,
+        right_state,
+        margin_k,
+        feasibility_tolerance,
+    )
+    if gpu_handled:
+        return gpu_pair
     n = polytope.dimension
     a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
     action_rows, action_rhs = [], []
