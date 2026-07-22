@@ -195,7 +195,23 @@ def _solve_collision_worker(spec: Tuple[int, int]) -> Optional[WorldPair]:
 def _configured_workers(workers: Optional[int] = None) -> int:
     value = workers
     if value is None:
-        value = int(os.environ.get("CERTITHERM_LP_WORKERS", "8"))
+        # Sequential by DEFAULT. Two independent measurements agree:
+        #
+        # 1. The pool is a 32x PESSIMIZATION at this instance size. A fresh
+        #    spawn-context pool is built per iteration to dispatch twelve LPs of
+        #    ~5-6 ms each: 0.064 s/iteration sequential against 2.07 s/iteration
+        #    with eight workers, so over 96% of parallel wall time is not useful
+        #    work. Even zero-overhead 8-way parallelism could save only ~53 ms
+        #    per round here.
+        # 2. It DEADLOCKS under a short budget. The Anytime-DSOS controller's
+        #    SIGALRM can fire while the pool is spawning, leaving
+        #    FileNotFoundError from SemLock._rebuild and a hung run. The 1800s
+        #    dev run never hit this because the alarm never landed mid-spawn;
+        #    the schema rehearsal at 25s hit it immediately.
+        #
+        # Set CERTITHERM_LP_WORKERS explicitly to opt back in for an instance
+        # large enough that the LPs dominate process startup.
+        value = int(os.environ.get("CERTITHERM_LP_WORKERS", "1"))
     if value <= 0:
         raise ContractViolation("LP separation workers must be positive")
     return value
