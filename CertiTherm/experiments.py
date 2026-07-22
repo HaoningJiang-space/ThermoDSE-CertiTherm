@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import csv
 import hashlib
 import os
@@ -75,6 +76,10 @@ QUERY_METHOD_TIMEOUT_S = float(os.environ.get("CERTITHERM_QUERY_BUDGET_S", "1800
 FROZEN_QUERY_BUDGET_S = 1800.0
 _BUDGET_IS_FROZEN = abs(QUERY_METHOD_TIMEOUT_S - FROZEN_QUERY_BUDGET_S) < 1e-9
 _T = TypeVar("_T")
+
+
+class NonthermalCandidateInvalid(RuntimeError):
+    """A candidate completed evaluation but produced inadmissible metrics."""
 
 
 def _gpu_backend() -> Optional[GpuHotSpotBackend]:
@@ -167,33 +172,56 @@ def _configure(source: Path, output: Path, package: dict[str, str]) -> None:
     output.write_text(text, encoding="utf-8")
 
 
-def _capture(
+def _prepare_thermodse_sim(
     arch: dict[str, str],
     workload: dict[str, str],
     package: dict[str, str],
     output: Path,
+    *,
+    allow_hotspot: bool,
 ) -> Path:
-    capture = output / "captures" / f"{workload['workload_id']}--{arch['architecture_id']}.npz"
-    if capture.is_file():
-        return capture
-    sim = output / "work" / f"capture--{workload['workload_id']}--{arch['architecture_id']}"
+    """Create one isolated ThermoDSE work directory and backend entrypoint."""
+
+    kind = "capture" if allow_hotspot else "precheck"
+    sim = output / "work" / f"{kind}--{workload['workload_id']}--{arch['architecture_id']}"
     if sim.exists():
         shutil.rmtree(sim)
     shutil.copytree(TEMPLATE, sim)
     _configure(TEMPLATE / "example.config", sim / "example.config", package)
-    runner = ROOT / "CertiTherm" / "trace_runner.py"
-    wrapper = (
-        "#!/bin/sh\nexec "
-        + shlex.quote(sys.executable)
-        + " "
-        + shlex.quote(str(runner))
-        + ' "$@" --hotspot '
-        + shlex.quote(str(HOTSPOT))
-        + "\n"
-    )
+    if allow_hotspot:
+        runner = ROOT / "CertiTherm" / "trace_runner.py"
+        wrapper = (
+            "#!/bin/sh\nexec "
+            + shlex.quote(sys.executable)
+            + " "
+            + shlex.quote(str(runner))
+            + ' "$@" --hotspot '
+            + shlex.quote(str(HOTSPOT))
+            + "\n"
+        )
+    else:
+        for stale_temperature in (sim / "outputs").glob("*.steady"):
+            stale_temperature.unlink()
+        wrapper = (
+            "#!/bin/sh\n"
+            "echo 'HotSpot is forbidden during the non-thermal precheck' >&2\n"
+            "exit 97\n"
+        )
     (sim / "run.sh").write_text(wrapper, encoding="utf-8")
     (sim / "run.sh").chmod(0o755)
-    sys.path.insert(0, str(THERMODSE))
+    return sim
+
+
+def _thermodse_evaluator(
+    arch: dict[str, str],
+    workload: dict[str, str],
+    sim: Path,
+):
+    """Build the pinned evaluator with the one documented compatibility shim."""
+
+    thermodse_path = str(THERMODSE)
+    if thermodse_path not in sys.path:
+        sys.path.insert(0, thermodse_path)
     from core.chiplet_eva import chiplet_evaluator  # type: ignore
     from core.layer import GemmLayer  # type: ignore
 
@@ -221,6 +249,26 @@ def _capture(
     evaluator.b_tot = [int(workload["b_tot"])]
     evaluator.b_exe = [int(workload["b_exe"])]
     evaluator.sparsty = [float(workload["sparsity"])]
+    return evaluator
+
+
+def _capture(
+    arch: dict[str, str],
+    workload: dict[str, str],
+    package: dict[str, str],
+    output: Path,
+) -> Path:
+    capture = output / "captures" / f"{workload['workload_id']}--{arch['architecture_id']}.npz"
+    if capture.is_file():
+        return capture
+    sim = _prepare_thermodse_sim(
+        arch,
+        workload,
+        package,
+        output,
+        allow_hotspot=True,
+    )
+    evaluator = _thermodse_evaluator(arch, workload, sim)
     evaluator.generate_hardware()
     latency, energy, die_yield = evaluator.evaluate()
     trace = sim / "ptrace" / "name_aligned.ptrace"
@@ -239,6 +287,79 @@ def _capture(
         die_yield=np.asarray(die_yield),
     )
     return capture
+
+
+@contextmanager
+def _hotspot_disabled(evaluator):
+    """Disable both ThermoDSE routes to HotSpot for a narrow code region."""
+
+    from core import chiplet_eva as evaluator_module  # type: ignore
+
+    original_run_hotspot = evaluator.flp_generator.run_hotspot
+    original_find_hotpoint = evaluator_module.find_hotpoint
+
+    def skip_hotspot(*_args, **_kwargs) -> None:
+        return None
+
+    def unavailable_temperature(*_args, **_kwargs) -> float:
+        return float("nan")
+
+    evaluator.flp_generator.run_hotspot = skip_hotspot
+    evaluator_module.find_hotpoint = unavailable_temperature
+    try:
+        yield
+    finally:
+        evaluator.flp_generator.run_hotspot = original_run_hotspot
+        evaluator_module.find_hotpoint = original_find_hotpoint
+
+
+def evaluate_nonthermal_candidate(
+    arch: dict[str, str],
+    workload: dict[str, str],
+    package: dict[str, str],
+    output: Path,
+) -> dict[str, float]:
+    """Evaluate EDYP inputs while making any HotSpot invocation fail closed.
+
+    The pinned ThermoDSE evaluator calls HotSpot even with `thermal_map=False`.
+    A pre-open feasibility check must not produce a held-out temperature, so it
+    disables the Python call and installs a shell sentinel as a second guard.
+    The temporary power/floorplan intermediates are deleted before return.
+    """
+
+    sim = _prepare_thermodse_sim(
+        arch,
+        workload,
+        package,
+        output,
+        allow_hotspot=False,
+    )
+    try:
+        evaluator = _thermodse_evaluator(arch, workload, sim)
+        evaluator.generate_hardware()
+        with _hotspot_disabled(evaluator):
+            latency, energy, die_yield = evaluator.evaluate()
+        if any((sim / "outputs").glob("*.steady")):
+            raise RuntimeError("non-thermal precheck produced a HotSpot output")
+        metrics = {
+            "latency_ms": float(latency),
+            "energy_mj": float(energy),
+            "die_yield": float(die_yield),
+        }
+        if min(metrics.values()) <= 0 or not all(
+            np.isfinite(value) for value in metrics.values()
+        ):
+            raise NonthermalCandidateInvalid(
+                "non-thermal precheck produced non-positive or non-finite metrics"
+            )
+        metrics["edyp"] = (
+            metrics["latency_ms"]
+            * metrics["energy_mj"]
+            / metrics["die_yield"]
+        )
+        return metrics
+    finally:
+        shutil.rmtree(sim, ignore_errors=True)
 
 
 def _bounded_power(

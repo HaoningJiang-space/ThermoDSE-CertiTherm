@@ -88,9 +88,20 @@ workload/architecture combinations on the default package. It may answer only:
 2. for every workload, are adjacent EDYP values separated by at least 1%?
 
 The exact metrics are archived, but may not tune the algorithm, costs, budget,
-thermal limit, or gate thresholds. If a primary architecture fails either
-test, replace it by the first unused vector in this preregistered order, then
-repeat only the non-thermal check:
+thermal limit, or gate thresholds. The check has three possible outcomes:
+
+- `PASS`: accept the complete primary set unchanged;
+- `REPLACEMENT_REQUIRED`: an evaluator completed with an explicitly invalid
+  metric, or at least one adjacent EDYP gap is below 1%;
+- `UNRESOLVED`: an unexpected software or environment failure occurred. This
+  outcome authorizes diagnosis, but **not** architecture replacement.
+
+To avoid choosing which member of a close EDYP pair to discard after seeing
+the values, any `REPLACEMENT_REQUIRED` outcome replaces the entire primary set
+`(arch_j, arch_k, arch_l)` wholesale by `(arch_m, arch_n, arch_o)` in the table
+order below. The non-thermal check may then run exactly once more. If that
+fallback set does not pass, v3 remains unopened; no further vector may be
+introduced.
 
 | Fallback | grid | cut | interval | mtxu | ubuf | nop_bw | dram_bw |
 |---|---|---|---:|---|---:|---:|---:|
