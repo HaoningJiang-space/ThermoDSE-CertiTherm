@@ -892,12 +892,20 @@ def _cost_lattice(costs: np.ndarray) -> Optional[_Fraction]:
     can be rounded UP to the next lattice point without losing validity. With
     the registered costs 1/2/4/8 this is 1.
     """
+    # EXACT conversion, no limit_denominator. A float IS an exact dyadic
+    # rational, so Fraction(float) is lossless. Approximating here was unsound:
+    # with a 1e-12 relative tolerance, costs like 1.0000000000005 reconstruct as
+    # Fraction(1) and the function would return g=1 although that cost is not a
+    # multiple of 1 -- the lifted bound would then be invalid and could certify
+    # a suboptimal plan. Approximating the DUAL is safe (any y>=0 works);
+    # approximating COSTS is not, because it changes the problem being bounded.
+    # If the exact lattice is very fine the lifting simply does nothing, which
+    # is the safe failure direction.
     fractions = []
     for value in costs:
-        frac = _Fraction(float(value)).limit_denominator(10**6)
-        if abs(float(frac) - float(value)) > 1e-12 * max(1.0, abs(float(value))):
+        if not np.isfinite(value):
             return None
-        fractions.append(frac)
+        fractions.append(_Fraction(float(value)))
     if not fractions:
         return None
     g = fractions[0]
@@ -924,9 +932,17 @@ def _integer_lagrangian_bound(
     Returns an exact rational, or None if the inputs are not representable.
     """
     try:
+        # y may be approximated: the bound is valid for ANY y >= 0, so a
+        # rounded dual only loosens it. Costs may NOT be approximated -- that
+        # would bound a different problem than the one being certified.
         y = [_Fraction(float(v)).limit_denominator(10**9) for v in dual]
-        c = [_Fraction(float(v)).limit_denominator(10**9) for v in costs]
+        c = [_Fraction(float(v)) for v in costs]
     except (ValueError, OverflowError):
+        return None
+    cover_check = np.asarray(cuts, dtype=float)
+    if not np.all((cover_check == 0.0) | (cover_check == 1.0)):
+        # The membership test below assumes 0/1 cuts. They are built that way,
+        # but a non-binary coefficient would silently corrupt the bound.
         return None
     if any(v < 0 for v in y):
         y = [v if v > 0 else _Fraction(0) for v in y]
