@@ -243,6 +243,25 @@ class ObservationPlan:
     candidate_cost: Optional[float] = None
     upper_bound: Optional[float] = None
     candidate_covered_cuts: Optional[int] = None
+    # Five distinct quantities, because a single "cut count" is ambiguous:
+    # `_insert_minimal_cut` REJECTS a cut dominated by an existing subset and
+    # EVICTS existing supersets when a stronger subset arrives. The antichain
+    # can therefore stay flat or shrink while real information accrues, so
+    # plotting a lower bound against `cuts_active` alone would misread
+    # information gain as stagnation. `candidate_covered_cuts` is a *stale*
+    # `cuts_active` -- the size at the last cover rebuild -- and is not a total.
+    #
+    # Invariants (asserted in tests):
+    #   cuts_active    == cuts_accepted - cuts_evicted        (always)
+    #   cuts_generated == cuts_accepted + cuts_dominated      (except below)
+    # On the UNSYNTHESIZABLE path the deciding witness is separated by no
+    # registered action, so it is generated but neither accepted nor dominated
+    # and the second identity is short by exactly one.
+    cuts_generated: int = 0
+    cuts_accepted: int = 0
+    cuts_dominated: int = 0
+    cuts_evicted: int = 0
+    cuts_active: int = 0
 
     @property
     def plan_validity(self) -> str:
@@ -321,6 +340,22 @@ class QueryObservationPlan:
     # Weakest provenance across the candidates: a query is only as
     # self-verifiable as its least self-verifiable subproblem.
     bound_provenance: Optional[str] = None
+    # Cut ledger summed over the candidates actually reached. See
+    # `ObservationPlan` for the per-quantity semantics and invariants.
+    cuts_generated: int = 0
+    cuts_accepted: int = 0
+    cuts_dominated: int = 0
+    cuts_evicted: int = 0
+    cuts_active: int = 0
+    # Candidate-schedule progress. `synthesize_ordered_query` walks required
+    # candidates SEQUENTIALLY and returns on the first non-OPTIMAL one, so every
+    # later required candidate contributes zero to `lower_bound` even though
+    # Theorem 2 licenses summing candidate-local optima over disjoint libraries.
+    # Without these three numbers a small `lower_bound` is indistinguishable
+    # between "the bound grows slowly" and "we only ever reached candidate 0".
+    candidates_required: int = 0
+    candidates_completed: int = 0
+    candidate_at_stop: Optional[int] = None
 
     @property
     def plan_validity(self) -> str:

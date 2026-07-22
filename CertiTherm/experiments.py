@@ -905,6 +905,22 @@ _ANYTIME_RESULT_FIELDS = (
     "plan_validity",
     "cost_optimality",
 )
+# Separation diagnostics. These answer "why is the lower bound small?", which
+# the endpoint columns alone cannot: a small `certified_lower_bound` is
+# ambiguous between few expensive rounds, a saturating dual, and a candidate
+# schedule that never reached most of its subproblems. They are observational
+# only -- no status, bound, or gate condition reads them.
+_DIAGNOSTIC_RESULT_FIELDS = (
+    "exact_iterations",
+    "exact_candidates_required",
+    "exact_candidates_completed",
+    "exact_candidate_at_stop",
+    "exact_cuts_generated",
+    "exact_cuts_accepted",
+    "exact_cuts_dominated",
+    "exact_cuts_evicted",
+    "exact_cuts_active",
+)
 _POLICY_RESULT_FIELDS = (
     "fixed_status",
     "fixed_cost",
@@ -931,7 +947,12 @@ def _result_fieldnames(split: str) -> tuple[str, ...]:
     """Return the stable result-table contract for one method profile."""
 
     anytime = _ANYTIME_RESULT_FIELDS if split in _ANYTIME_SPLITS else ()
-    return _BASE_RESULT_FIELDS + anytime + _POLICY_RESULT_FIELDS
+    return (
+        _BASE_RESULT_FIELDS
+        + anytime
+        + _DIAGNOSTIC_RESULT_FIELDS
+        + _POLICY_RESULT_FIELDS
+    )
 
 
 def _measurement_costs() -> dict[str, float]:
@@ -1235,6 +1256,38 @@ def _anytime_plan_row(query_id: str, result: AnytimeResult) -> dict[str, object]
         "selected_action_ids": ";".join(result.upper_action_ids),
         "lower_bound": result.lower_bound if result.lower_bound is not None else "",
         "cost_optimality": result.cost_optimality,
+    }
+
+
+def _diagnostic_result_fields(
+    exact: Optional[QueryObservationPlan],
+) -> dict[str, object]:
+    """Serialize the exact method's separation diagnostics.
+
+    Sourced from the `exact` baseline rather than the Anytime controller's
+    internal proof search: `exact` runs the same constraint generation under its
+    own full budget, so it is the cleanest read on separation behaviour and it
+    exists in every profile that runs the exact method.
+
+    Blank rather than zero when the method produced no plan at all -- a zero
+    would assert "ran and did nothing", which is a different claim from "never
+    reported".
+    """
+
+    if exact is None:
+        return {field: "" for field in _DIAGNOSTIC_RESULT_FIELDS}
+    return {
+        "exact_iterations": exact.iterations,
+        "exact_candidates_required": exact.candidates_required,
+        "exact_candidates_completed": exact.candidates_completed,
+        "exact_candidate_at_stop": (
+            "" if exact.candidate_at_stop is None else exact.candidate_at_stop
+        ),
+        "exact_cuts_generated": exact.cuts_generated,
+        "exact_cuts_accepted": exact.cuts_accepted,
+        "exact_cuts_dominated": exact.cuts_dominated,
+        "exact_cuts_evicted": exact.cuts_evicted,
+        "exact_cuts_active": exact.cuts_active,
     }
 
 
@@ -1861,6 +1914,7 @@ def _archive_query_evidence(
         "optimality_gap": exact.optimality_gap if exact else "",
         # v1 does not silently acquire the later Anytime method.
         **(_anytime_result_fields(anytime) if anytime is not None else {}),
+        **_diagnostic_result_fields(exact),
         "fixed_status": fixed.status if fixed else "UNRESOLVED",
         "fixed_cost": fixed.cost if fixed else "",
         "width_status": width.status if width else "UNRESOLVED",
