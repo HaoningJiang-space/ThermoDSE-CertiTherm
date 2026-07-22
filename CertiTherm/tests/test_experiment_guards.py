@@ -131,6 +131,33 @@ def test_multi_binary_receipt_matches_each_binary_by_name(tmp_path) -> None:
     assert experiments._verified_binary_digest(solver, receipt) == solver_digest
 
 
+def test_gpu_backend_verifies_the_registered_exporter_and_solver(
+    tmp_path, monkeypatch
+) -> None:
+    build = tmp_path / "hotspot-gpu-export"
+    build.mkdir()
+    exporter = build / "hotspot"
+    solver = tmp_path / "hotspot-cuda" / "certitherm_hotspot_cuda"
+    solver.parent.mkdir()
+    exporter.write_bytes(b"exporter")
+    solver.write_bytes(b"solver")
+    (build / "GPU_SHA256SUMS").write_text(
+        f"{experiments._sha256(exporter)}  {exporter}\n"
+        f"{experiments._sha256(solver)}  {solver}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(experiments, "GPU_HOTSPOT_BUILD", build)
+    monkeypatch.setattr(experiments, "GPU_HOTSPOT_EXPORTER", exporter)
+    monkeypatch.setattr(experiments, "GPU_HOTSPOT_SOLVER", solver)
+    monkeypatch.setenv("CERTITHERM_GPU_HOTSPOT", "1")
+
+    backend = experiments._gpu_backend()
+
+    assert backend is not None
+    assert backend.exporter == exporter
+    assert backend.solver == solver
+
+
 def test_cache_receipt_binds_inputs_and_every_cached_file(tmp_path) -> None:
     artifact = tmp_path / "operator.npz"
     calibration = tmp_path / "operator.calibration.tsv"
