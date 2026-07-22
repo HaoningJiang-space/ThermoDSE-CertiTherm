@@ -12,8 +12,10 @@ SUPERLU_BLAS := $(SUPERLU_BUILD)/CBLAS/libblas.a
 CUDA_NVCC ?= /usr/local/cuda-12.8/bin/nvcc
 CUDA_ARCH ?= sm_80
 CERTITHERM_LP_WORKERS ?= 1
+V3_REHEARSAL_BUDGET ?= 150
+V3_REHEARSAL_OUTPUT ?= artifacts/v3-dev-rehearsal
 
-.PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity gpu-production-parity reproduce-dev reproduce-dev-gpu heldout package-dev package-heldout clean-generated
+.PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity gpu-production-parity reproduce-dev reproduce-dev-gpu v3-dev-rehearsal heldout package-dev package-heldout clean-generated
 
 bootstrap:
 	git submodule sync --recursive
@@ -100,6 +102,18 @@ reproduce-dev-gpu:
 	CERTITHERM_LP_WORKERS=$(CERTITHERM_LP_WORKERS) \
 	CERTITHERM_GPU_HOTSPOT=1 $(PYTHON) -m CertiTherm.experiments \
 		--split dev --output artifacts/dev-gpu
+
+# Non-claim rehearsal of the frozen-v3 method on the development registry.
+# Refusing an existing output directory makes every invocation attributable to
+# one complete launch instead of silently resuming an earlier failed attempt.
+v3-dev-rehearsal: gpu-bootstrap gpu-check
+	test ! -e $(V3_REHEARSAL_OUTPUT)
+	OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+	CERTITHERM_LP_WORKERS=1 CERTITHERM_QUERY_WORKERS=3 \
+	CERTITHERM_QUERY_BUDGET_S=$(V3_REHEARSAL_BUDGET) \
+	CERTITHERM_GPU_HOTSPOT=1 CERTITHERM_GPU_DEVICE=0 \
+	CUDA_VISIBLE_DEVICES=0 $(PYTHON) -m CertiTherm.experiments \
+		--split dev_v3 --output $(V3_REHEARSAL_OUTPUT)
 
 heldout:
 	$(PYTHON) -m CertiTherm.experiments --split heldout --output artifacts/heldout --frozen

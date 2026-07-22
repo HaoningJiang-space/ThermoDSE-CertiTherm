@@ -34,6 +34,40 @@ def test_v3_is_unexecutable_until_preconditions_close() -> None:
 
 def test_nonfrozen_dev_rehearsal_remains_available() -> None:
     experiments._validate_run_request("dev", False, budget_s=25.0)
+    experiments._validate_run_request("dev_v3", False, budget_s=25.0)
+
+
+def test_dev_v3_has_distinct_method_identity_and_reuses_only_dev_registry() -> None:
+    assert experiments._SPLIT_FREEZE_ID["dev_v3"] == "method-freeze-v3.0"
+    assert experiments._SPLIT_PROTOCOL_STATE["dev_v3"] == "DEVELOPMENT_REHEARSAL"
+    assert experiments._registry_split("dev_v3") == "dev"
+    assert "dev_v3" in experiments._ANYTIME_SPLITS
+
+
+def test_v3_result_schema_is_explicit_even_for_failure_only_runs(tmp_path) -> None:
+    result = {
+        "freeze_id": "method-freeze-v3.0",
+        "split": "dev_v3",
+        "registry_split": "dev",
+        "workload": "fixture",
+        "package": "default",
+        "objective": "EDYP_ASCENDING",
+        "candidate_order": "arch_a;arch_b;arch_c",
+        "exact_status": "UNRESOLVED",
+        "failure": "missing operators: arch_a,arch_b,arch_c",
+    }
+    path = tmp_path / "results.tsv"
+
+    experiments._write_tsv(
+        path,
+        [result],
+        fieldnames=experiments._result_fieldnames("dev_v3"),
+    )
+
+    header = path.read_text(encoding="utf-8").splitlines()[0].split("\t")
+    assert tuple(header) == experiments._result_fieldnames("dev_v3")
+    assert set(experiments._ANYTIME_RESULT_FIELDS) <= set(header)
+    assert "unexpected_failure" in header
 
 
 def test_registered_v1_frozen_request_is_admitted() -> None:
@@ -221,6 +255,7 @@ def test_producer_label_names_the_actual_split() -> None:
     assert "--split heldout_v3" in v3
     assert v3.endswith("--frozen")
     assert "/home/" not in v3 and "/data/" not in v3
+    assert "--split dev_v3" in experiments._canonical_producer("dev_v3", False)
 
 
 def test_v3_frozen_worker_count_is_part_of_the_protocol(monkeypatch) -> None:

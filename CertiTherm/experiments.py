@@ -850,18 +850,83 @@ def _power_space(
     )
 
 
-def _write_tsv(path: Path, rows: Iterable[dict[str, object]]) -> None:
+def _write_tsv(
+    path: Path,
+    rows: Iterable[dict[str, object]],
+    *,
+    fieldnames: Optional[Sequence[str]] = None,
+) -> None:
     rows = list(rows)
     if not rows:
         raise RuntimeError("refusing to write empty evidence table")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as stream:
-        fieldnames = list(
+        columns = list(fieldnames) if fieldnames is not None else list(
             dict.fromkeys(key for row in rows for key in row)
         )
-        writer = csv.DictWriter(stream, fieldnames=fieldnames, delimiter="\t")
+        writer = csv.DictWriter(stream, fieldnames=columns, delimiter="\t")
         writer.writeheader()
         writer.writerows(rows)
+
+
+_BASE_RESULT_FIELDS = (
+    "freeze_id",
+    "split",
+    "registry_split",
+    "workload",
+    "package",
+    "objective",
+    "candidate_order",
+    "exact_status",
+    "exact_cost",
+    "milp_lower_bound",
+    "lp_relaxation_bound",
+    "optimality_gap",
+)
+_ANYTIME_RESULT_FIELDS = (
+    "certified_upper_bound",
+    "certified_lower_bound",
+    "absolute_gap",
+    "relative_gap",
+    "approximation_ratio",
+    "interval_violation",
+    "anytime_upper_source",
+    "anytime_upper_seconds",
+    "anytime_lower_seconds",
+    "anytime_error",
+    "query_budget_s",
+    "budget_is_frozen",
+    "bound_provenance",
+    "plan_validity",
+    "cost_optimality",
+)
+_POLICY_RESULT_FIELDS = (
+    "fixed_status",
+    "fixed_cost",
+    "width_status",
+    "width_cost",
+    "dual_status",
+    "dual_cost",
+    "exact_seconds",
+    "fixed_seconds",
+    "width_seconds",
+    "dual_seconds",
+    "full_registry_cost",
+    "witnesses",
+    "placed_robust_outcome",
+    "placed_model_outcomes",
+    "placed_model_disagreement",
+    "false_certificate",
+    "failure",
+    "unexpected_failure",
+)
+
+
+def _result_fieldnames(split: str) -> tuple[str, ...]:
+    """Return the stable result-table contract for one method profile."""
+
+    anytime = _ANYTIME_RESULT_FIELDS if split in _ANYTIME_SPLITS else ()
+    return _BASE_RESULT_FIELDS + anytime + _POLICY_RESULT_FIELDS
 
 
 def _measurement_costs() -> dict[str, float]:
@@ -1652,6 +1717,7 @@ def _archive_query_evidence(
     result = {
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "split": split,
+        "registry_split": _registry_split(split),
         "workload": query.workload_id,
         "package": query.package_id,
         "objective": "EDYP_ASCENDING",
@@ -1954,13 +2020,16 @@ def _write_report(
 # registered in experiments/architectures.tsv and disjoint from both dev and
 # v1. They are listed together so a future split cannot be added to the CLI
 # without also being recognised as frozen here.
+_DEVELOPMENT_SPLITS = ("dev", "dev_v3")
 _HELDOUT_SPLITS = ("heldout", "heldout_v2", "heldout_v3")
 _BURNED_SPLITS = frozenset({"heldout_v2"})
 _FROZEN_ONLY_SPLITS = frozenset({"heldout_v3"})
 _FROZEN_ENABLED_SPLITS = frozenset({"heldout"})
-_ANYTIME_SPLITS = frozenset({"dev", "heldout_v2", "heldout_v3"})
+_ANYTIME_SPLITS = frozenset({"dev", "dev_v3", "heldout_v2", "heldout_v3"})
+_REGISTRY_SPLITS = {"dev_v3": "dev"}
 _SPLIT_PROTOCOL_STATE = {
     "dev": "DEVELOPMENT_REHEARSAL",
+    "dev_v3": "DEVELOPMENT_REHEARSAL",
     "heldout": "LEGACY_V1",
     "heldout_v2": "OPENED_INVALID",
     "heldout_v3": "PRECHECK_PASS_DEV_REHEARSAL_PENDING",
@@ -1973,10 +2042,17 @@ _SPLIT_PROTOCOL_STATE = {
 # preregistered endpoints it was produced under.
 _SPLIT_FREEZE_ID = {
     "dev": "method-freeze-v1",
+    "dev_v3": "method-freeze-v3.0",
     "heldout": "method-freeze-v1",
     "heldout_v2": "method-freeze-v2.1",
     "heldout_v3": "method-freeze-v3.0",
 }
+
+
+def _registry_split(split: str) -> str:
+    """Map a method profile to the physical registry rows it evaluates."""
+
+    return _REGISTRY_SPLITS.get(split, split)
 
 
 def _query_worker_count(split: str) -> int:
@@ -2107,6 +2183,7 @@ def _run_receipt(
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "protocol_state": _SPLIT_PROTOCOL_STATE[split],
         "split": split,
+        "registry_split": _registry_split(split),
         "frozen": int(frozen),
         "query_budget_s": QUERY_METHOD_TIMEOUT_S,
         "budget_is_frozen": int(_BUDGET_IS_FROZEN),
@@ -2146,18 +2223,21 @@ def run(split: str, output: Path, frozen: bool) -> None:
         HOTSPOT.parent / "SHA256SUMS",
     )
     output.mkdir(parents=True, exist_ok=True)
+    registry_split = _registry_split(split)
     architectures = sorted(
         (
             row
             for row in _rows(ROOT / "experiments" / "architectures.tsv")
-            if row["split"] == split
+            if row["split"] == registry_split
         ),
         key=lambda row: int(row["rank"]),
     )
     packages = _rows(ROOT / "experiments" / "packages.tsv")
     measurement_costs = _measurement_costs()
     workloads = [
-        row for row in _rows(ROOT / "experiments" / "workloads.tsv") if row["split"] == split
+        row
+        for row in _rows(ROOT / "experiments" / "workloads.tsv")
+        if row["split"] == registry_split
     ]
     default_package = next(row for row in packages if row["package_id"] == "default")
     captures = {
@@ -2245,6 +2325,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     {
                         "freeze_id": _SPLIT_FREEZE_ID[split],
                         "split": split,
+                        "registry_split": registry_split,
                         "workload": workload["workload_id"],
                         "package": package["package_id"],
                         "objective": "EDYP_ASCENDING",
@@ -2371,7 +2452,11 @@ def run(split: str, output: Path, frozen: bool) -> None:
         key=lambda row: query_order[(str(row["workload"]), str(row["package"]))]
     )
 
-    _write_tsv(output / "results.tsv", results)
+    _write_tsv(
+        output / "results.tsv",
+        results,
+        fieldnames=_result_fieldnames(split),
+    )
     _write_tsv(output / "candidate_order.tsv", order_rows)
     if registry_rows:
         _write_tsv(output / "measurement_registry.tsv", registry_rows)
@@ -2447,7 +2532,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--split", choices=("dev",) + _HELDOUT_SPLITS, required=True
+        "--split", choices=_DEVELOPMENT_SPLITS + _HELDOUT_SPLITS, required=True
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--frozen", action="store_true")
