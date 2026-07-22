@@ -188,3 +188,68 @@ separation LP uses a zero objective (`synthesis.py:598`) is a fact; that this
 LP returns an implementation-dependent basic solution, and basic solutions lie
 on many constraint boundaries rather than deep in the interior. The 10–41%
 domination rate is evidence of redundancy, which has several possible causes.
+
+## D2 — 150 s acceptance run after the scheduler fixes
+
+Producer commit range `4635fe2..4d1e0f7` on `round/v3-separation-diagnostics`,
+dev registry, 150 s budget, non-claim. Purpose: verify the three defects found
+while auditing `certitherm-v31-rehearsal-150-05d11ae` are closed.
+
+| criterion | before | after |
+|---|---:|---:|
+| `unexpected_failure` rows | 2 of 6 | **0 of 6** |
+| fabricated `*_seconds = 0.0` | 2 | **0** |
+| `exact_lower_bound_provenance` | absent | `weak_duality` (6/6) |
+| `result_schema_version` | absent | `2` |
+
+The two rows that previously reported `width_seconds = 0.0` now report ~150 s,
+which is what they actually consumed.
+
+**The diagnostics are byte-identical to D1** — iterations 4, active cuts
+1599/1412/1385/1272/966/940, bounds 2.0/1.5/1.0/2.0/1.0/1.0. The fixes changed
+what is *reported*, not what is *computed*, which is the intended blast radius
+for a containment-and-honesty round.
+
+`exact_lower_bound_provenance = weak_duality` on every row is the direct
+confirmation of the naming defect: the column called `milp_lower_bound` never
+once held a MILP bound.
+
+### Defects closed
+
+1. **A budget `TimeoutError` could escape containment.** The interval timer
+   stayed armed until the `finally`, and the `finally` itself is not inside the
+   `try` — so an alarm delivered there propagated past the `except` that had
+   already been passed. Callers label an escaping exception a worker-protocol
+   failure, `_unexpected_method_failures` counts that as UNEXPECTED, and
+   `AnytimeGateSummary.passes` hard-fails on a single unexpected failure. **An
+   ordinary timeout could therefore fail an entire gate run.**
+
+   Reproduced deterministically by slowing the disarm, which is what a
+   descheduled process looks like to a pending signal — and which explains the
+   2-of-6 rate that seemed implausible for a microsecond window: the v3.1
+   scheduler oversubscribes ~45 processes onto 52 cores.
+
+2. **A nested `_call_under_budget` silently cancelled the outer budget**, since
+   the inner `finally` disarmed unconditionally. Measured: a 0.3 s outer budget
+   ran **3.01 s and reported success**. Found while probing defect 1, not
+   suspected beforehand. A method could have overrun 1800 s without limit.
+
+3. **An unmeasured time was reported as `0.0`.** Elapsed time is now taken in
+   the worker, so even a containment failure reports real child-side time;
+   parent-side timing would be wrong because futures are consumed in schedule
+   order and would include queueing. A worker that dies without reporting now
+   yields a blank, not a zero.
+
+The strict failure classification was deliberately **not** relaxed. Treating a
+worker-surfaced `TimeoutError` as expected would have masked defect 1 rather
+than fixing it; a method timeout and a containment failure stay distinguishable.
+
+### Review status
+
+External peer review was **unavailable** for the fixes from `3f42332` onward —
+the Codex reviewer hit its usage limit mid-round (resets 2026-07-29) and no
+second reviewer is configured. The earlier analysis in D1 *was* reviewed, and
+that review is what produced the withdrawals recorded above. The fixes were
+self-reviewed against an explicit risk list, which is how the residual
+`except`-body escape window was found, but that is not equivalent and these
+commits should be re-reviewed when the reviewer is available.
