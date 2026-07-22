@@ -121,5 +121,6 @@ def test_worker_failure_is_archived_without_dropping_the_query(
     )
     assert evidence.result["plan_validity"] == "UNRESOLVED"
     assert "query_worker=" in evidence.result["failure"]
+    assert "query_worker=" in evidence.result["unexpected_failure"]
     assert len(evidence.failures) == 1
     assert evidence.failures[0]["stage"] == "query_worker"

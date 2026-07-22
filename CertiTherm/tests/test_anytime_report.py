@@ -17,6 +17,7 @@ def _row(index: int) -> dict[str, object]:
         "full_registry_cost": 100.0,
         "interval_violation": "",
         "false_certificate": 0,
+        "unexpected_failure": "",
         "cost_optimality": "BOUNDED_GAP" if finite else "UNKNOWN",
         "budget_is_frozen": 1,
     }
@@ -52,4 +53,12 @@ def test_rehearsal_budget_cannot_pass_the_frozen_gate() -> None:
     rows[0]["budget_is_frozen"] = 0
     summary = _summarize_anytime_gate(rows)
     assert summary.frozen_budget_rows == 11
+    assert not summary.passes
+
+
+def test_query_worker_or_programming_failure_is_a_hard_gate_failure() -> None:
+    rows = [_row(index) for index in range(12)]
+    rows[0]["unexpected_failure"] = "query_worker=NameError: missing symbol"
+    summary = _summarize_anytime_gate(rows)
+    assert summary.unexpected_failures == 1
     assert not summary.passes

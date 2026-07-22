@@ -10,6 +10,11 @@ import pytest
 from CertiTherm import experiments
 
 
+def _set_frozen_v3_environment(monkeypatch) -> None:
+    for name, value in experiments.FROZEN_V3_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+
+
 def test_frozen_run_rejects_budget_override() -> None:
     with pytest.raises(ValueError, match="exactly 1800s"):
         experiments._validate_run_request("heldout", True, budget_s=700.0)
@@ -193,6 +198,23 @@ def test_cache_receipt_binds_inputs_and_every_cached_file(tmp_path) -> None:
     )
 
 
+def test_operator_failure_taxonomy_keeps_programming_errors_loud() -> None:
+    assert experiments._is_archivable_operator_failure(RuntimeError("model"))
+    assert experiments._is_archivable_operator_failure(TimeoutError("budget"))
+    assert not experiments._is_archivable_operator_failure(NameError("symbol"))
+    assert not experiments._is_archivable_operator_failure(TypeError("shape"))
+
+
+def test_only_wall_clock_timeout_is_an_expected_method_failure() -> None:
+    failures = experiments._unexpected_method_failures(
+        {
+            "exact": "TimeoutError: 1800s budget exhausted",
+            "dual": "NameError: missing symbol",
+        }
+    )
+    assert failures == {"dual": "NameError: missing symbol"}
+
+
 def test_producer_label_names_the_actual_split() -> None:
     assert "--split dev" in experiments._canonical_producer("dev", False)
     v3 = experiments._canonical_producer("heldout_v3", True)
@@ -214,8 +236,7 @@ def test_v3_frozen_worker_count_is_part_of_the_protocol(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(experiments, "QUERY_WORKERS", 3)
-    for name in experiments.FROZEN_NUMERIC_THREAD_VARIABLES:
-        monkeypatch.setenv(name, "1")
+    _set_frozen_v3_environment(monkeypatch)
     experiments._validate_run_request("heldout_v3", True, budget_s=1800.0)
 
 
@@ -226,11 +247,37 @@ def test_v3_rejects_unpinned_numeric_threads(monkeypatch) -> None:
         frozenset({"heldout", "heldout_v3"}),
     )
     monkeypatch.setattr(experiments, "QUERY_WORKERS", 3)
-    for name in experiments.FROZEN_NUMERIC_THREAD_VARIABLES:
-        monkeypatch.setenv(name, "1")
+    _set_frozen_v3_environment(monkeypatch)
     monkeypatch.setenv("OPENBLAS_NUM_THREADS", "8")
 
-    with pytest.raises(ValueError, match="one numeric-library thread"):
+    with pytest.raises(ValueError, match="frozen execution environment"):
+        experiments._validate_run_request(
+            "heldout_v3", True, budget_s=1800.0
+        )
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (
+        ("CERTITHERM_LP_WORKERS", "2"),
+        ("CERTITHERM_GPU_HOTSPOT", "0"),
+        ("CERTITHERM_GPU_DEVICE", "1"),
+        ("CUDA_VISIBLE_DEVICES", "1"),
+    ),
+)
+def test_v3_rejects_unfrozen_solver_or_gpu_environment(
+    monkeypatch, name, value
+) -> None:
+    monkeypatch.setattr(
+        experiments,
+        "_FROZEN_ENABLED_SPLITS",
+        frozenset({"heldout", "heldout_v3"}),
+    )
+    monkeypatch.setattr(experiments, "QUERY_WORKERS", 3)
+    _set_frozen_v3_environment(monkeypatch)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match="frozen execution environment"):
         experiments._validate_run_request(
             "heldout_v3", True, budget_s=1800.0
         )
@@ -239,6 +286,8 @@ def test_v3_rejects_unpinned_numeric_threads(monkeypatch) -> None:
 def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
     monkeypatch.setattr(experiments, "_sha256", lambda _path: "a" * 64)
     monkeypatch.setattr(experiments, "_git_revision", lambda _path: "b" * 40)
+    monkeypatch.setenv("CERTITHERM_LP_WORKERS", "1")
+    monkeypatch.delenv("CERTITHERM_GPU_HOTSPOT", raising=False)
     receipt = experiments._run_receipt(
         "dev",
         False,
@@ -248,5 +297,29 @@ def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
 
     assert receipt["query_workers"] == experiments.QUERY_WORKERS
     assert receipt["query_parallelism"] == "persistent-spawn-pool"
+    assert receipt["lp_separation_workers"] == "1"
     for name in experiments.FROZEN_NUMERIC_THREAD_VARIABLES:
         assert receipt[name.lower()] == experiments.os.environ.get(name, "")
+
+
+def test_gpu_run_receipt_records_the_visible_device_mapping(monkeypatch) -> None:
+    monkeypatch.setattr(experiments, "_sha256", lambda _path: "a" * 64)
+    monkeypatch.setattr(experiments, "_git_revision", lambda _path: "b" * 40)
+    monkeypatch.setattr(
+        experiments,
+        "_verified_binary_digest",
+        lambda _binary, _receipt: "c" * 64,
+    )
+    monkeypatch.setenv("CERTITHERM_GPU_HOTSPOT", "1")
+    monkeypatch.setenv("CERTITHERM_GPU_DEVICE", "0")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+
+    receipt = experiments._run_receipt(
+        "dev",
+        False,
+        datetime(2026, 7, 22, tzinfo=timezone.utc),
+        "d" * 64,
+    )
+
+    assert receipt["gpu_device"] == "0"
+    assert receipt["cuda_visible_devices"] == "0"

@@ -100,12 +100,35 @@ FROZEN_NUMERIC_THREAD_VARIABLES = (
     "OPENBLAS_NUM_THREADS",
     "MKL_NUM_THREADS",
 )
+FROZEN_V3_ENVIRONMENT = {
+    **{name: "1" for name in FROZEN_NUMERIC_THREAD_VARIABLES},
+    "CERTITHERM_LP_WORKERS": "1",
+    "CERTITHERM_GPU_HOTSPOT": "1",
+    "CERTITHERM_GPU_DEVICE": "0",
+    "CUDA_VISIBLE_DEVICES": "0",
+}
 _T = TypeVar("_T")
 CACHE_RECEIPT_SCHEMA = "certitherm-cache-v1"
 
 
 class NonthermalCandidateInvalid(RuntimeError):
     """A candidate completed evaluation but produced inadmissible metrics."""
+
+
+def _is_archivable_operator_failure(error: BaseException) -> bool:
+    """Separate physical/infrastructure failures from programming defects.
+
+    A model disagreement, process failure, missing file, or timeout remains a
+    row in the evidence bundle. Errors such as ``NameError``, ``TypeError``,
+    ``KeyError``, and invalid-array ``ValueError`` stay loud: treating those as
+    a scientific ``UNRESOLVED`` result could let broken code satisfy a partial
+    coverage gate.
+    """
+
+    return isinstance(
+        error,
+        (OSError, RuntimeError, subprocess.SubprocessError),
+    )
 
 
 def _gpu_backend() -> Optional[GpuHotSpotBackend]:
@@ -1296,6 +1319,18 @@ def _failed_query_methods(
     )
 
 
+def _unexpected_method_failures(
+    errors: Mapping[str, str],
+) -> dict[str, str]:
+    """Return failures that cannot be explained by the frozen time budget."""
+
+    return {
+        method: error
+        for method, error in errors.items()
+        if error.partition(":")[0] != "TimeoutError"
+    }
+
+
 def _evaluate_query_batch(
     queries: Sequence[PreparedQuery],
     *,
@@ -1615,6 +1650,7 @@ def _archive_query_evidence(
         plan_rows.append(_anytime_plan_row(query.query_id, anytime))
 
     placed = _placed_evidence(query.candidates, query.placed_by_candidate)
+    unexpected_failures = _unexpected_method_failures(method_errors)
     result = {
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "split": split,
@@ -1658,6 +1694,10 @@ def _archive_query_evidence(
         "failure": "; ".join(
             f"{method}={error}" for method, error in method_errors.items()
         ),
+        "unexpected_failure": "; ".join(
+            f"{method}={error}"
+            for method, error in unexpected_failures.items()
+        ),
     }
     return QueryEvidence(
         result=result,
@@ -1677,6 +1717,7 @@ class AnytimeGateSummary:
     certified_contracts: int
     finite_intervals: int
     false_certificates: int
+    unexpected_failures: int
     median_upper_saving: Optional[float]
     self_verifiable: int
     solver_attested: int
@@ -1688,6 +1729,7 @@ class AnytimeGateSummary:
             self.queries == 12
             and self.frozen_budget_rows == self.queries
             and self.false_certificates == 0
+            and self.unexpected_failures == 0
             and self.certified_contracts >= 10
             and self.median_upper_saving is not None
             and self.median_upper_saving >= 0.15
@@ -1738,6 +1780,9 @@ def _summarize_anytime_gate(
         certified_contracts=len(certified),
         finite_intervals=finite_intervals,
         false_certificates=false_certificates,
+        unexpected_failures=sum(
+            bool(row.get("unexpected_failure")) for row in rows
+        ),
         median_upper_saving=(float(np.median(savings)) if savings else None),
         self_verifiable=optimality.count("PROVEN_SELF_VERIFIABLE"),
         solver_attested=optimality.count("PROVEN_SOLVER_ATTESTED"),
@@ -1846,6 +1891,10 @@ def _write_report(
             f"{anytime_gate.finite_intervals}/{anytime_gate.queries}"
         ),
         f"- False/contradictory certificates: {anytime_gate.false_certificates}",
+        (
+            "- Unexpected method/infrastructure failures: "
+            f"{anytime_gate.unexpected_failures}"
+        ),
         (
             f"- Median certified-U saving vs full registry: "
             f"{anytime_gate.median_upper_saving:.1%}"
@@ -1974,15 +2023,15 @@ def _validate_run_request(
             f"got {QUERY_WORKERS}"
         )
     if split == "heldout_v3":
-        invalid_threads = {
+        invalid_environment = {
             name: os.environ.get(name, "<unset>")
-            for name in FROZEN_NUMERIC_THREAD_VARIABLES
-            if os.environ.get(name) != "1"
+            for name, expected in FROZEN_V3_ENVIRONMENT.items()
+            if os.environ.get(name) != expected
         }
-        if invalid_threads:
+        if invalid_environment:
             raise ValueError(
-                "heldout_v3 requires one numeric-library thread per query worker; "
-                f"got {invalid_threads}"
+                "heldout_v3 requires its frozen execution environment; "
+                f"got {invalid_environment}"
             )
 
 
@@ -2053,6 +2102,8 @@ def _run_receipt(
                 GPU_HOTSPOT_SOLVER,
                 gpu_receipt,
             ),
+            "gpu_device": os.environ.get("CERTITHERM_GPU_DEVICE", "0"),
+            "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
         }
     return {
         "freeze_id": _SPLIT_FREEZE_ID[split],
@@ -2065,6 +2116,7 @@ def _run_receipt(
         "query_parallelism": (
             "serial" if query_workers == 1 else "persistent-spawn-pool"
         ),
+        "lp_separation_workers": os.environ.get("CERTITHERM_LP_WORKERS", "1"),
         **numeric_threads,
         "git_sha": _git_revision(ROOT),
         **submodules,
@@ -2142,6 +2194,8 @@ def run(split: str, output: Path, frozen: bool) -> None:
                 output,
             ), None
         except Exception as exc:  # archive physical/timeout failures unchanged
+            if not _is_archivable_operator_failure(exc):
+                raise
             return key, None, exc
 
     with ThreadPoolExecutor(max_workers=OPERATOR_WORKERS) as pool:

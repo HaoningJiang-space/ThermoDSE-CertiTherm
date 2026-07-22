@@ -45,6 +45,12 @@ wall-clock throughput, not the per-query feasible set, objective, budget, or
 proof rule. `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, and `MKL_NUM_THREADS`
 are each frozen to one before Python starts, preventing hidden nested
 parallelism; their values are also stored in the run receipt.
+`CERTITHERM_LP_WORKERS=1` keeps every query-internal separation loop serial.
+The physical proposal backend is fixed to the freshly checksummed FP64 CUDA
+HotSpot build with `CERTITHERM_GPU_HOTSPOT=1`, logical device zero, and
+`CUDA_VISIBLE_DEVICES=0`; CPU HotSpot remains the independent calibration and
+witness-replay backend. Every execution control is validated before a frozen
+run and recorded in `RUN_RECEIPT.tsv`.
 If a query worker or the pool fails, its registry slot is retained as an
 explicit `UNRESOLVED` row with a `query_worker` failure record. Process
 parallelism therefore cannot silently shorten the evidence table.
@@ -60,7 +66,9 @@ baselines. Their values cannot be substituted into the Anytime interval.
 ## Frozen endpoints and pass conditions
 
 Hard failure: exactly zero internally contradictory or exact-oracle-invalid
-certificates.
+certificates, and zero unexpected method, programming, query-worker, or pool
+failures. A wall-clock `TimeoutError` is the sole expected method exception;
+it remains an honest unresolved/bounded result rather than a hard failure.
 
 The gate passes only if all 12 query rows use the frozen budget and:
 
