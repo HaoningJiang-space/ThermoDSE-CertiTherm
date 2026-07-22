@@ -5,6 +5,7 @@ HOTSPOT_BIN := $(HOTSPOT_BUILD)/hotspot
 GPU_HOTSPOT_BUILD := .build/hotspot-gpu-export
 GPU_HOTSPOT_BIN := $(GPU_HOTSPOT_BUILD)/hotspot
 GPU_SOLVER := .build/hotspot-cuda/certitherm_hotspot_cuda
+COLLISION_GPU_SOLVER := .build/collision-cuda/certitherm_collision_cuda
 SUPERLU_SOURCE_BUILD := .build/superlu-source
 SUPERLU_BUILD := .build/superlu
 SUPERLU_LIB := $(SUPERLU_BUILD)/SRC/libsuperlu.a
@@ -15,7 +16,7 @@ CERTITHERM_LP_WORKERS ?= 1
 V3_REHEARSAL_BUDGET ?= 1800
 V3_REHEARSAL_OUTPUT ?= artifacts/v3-dev-rehearsal
 
-.PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity gpu-production-parity reproduce-dev reproduce-dev-gpu v3-dev-rehearsal heldout package-dev package-heldout clean-generated
+.PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity gpu-production-parity gpu-collision-parity reproduce-dev reproduce-dev-gpu v3-dev-rehearsal heldout package-dev package-heldout clean-generated
 
 bootstrap:
 	git submodule sync --recursive
@@ -57,7 +58,8 @@ gpu-bootstrap: bootstrap
 		GRIDSRC='temperature_grid.c certitherm_gpu_export.c' \
 		GRIDOBJ='temperature_grid.o certitherm_gpu_export.o' hotspot
 	$(MAKE) -C gpu/hotspot_cuda NVCC=$(CUDA_NVCC) CUDA_ARCH=$(CUDA_ARCH)
-	sha256sum $(GPU_HOTSPOT_BIN) $(GPU_SOLVER) \
+	$(MAKE) -C gpu/collision_cuda NVCC=$(CUDA_NVCC) CUDA_ARCH=$(CUDA_ARCH)
+	sha256sum $(GPU_HOTSPOT_BIN) $(GPU_SOLVER) $(COLLISION_GPU_SOLVER) \
 		> $(GPU_HOTSPOT_BUILD)/GPU_SHA256SUMS
 
 test:
@@ -89,7 +91,12 @@ gpu-production-parity:
 		--solver $(GPU_SOLVER) --case thermodse-227 \
 		--output artifacts/gpu-hotspot-production
 
-gpu-check: test hotspot-smoke gpu-parity
+gpu-collision-parity:
+	$(PYTHON) -m CertiTherm.gpu_collision_benchmark \
+		--solver $(COLLISION_GPU_SOLVER) \
+		--output artifacts/gpu-collision-dev.tsv
+
+gpu-check: test hotspot-smoke gpu-parity gpu-collision-parity
 	git diff --check
 	git submodule status --recursive | awk '$$1 ~ /^[-+U]/ { bad=1 } END { exit bad }'
 	git submodule foreach --recursive 'test -z "$$(git status --porcelain)"'
