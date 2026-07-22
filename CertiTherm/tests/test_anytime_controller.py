@@ -188,10 +188,47 @@ def test_query_bundle_serializes_only_its_anytime_evidence(monkeypatch) -> None:
     )
     monkeypatch.setattr(experiments, "anytime_dsos", lambda *_args: anytime)
 
-    methods = _evaluate_query_methods(cands, acts, tuple(range(len(acts))))
+    methods = _evaluate_query_methods(
+        cands,
+        acts,
+        tuple(range(len(acts))),
+        include_anytime=True,
+    )
     fields = _anytime_result_fields(methods.anytime)
     assert methods.anytime is anytime
     assert fields["certified_upper_bound"] == 2.0
     assert fields["certified_lower_bound"] == 1.0
     assert fields["bound_provenance"] == "weak_duality"
     assert 999.0 not in fields.values()
+
+
+def test_legacy_protocol_does_not_run_anytime(monkeypatch) -> None:
+    from CertiTherm import experiments
+    from CertiTherm.experiments import TimedResult, _evaluate_query_methods
+
+    cands, acts = _instance()
+    baseline_values = iter(
+        (
+            SimpleNamespace(status="UNRESOLVED"),
+            PolicyResult("CERTIFIED", (), 0.0, 1),
+            PolicyResult("CERTIFIED", (), 0.0, 1),
+            PolicyResult("CERTIFIED", (), 0.0, 1),
+        )
+    )
+    monkeypatch.setattr(
+        experiments,
+        "_timed_call",
+        lambda _function: TimedResult(next(baseline_values), 1.0, ""),
+    )
+
+    def forbidden_anytime(*_args):
+        raise AssertionError("legacy method-freeze-v1 invoked Anytime-DSOS")
+
+    monkeypatch.setattr(experiments, "anytime_dsos", forbidden_anytime)
+    methods = _evaluate_query_methods(
+        cands,
+        acts,
+        tuple(range(len(acts))),
+        include_anytime=False,
+    )
+    assert methods.anytime is None
