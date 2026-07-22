@@ -90,3 +90,63 @@ into is *why* the bound is tiny, for which three explanations are live:
 These are not currently distinguishable from the emitted evidence:
 `QueryObservationPlan.iterations` is computed (`synthesis.py:1256`) and then
 dropped — it is not among the 45 result columns.
+
+**R2 was terminated before it produced any `results.tsv`** and is therefore not
+evidence; see `TERMINATED.md` in its run directory. The prediction above stands
+untested. It was superseded by the diagnostic run below, which answers the same
+question far more cheaply.
+
+## D1 — 150 s diagnostic run: the lower bound is LP-saturated
+
+Producer commit `8eec010` (`round/v3-separation-diagnostics`), dev registry,
+150 s budget, non-claim. Purpose: populate the separation diagnostics added in
+`4635fe2` and distinguish hypotheses (a)/(b)/(c).
+
+| workload/package | iters | candidates done | cuts generated | accepted | active | bound |
+|---|---:|---:|---:|---:|---:|---:|
+| resnet50/default | 4 | 0 of 3 | 1917 | 1719 | 1599 | 2.0 |
+| resnet50/standard | 4 | 0 of 3 | 1902 | 1574 | 1412 | 1.5 |
+| resnet50/enhanced | 4 | 0 of 3 | 1902 | 1599 | 1385 | 1.0 |
+| transformer/default | 4 | 0 of 3 | 2031 | 1446 | 1272 | 2.0 |
+| transformer/standard | 4 | 0 of 3 | 2025 | 1201 | 966 | 1.0 |
+| transformer/enhanced | 4 | 0 of 3 | 2028 | 1215 | 940 | 1.0 |
+
+**Finding: roughly 1,400 active cuts yield a lower bound of 2.0.**
+
+This settles the question the round was opened to answer:
+
+- **Hypothesis (a), too few rounds — refuted.** Cut generation is productive:
+  ~500 cuts per iteration, ~1,900 generated in 150 s. Scarcity is not the issue.
+- **Hypothesis (c), candidate starvation — real but not the cause.**
+  `candidates_completed = 0 of 3` in every row, always stopping at candidate 0.
+  A round-robin schedule would spread the budget, but candidate 0 alone cannot
+  finish, so it would not rescue the bound.
+- **Hypothesis (b), bound saturation — confirmed, and it dominates.**
+
+`lp_relaxation_bound == milp_lower_bound == 2.0`: both come from
+`_anytime_lower_bound`, the LP weak-duality path, because `_solve_master` is
+reached only on the collision-free branch, which never occurs here. Against a
+candidate-local integer optimum on the order of 1,400 (the per-candidate share
+of a ~4,174 certified contract), this is an integrality gap of roughly **700×**.
+
+**Consequence for the method.** Theorem 4's anytime interval rests on LP weak
+duality. On this instance family that bound is not merely slow to grow — it is
+converging to something ~700× below the target. No budget, no faster LP, and no
+GPU changes that. Earlier performance work (the 32× pool-churn fix, the GPU
+separation gate, the 15-worker scheduler) all accelerated cut *production*,
+which the table above shows was never the constraint.
+
+**The untested lever.** The restricted-master **MILP** over the accumulated cuts
+is a valid lower bound on the *integer* optimum — relaxing the cut set can only
+lower it — and it is never computed, because `_solve_master` sits behind the
+collision-free branch. With ~1,600 cuts already in hand it could be far stronger
+than 2.0. Cheap decisive test: persist one candidate's cut matrix, solve LP and
+MILP over the same cuts, and compare. This is a bound-quality question, not a
+throughput question, and it should be answered before any further gate run.
+
+**Inference boundary.** "The LP relaxation is weak because a few cheap,
+high-coverage actions fractionally cover every cut" is the natural explanation
+and is consistent with the registered cost ladder (1/2/4/8), but it is an
+inference. The measured facts are only the counters and bounds tabulated above.
+Confirming it requires the per-action cut-incidence distribution, which this run
+does not persist.
