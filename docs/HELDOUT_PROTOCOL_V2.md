@@ -126,13 +126,25 @@ Verified disjoint from dev (7x3/1x1, 4x5/2x1, 4x4/2x2) and from v1 held-out
 vector. They deliberately span cut orientations absent from both earlier sets:
 a 3x1 horizontal cut, a 1x4 vertical cut, and a wide 9x2 grid.
 
-**NOT verified, and a precondition for any v2 run:** that ThermoDSE actually
-produces a feasible design for each of these vectors, and that their EDYP
-ordering is non-degenerate. That requires running ThermoDSE and cannot be
-established by registration alone. If a vector turns out infeasible it must be
-replaced BEFORE any DSOS result is computed on this split, and the replacement
-recorded here — swapping it after seeing a v2 result would be exactly the
-post-hoc tuning this document exists to prevent.
+**Precondition 1 checked 2026-07-22 — PASSED.** All three vectors are
+realizable in ThermoDSE and their EDYP ordering is non-degenerate, on
+resnet50 / package `default`:
+
+| id | latency (ms) | energy (mJ) | yield | EDYP |
+|---|---:|---:|---:|---:|
+| arch_h | 0.4500 | 8.267 | 0.9571 | 3.887 |
+| arch_g | 0.4563 | 9.402 | 0.9143 | 4.692 |
+| arch_i | 0.7084 | 9.850 | 0.9661 | 7.223 |
+
+Relative separations 20.7% and 53.9%, both far above the 1% degeneracy
+threshold, so no vector needs replacing. Recorded here so the check cannot be
+silently re-run later with a different outcome.
+
+Scope of what this check may influence: the ONLY sanctioned decision it feeds
+is binary — replace a vector if infeasible or degenerate. Nothing else about
+these numbers may be used to select or tune a v2 endpoint. The split remains
+UNOPENED: no DSOS query has been run against it, and no thermal feasibility or
+observation-synthesis result exists for these architectures.
 
 ## Artifact contract
 
@@ -158,8 +170,8 @@ result meaningful.
 
 Remaining preconditions before a v2 run:
 
-1. Confirm ThermoDSE produces a feasible design for arch_g, arch_h and arch_i
-   and that their EDYP ordering is non-degenerate.
+1. ~~Confirm ThermoDSE feasibility and non-degenerate EDYP ordering~~ — DONE
+   2026-07-22, passed; see Separation.
 2. Build the physical HotSpot operators for the v2 architecture x package grid,
    with the direct-replay error contract enforced as in v1.
 3. Execute with the timeout-preservation fix present, so a budget-exhausted
