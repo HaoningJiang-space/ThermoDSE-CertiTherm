@@ -896,6 +896,10 @@ def _solve_master(
     # bound is not being relied on. Otherwise the gap is closed only by the
     # solver's asserted dual bound, and the result says so.
     provenance = "solver_branch_and_bound"
+    exact_selected_cost = sum(
+        (_Fraction(float(costs[index])) for index in selected),
+        _Fraction(0),
+    )
     # LATTICE ROUNDING. Every contract cost is a multiple of the cost lattice g,
     # so a valid fractional bound L implies C* >= ceil(L/g)*g. On the triangle
     # instance (LP 1.5, integer costs) this lifts 1.5 to 2 and proves a cost-2
@@ -906,10 +910,15 @@ def _solve_master(
     lattice = _cost_lattice(costs)
     if exact_dual is not None and lattice is not None and exact_dual > 0:
         lifted = _Fraction(math.ceil(exact_dual / lattice)) * lattice
-        if float(lifted) >= exact_cost - slack:
-            lower_bound = float(lifted)
+        lifted_float = _fraction_lower_float(lifted)
+        if lifted_float is not None and lifted == exact_selected_cost:
+            lower_bound = lifted_float
             provenance = "weak_duality"
-    if provenance != "weak_duality" and certified is not None and exact_cost <= certified + slack:
+    if (
+        provenance != "weak_duality"
+        and certified is not None
+        and _Fraction(float(certified)) == exact_selected_cost
+    ):
         lower_bound = certified
         provenance = "weak_duality"
     return _Master(
@@ -950,6 +959,20 @@ def _cost_lattice(costs: np.ndarray) -> Optional[_Fraction]:
             g.denominator * frac.denominator // denominator_gcd,
         )
     return g if g > 0 else None
+
+
+def _fraction_lower_float(value: _Fraction) -> Optional[float]:
+    """Convert an exact lower bound without ever rounding it upward."""
+
+    try:
+        rounded = float(value)
+    except OverflowError:
+        return None
+    if not np.isfinite(rounded):
+        return None
+    if _Fraction(rounded) > value:
+        rounded = float(np.nextafter(rounded, -np.inf))
+    return rounded
 
 
 def _integer_lagrangian_bound(
@@ -1067,8 +1090,8 @@ def _anytime_lower_bound(
     exact = _integer_lagrangian_bound(costs, cuts, dual)
     if exact is None:
         return None
-    bound = float(exact)
-    if not np.isfinite(bound):
+    bound = _fraction_lower_float(exact)
+    if bound is None:
         return None
     return max(bound, 0.0)
 

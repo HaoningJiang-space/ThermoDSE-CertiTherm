@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fractions import Fraction
 from types import SimpleNamespace
 
 import numpy as np
@@ -19,12 +20,22 @@ from CertiTherm.policies import (
 )
 from CertiTherm.adaptive import finite_adaptive_limit
 from CertiTherm.synthesis import (
+    _fraction_lower_float,
     _greedy_cover,
     _insert_minimal_cut,
     _query_collision,
     _solve_master,
     _state_collision,
 )
+
+
+def test_exact_bound_conversion_never_rounds_upward() -> None:
+    exact = Fraction(1, 10)
+    converted = _fraction_lower_float(exact)
+    assert converted is not None
+    assert Fraction(converted) <= exact
+    assert converted < 0.1  # binary64 0.1 itself lies above the exact tenth
+    assert _fraction_lower_float(Fraction(1, 2)) == 0.5
 
 
 def test_width_order_is_truly_sequential_with_one_worker(monkeypatch) -> None:
@@ -296,6 +307,28 @@ def test_lp_bound_matching_incumbent_skips_branch_and_bound(monkeypatch) -> None
     )
     assert master.selected == (0, 1)
     assert master.cost == master.lower_bound == 2.0
+
+
+def test_nearby_float_bound_cannot_claim_self_verifiable_optimality(
+    monkeypatch,
+) -> None:
+    cuts = (
+        np.array([1.0, 1.0, 0.0]),
+        np.array([0.0, 1.0, 1.0]),
+        np.array([1.0, 0.0, 1.0]),
+    )
+
+    monkeypatch.setattr(
+        "CertiTherm.synthesis._integer_lagrangian_bound",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        "CertiTherm.synthesis._anytime_lower_bound",
+        lambda *_args: 2.0 - 5e-7,
+    )
+    master = _solve_master(np.ones(3), cuts)
+    assert master.cost == 2.0
+    assert master.bound_provenance == "solver_branch_and_bound"
 
 
 def test_greedy_cut_discovery_point_covers_every_registered_cut() -> None:
