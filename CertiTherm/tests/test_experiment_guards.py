@@ -13,6 +13,9 @@ from CertiTherm import experiments
 def _set_frozen_v3_environment(monkeypatch) -> None:
     for name, value in experiments.FROZEN_V3_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        experiments, "METHOD_WORKERS", experiments.FROZEN_V3_METHOD_WORKERS
+    )
 
 
 def test_frozen_run_rejects_budget_override() -> None:
@@ -38,7 +41,7 @@ def test_nonfrozen_dev_rehearsal_remains_available() -> None:
 
 
 def test_dev_v3_has_distinct_method_identity_and_reuses_only_dev_registry() -> None:
-    assert experiments._SPLIT_FREEZE_ID["dev_v3"] == "method-freeze-v3.0"
+    assert experiments._SPLIT_FREEZE_ID["dev_v3"] == "method-freeze-v3.1"
     assert experiments._SPLIT_PROTOCOL_STATE["dev_v3"] == "DEVELOPMENT_REHEARSAL"
     assert experiments._registry_split("dev_v3") == "dev"
     assert "dev_v3" in experiments._ANYTIME_SPLITS
@@ -46,7 +49,7 @@ def test_dev_v3_has_distinct_method_identity_and_reuses_only_dev_registry() -> N
 
 def test_v3_result_schema_is_explicit_even_for_failure_only_runs(tmp_path) -> None:
     result = {
-        "freeze_id": "method-freeze-v3.0",
+        "freeze_id": "method-freeze-v3.1",
         "split": "dev_v3",
         "registry_split": "dev",
         "workload": "fixture",

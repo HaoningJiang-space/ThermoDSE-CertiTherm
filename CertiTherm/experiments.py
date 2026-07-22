@@ -32,7 +32,6 @@ from .core import (
     QueryObservationPlan,
 )
 from .gpu_hotspot import GpuHotSpotBackend
-from .gpu_collision_broker import CollisionBroker
 from .hotspot import build_family, load_family, replay_power, save_family
 from .measurements import (
     build_measurement_library,
@@ -62,7 +61,6 @@ HOTSPOT = ROOT / ".build" / "hotspot" / "hotspot"
 GPU_HOTSPOT_BUILD = ROOT / ".build" / "hotspot-gpu-export"
 GPU_HOTSPOT_EXPORTER = GPU_HOTSPOT_BUILD / "hotspot"
 GPU_HOTSPOT_SOLVER = ROOT / ".build" / "hotspot-cuda" / "certitherm_hotspot_cuda"
-GPU_COLLISION_SOLVER = ROOT / ".build" / "collision-cuda" / "certitherm_collision_cuda"
 MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 MODEL_ERROR_LIMIT_K = 0.01
@@ -101,6 +99,7 @@ METHOD_WORKERS = int(os.environ.get("CERTITHERM_METHOD_WORKERS", "0"))
 if METHOD_WORKERS < 0:
     raise RuntimeError("CERTITHERM_METHOD_WORKERS must be non-negative")
 FROZEN_V3_QUERY_WORKERS = 3
+FROZEN_V3_METHOD_WORKERS = 15
 FROZEN_NUMERIC_THREAD_VARIABLES = (
     "OMP_NUM_THREADS",
     "OPENBLAS_NUM_THREADS",
@@ -1514,34 +1513,11 @@ def _evaluate_method_batch(
     *,
     include_anytime: bool,
     workers: int,
-    _broker_ready: bool = False,
 ) -> tuple[QueryMethodResults, ...]:
     """Evaluate methods as independent tasks in one persistent spawn pool."""
 
     if workers < 1:
         raise ValueError("method workers must be positive")
-    if (
-        os.environ.get("CERTITHERM_GPU_SEPARATION", "0") == "1"
-        and not _broker_ready
-    ):
-        with CollisionBroker(
-            GPU_COLLISION_SOLVER,
-            int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
-        ) as broker:
-            previous = os.environ.get("CERTITHERM_GPU_COLLISION_SOCKET")
-            os.environ["CERTITHERM_GPU_COLLISION_SOCKET"] = str(broker.socket_path)
-            try:
-                return _evaluate_method_batch(
-                    queries,
-                    include_anytime=include_anytime,
-                    workers=workers,
-                    _broker_ready=True,
-                )
-            finally:
-                if previous is None:
-                    os.environ.pop("CERTITHERM_GPU_COLLISION_SOCKET", None)
-                else:
-                    os.environ["CERTITHERM_GPU_COLLISION_SOCKET"] = previous
     schedule = _method_schedule(len(queries), include_anytime)
     slots: list[dict[str, object]] = [dict() for _query in queries]
     context = multiprocessing.get_context("spawn")
@@ -2196,10 +2172,10 @@ _SPLIT_PROTOCOL_STATE = {
 # preregistered endpoints it was produced under.
 _SPLIT_FREEZE_ID = {
     "dev": "method-freeze-v1",
-    "dev_v3": "method-freeze-v3.0",
+    "dev_v3": "method-freeze-v3.1",
     "heldout": "method-freeze-v1",
     "heldout_v2": "method-freeze-v2.1",
-    "heldout_v3": "method-freeze-v3.0",
+    "heldout_v3": "method-freeze-v3.1",
 }
 
 
@@ -2249,6 +2225,11 @@ def _validate_run_request(
         raise ValueError(
             f"heldout_v3 requires exactly {FROZEN_V3_QUERY_WORKERS} query workers; "
             f"got {QUERY_WORKERS}"
+        )
+    if split == "heldout_v3" and METHOD_WORKERS != FROZEN_V3_METHOD_WORKERS:
+        raise ValueError(
+            f"heldout_v3 requires exactly {FROZEN_V3_METHOD_WORKERS} method "
+            f"workers; got {METHOD_WORKERS}"
         )
     if split == "heldout_v3":
         invalid_environment = {
@@ -2334,11 +2315,6 @@ def _run_receipt(
             "gpu_device": os.environ.get("CERTITHERM_GPU_DEVICE", "0"),
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
         }
-    if os.environ.get("CERTITHERM_GPU_SEPARATION", "0") == "1":
-        gpu_digests["gpu_collision_solver_sha256"] = _verified_binary_digest(
-            GPU_COLLISION_SOLVER,
-            GPU_HOTSPOT_BUILD / "GPU_SHA256SUMS",
-        )
     return {
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "protocol_state": _SPLIT_PROTOCOL_STATE[split],

@@ -1,6 +1,6 @@
 # Decision-Sufficient Observation Synthesis (DSOS)
 
-Status: frozen algorithm for `method-freeze-v3.0`; its held-out split remains
+Status: frozen algorithm for `method-freeze-v3.1`; its held-out split remains
 unopened.
 
 ## Why ordinary information gain is not the right primitive

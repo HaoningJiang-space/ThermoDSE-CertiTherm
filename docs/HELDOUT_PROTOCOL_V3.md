@@ -1,7 +1,7 @@
 # Frozen Held-out Protocol v3 — Recovery After Invalid Opening
 
-Freeze ID: `method-freeze-v3.0`  
-Freeze date: 2026-07-22  
+Freeze ID: `method-freeze-v3.1`
+Freeze date: 2026-07-22
 State: **DEFINED_UNOPENED / DEV_REHEARSAL_PENDING**
 
 ## Purpose and lineage
@@ -35,24 +35,30 @@ For every ordered workload/package query:
 5. report `L`, `U`, `U-L`, `(U-L)/L`, `U/L`, bound provenance, plan validity,
    cost optimality, action IDs, and phase times from that one invocation.
 
-The 12 independent queries execute through one persistent three-process spawn
-pool. Each process owns a complete query, including its per-method signals and
-1800-second timers; no method or separation iteration is split across workers.
-The pool is created once, registry order is preserved on collection, and the
-worker count is recorded in `RUN_RECEIPT.tsv`. A frozen v3 invocation with any
-worker count other than three is rejected. This scheduling choice changes
-wall-clock throughput, not the per-query feasible set, objective, budget, or
-proof rule. `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, and `MKL_NUM_THREADS`
+The query × method matrix is flattened into one persistent 15-process spawn
+pool. Tasks are submitted in the frozen priority order Anytime, width, dual,
+fixed, exact, preserving query registry order within each method. Every task
+retains its own 1800-second method timer; no separation iteration is split
+across workers. Both the 15 method workers and the compatibility setting of
+three query workers are recorded in `RUN_RECEIPT.tsv` and enforced for a
+frozen invocation. This scheduler changes wall-clock throughput, not the
+per-method feasible set, objective, budget, or proof rule.
+`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, and `MKL_NUM_THREADS`
 are each frozen to one before Python starts, preventing hidden nested
 parallelism; their values are also stored in the run receipt.
-`CERTITHERM_LP_WORKERS=1` keeps every query-internal separation loop serial.
+`CERTITHERM_LP_WORKERS=1` keeps every method-internal separation loop serial.
+Collision separation remains the CPU HiGHS oracle. A proof-gated CUDA PDHG
+proposal engine was evaluated before this freeze but failed its preregistered
+fallback gate on the real dev negative tail (53.7% fallback even at 10,000
+iterations), so it is explicitly excluded from v3.1; see
+`GPU_COLLISION_NEGATIVE_RESULT.md`.
 The physical proposal backend is fixed to the freshly checksummed FP64 CUDA
 HotSpot build with `CERTITHERM_GPU_HOTSPOT=1`, logical device zero, and
 `CUDA_VISIBLE_DEVICES=0`; CPU HotSpot remains the independent calibration and
 witness-replay backend. Every execution control is validated before a frozen
 run and recorded in `RUN_RECEIPT.tsv`.
-If a query worker or the pool fails, its registry slot is retained as an
-explicit `UNRESOLVED` row with a `query_worker` failure record. Process
+If a method worker or the pool fails, its registry slot is retained as an
+explicit `UNRESOLVED` row with a method/pool failure record. Process
 parallelism therefore cannot silently shorten the evidence table.
 Resume safety is likewise fail-closed: cached captures and operators are reused
 only when their sidecars match the current source bundle, physical inputs,

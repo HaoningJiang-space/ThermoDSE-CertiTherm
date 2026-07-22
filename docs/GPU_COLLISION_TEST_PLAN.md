@@ -1,6 +1,8 @@
 # GPU collision proposer test plan
 
-Status: development gate; no scientific verdict may originate here.
+Status: **gate failed; excluded from method-freeze-v3.1**. No scientific
+verdict originates here. The retained implementation is a reproducible
+negative-result prototype, not a claim-path backend.
 
 The CUDA solver is an approximate proposal engine. Every feasible point and
 infeasibility ray is independently rechecked by `collision_proof.py`; a failed
