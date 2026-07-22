@@ -96,7 +96,7 @@ evidence; see `TERMINATED.md` in its run directory. The prediction above stands
 untested. It was superseded by the diagnostic run below, which answers the same
 question far more cheaply.
 
-## D1 — 150 s diagnostic run: the lower bound is LP-saturated
+## D1 — 150 s diagnostic run: ~1,400 cuts yield a bound of 2
 
 Producer commit `8eec010` (`round/v3-separation-diagnostics`), dev registry,
 150 s budget, non-claim. Purpose: populate the separation diagnostics added in
@@ -113,40 +113,78 @@ Producer commit `8eec010` (`round/v3-separation-diagnostics`), dev registry,
 
 **Finding: roughly 1,400 active cuts yield a lower bound of 2.0.**
 
-This settles the question the round was opened to answer:
+### What this establishes
 
 - **Hypothesis (a), too few rounds — refuted.** Cut generation is productive:
   ~500 cuts per iteration, ~1,900 generated in 150 s. Scarcity is not the issue.
-- **Hypothesis (c), candidate starvation — real but not the cause.**
-  `candidates_completed = 0 of 3` in every row, always stopping at candidate 0.
-  A round-robin schedule would spread the budget, but candidate 0 alone cannot
-  finish, so it would not rescue the bound.
-- **Hypothesis (b), bound saturation — confirmed, and it dominates.**
+  Every performance round so far — the 32× pool-churn fix, the GPU separation
+  gate, the 15-worker scheduler — accelerated cut *production*, which this table
+  shows was never the constraint.
+- **Hypothesis (c), candidate starvation — present.** `candidates_completed =
+  0 of 3` in every row, always stopping at candidate 0. Round-robin scheduling
+  is unlikely to repair an orders-of-magnitude weakness, but it would protect
+  against one pathological candidate monopolising the budget.
 
-`lp_relaxation_bound == milp_lower_bound == 2.0`: both come from
-`_anytime_lower_bound`, the LP weak-duality path, because `_solve_master` is
-reached only on the collision-free branch, which never occurs here. Against a
-candidate-local integer optimum on the order of 1,400 (the per-candidate share
-of a ~4,174 certified contract), this is an integrality gap of roughly **700×**.
+### Correction, 2026-07-23 — claims withdrawn after peer review
 
-**Consequence for the method.** Theorem 4's anytime interval rests on LP weak
-duality. On this instance family that bound is not merely slow to grow — it is
-converging to something ~700× below the target. No budget, no faster LP, and no
-GPU changes that. Earlier performance work (the 32× pool-churn fix, the GPU
-separation gate, the 15-worker scheduler) all accelerated cut *production*,
-which the table above shows was never the constraint.
+The first version of this section drew three conclusions that do not follow from
+the measurement. They are recorded here rather than deleted.
 
-**The untested lever.** The restricted-master **MILP** over the accumulated cuts
-is a valid lower bound on the *integer* optimum — relaxing the cut set can only
-lower it — and it is never computed, because `_solve_master` sits behind the
-collision-free branch. With ~1,600 cuts already in hand it could be far stronger
-than 2.0. Cheap decisive test: persist one candidate's cut matrix, solve LP and
-MILP over the same cuts, and compare. This is a bound-quality question, not a
-throughput question, and it should be answered before any further gate run.
+1. **"Integrality gap of roughly 700×" — withdrawn.** It divided the 4,174
+   `width` cost by three candidates to infer a candidate-local optimum of
+   ~1,400. That is not legitimate: 4,174 is a feasible *upper bound* for the
+   whole query, and Theorem 2 licenses summing candidate-local optima, not
+   averaging one plan across candidates, which differ in library and difficulty.
+2. **"`lp_relaxation_bound == milp_lower_bound` confirms saturation" —
+   withdrawn.** Both fields are written from the same `_anytime_lower_bound`
+   call; `_solve_master` never ran. Their equality is schema aliasing, not two
+   solvers agreeing. (See the `milp_lower_bound` naming defect below.)
+3. **"Bound saturation confirmed and dominant" — withdrawn as stated.** It
+   presumes the answer. `C*` is unknown: the interval is `[2, 4174]` and nothing
+   measured says where in it the truth lies. If `C*` were small, the width/dual/
+   fixed contracts would simply be badly suboptimal and the bound would not be
+   weak at all.
 
-**Inference boundary.** "The LP relaxation is weak because a few cheap,
-high-coverage actions fractionally cover every cut" is the natural explanation
-and is consistent with the registered cost ladder (1/2/4/8), but it is an
-inference. The measured facts are only the counters and bounds tabulated above.
-Confirming it requires the per-action cut-incidence distribution, which this run
-does not persist.
+### The one structural result that does survive
+
+Dual feasibility gives `Σ_{e: a separates e} y_e ≤ c_a` per action; summing over
+actions gives `Σ_e y_e·|S_e| ≤ Σ_a c_a = C_total`, and `L(y) ≤ 1ᵀy`. Hence
+
+> `L ≤ C_total / s_min`, for `s_min` the smallest cut support.
+
+This is independent of `C*`. With `C_total = 5250`, a reported `L = 2` implies
+average cut support `≥ 2,625` actions. Conversely, certifying any *large* `C*`
+requires near-singleton cuts: proving action `a` necessary means exhibiting two
+worlds that **only `a`** separates.
+
+So *if* `C*` is large, cut support is the binding constraint and no amount of
+MILP closure, faster LP, GPU, or scheduling changes it. The antecedent is
+unverified.
+
+### Next experiment — a primal–dual–integer triangle, not another gate
+
+On one persisted candidate cut matrix: validate the cuts, solve the restricted
+master as a primal LP, run `_anytime_lower_bound` and check it does not exceed
+that optimum, solve the restricted master as a MILP, and record the support
+distribution `|S_e|` against the predicted `≥ 2,625`.
+
+This separates two explanations that currently look identical: a genuinely weak
+relaxation, versus **a defect in the bound implementation**. Thousands of cuts
+yielding 2 is unusual enough that implementation error must be excluded before
+any structural claim is made. The MILP's role here is diagnostic — it reveals
+whether the integer optimum over discovered cuts is 2, 15, or 1000.
+
+The restricted-master MILP optimum *is* a valid lower bound on the full integer
+optimum (relaxing the cut set enlarges the feasible region), provided the cuts
+are globally valid, columns and costs match the candidate-local problem, only a
+solver-certified bound is used on timeout, and candidate-local values are summed
+only where Theorem 2 applies.
+
+### Inference boundary
+
+The measured facts are only the counters and bounds tabulated above. That the
+separation LP uses a zero objective (`synthesis.py:598`) is a fact; that this
+*causes* large-support cuts is a hypothesis, not a diagnosis — a zero-objective
+LP returns an implementation-dependent basic solution, and basic solutions lie
+on many constraint boundaries rather than deep in the interior. The 10–41%
+domination rate is evidence of redundancy, which has several possible causes.
