@@ -1434,7 +1434,7 @@ _SPLIT_PROTOCOL_STATE = {
     "dev": "DEVELOPMENT_REHEARSAL",
     "heldout": "LEGACY_V1",
     "heldout_v2": "OPENED_INVALID",
-    "heldout_v3": "DEFINED_UNOPENED",
+    "heldout_v3": "PRECHECK_PASS_DEV_REHEARSAL_PENDING",
 }
 
 # Which frozen protocol each split is evidence for. Hard-coding

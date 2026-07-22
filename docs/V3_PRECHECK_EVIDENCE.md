@@ -50,3 +50,31 @@ Decision: again preserve the primary set. Correct the traversal to seed every
 registered external input, add a recurrent-network completeness regression,
 commit, and rerun the identical check. This changes neither the workload nor
 any observed metric.
+
+## Attempt A3 — pass, primary set accepted
+
+- Producer commit: `4f0b66112c49f3110c57def3aaa40cae04b19290`
+- Host / Python: `hpclab03` / `3.8.10`
+- Time: `2026-07-22T05:24:21Z`–`2026-07-22T05:24:23Z`
+- Outcome: `PASS`; 12/12 combinations completed, 0 invalid metrics,
+  0 failures
+- Thermal guard: `hotspot_invocations=0`; the bundle contains no `.steady`,
+  `.ptrace`, `.flp`, or `.npz` file.
+- Raw `SHA256SUMS` digest:
+  `b16599e89d21ad245fb8c995d96a4802b98e01e7bf4d06d2a3b95b2c23c3f799`
+- Execution-log digest:
+  `e60663a25e6e2b12a823fa90c28e5fb4c10049f84593dc719e073cc2784b18c2`
+
+The permitted EDYP check fixed the following workload-specific orders:
+
+| Workload | Ascending EDYP order | Minimum adjacent gap |
+|---|---|---:|
+| AlexNet | `arch_k`, `arch_j`, `arch_l` | 5.486% |
+| GNMT-LSTM | `arch_k`, `arch_j`, `arch_l` | 14.017% |
+| MLP-L | `arch_k`, `arch_j`, `arch_l` | 1.730% |
+| VGG-16 | `arch_k`, `arch_j`, `arch_l` | 19.318% |
+
+Decision: accept `(arch_j, arch_k, arch_l)` unchanged; the fallback set is not
+activated. Subsequent DSE queries must consume the per-workload EDYP rank from
+the capture stage, not registry or architecture-ID order. v3 remains unopened
+until its dev-only value rehearsal and final artifact audit pass.

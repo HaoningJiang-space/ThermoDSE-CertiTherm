@@ -2,7 +2,7 @@
 
 Freeze ID: `method-freeze-v3.0`  
 Freeze date: 2026-07-22  
-State: **DEFINED_UNOPENED / PRECONDITIONS_PENDING**
+State: **DEFINED_UNOPENED / DEV_REHEARSAL_PENDING**
 
 ## Purpose and lineage
 
@@ -117,12 +117,13 @@ Only then may the protocol become `READY_UNOPENED` and obtain a Make target.
 
 ## Remaining preconditions
 
-1. Run the permitted non-thermal check from a clean moe-server clone.
-2. Commit the receipt and either accept the primaries or apply only the frozen
-   fallback rule.
-3. Run the full core tests and a dev-only value-populating rehearsal from the
+1. [complete] Run the permitted non-thermal check from a clean moe-server
+   clone.
+2. [complete] Commit the receipt and accept the unchanged primary set under
+   the frozen rule.
+3. [pending] Run the full core tests and a dev-only value-populating rehearsal from the
    exact candidate commit.
-4. Audit the report schema, secret/path scan, submodule pins, and artifact
+4. [pending] Audit the report schema, secret/path scan, submodule pins, and artifact
    producer labels.
-5. Change the state to `READY_UNOPENED`, enable the frozen guard, and then open
+5. [pending] Change the state to `READY_UNOPENED`, enable the frozen guard, and then open
    v3 exactly once from a fresh clone.
