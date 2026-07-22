@@ -32,9 +32,9 @@ It produced 12 workload captures and 10 operators but **no `results.tsv`** — n
 query conclusion, contract, bound or witness. Nothing is retracted because
 nothing was concluded.
 
-The artifacts are **retained, not deleted**, at
-`/data/ziheng/experiments/certitherm-INVALID-heldout-v2-20260722` with the
-launch-time diff and an `INCIDENT.md`. Deleting them would hide the incident;
+The artifacts are **retained, not deleted**, on moe-server under external
+archive ID `certitherm-INVALID-heldout-v2-20260722`, with the launch-time diff
+and an `INCIDENT.md`. Deleting them would hide the incident;
 for review integrity an honest record beats a clean-looking history.
 
 **Consequence.** `arch_g/h/i` and the v2 workloads have been touched by an

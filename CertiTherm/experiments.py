@@ -1236,13 +1236,16 @@ def _write_report(
 # registered in experiments/architectures.tsv and disjoint from both dev and
 # v1. They are listed together so a future split cannot be added to the CLI
 # without also being recognised as frozen here.
-_HELDOUT_SPLITS = ("heldout", "heldout_v2")
+_HELDOUT_SPLITS = ("heldout", "heldout_v2", "heldout_v3")
 _BURNED_SPLITS = frozenset({"heldout_v2"})
-_ANYTIME_SPLITS = frozenset({"dev", "heldout_v2"})
+_FROZEN_ONLY_SPLITS = frozenset({"heldout_v3"})
+_FROZEN_ENABLED_SPLITS = frozenset({"heldout"})
+_ANYTIME_SPLITS = frozenset({"dev", "heldout_v2", "heldout_v3"})
 _SPLIT_PROTOCOL_STATE = {
     "dev": "DEVELOPMENT_REHEARSAL",
     "heldout": "LEGACY_V1",
     "heldout_v2": "OPENED_INVALID",
+    "heldout_v3": "DEFINED_UNOPENED",
 }
 
 # Which frozen protocol each split is evidence for. Hard-coding
@@ -1254,6 +1257,7 @@ _SPLIT_FREEZE_ID = {
     "dev": "method-freeze-v1",
     "heldout": "method-freeze-v1",
     "heldout_v2": "method-freeze-v2.1",
+    "heldout_v3": "method-freeze-v3.0",
 }
 
 
@@ -1267,6 +1271,8 @@ def _validate_run_request(
     if split not in _SPLIT_FREEZE_ID:
         raise ValueError(f"unregistered experiment split {split}")
     if not frozen:
+        if split in _FROZEN_ONLY_SPLITS:
+            raise ValueError(f"{split} can only run through its frozen protocol")
         return
     if split not in _HELDOUT_SPLITS:
         raise ValueError("--frozen is reserved for a held-out split")
@@ -1274,6 +1280,8 @@ def _validate_run_request(
         raise ValueError(
             f"{split} is OPENED_INVALID / PILOT_ONLY and cannot be frozen evidence"
         )
+    if split not in _FROZEN_ENABLED_SPLITS:
+        raise ValueError(f"{split} is not admitted for frozen execution yet")
     actual_budget = QUERY_METHOD_TIMEOUT_S if budget_s is None else budget_s
     if (
         not np.isfinite(actual_budget)

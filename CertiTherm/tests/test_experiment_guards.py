@@ -19,6 +19,13 @@ def test_burned_split_cannot_be_relabelled_as_frozen_evidence() -> None:
         experiments._validate_run_request("heldout_v2", True, budget_s=1800.0)
 
 
+def test_v3_is_unexecutable_until_preconditions_close() -> None:
+    with pytest.raises(ValueError, match="only run through its frozen protocol"):
+        experiments._validate_run_request("heldout_v3", False, budget_s=1800.0)
+    with pytest.raises(ValueError, match="not admitted for frozen execution yet"):
+        experiments._validate_run_request("heldout_v3", True, budget_s=1800.0)
+
+
 def test_nonfrozen_dev_rehearsal_remains_available() -> None:
     experiments._validate_run_request("dev", False, budget_s=25.0)
 
@@ -40,3 +47,50 @@ def test_frozen_run_rejects_dirty_worktree(monkeypatch) -> None:
     )
     with pytest.raises(RuntimeError, match="requires a clean revision"):
         experiments._assert_clean_revision()
+
+
+def test_v3_registry_is_new_on_both_heldout_axes() -> None:
+    architectures = experiments._rows(
+        experiments.ROOT / "experiments" / "architectures.tsv"
+    )
+    workloads = experiments._rows(
+        experiments.ROOT / "experiments" / "workloads.tsv"
+    )
+    v3_arches = [row for row in architectures if row["split"] == "heldout_v3"]
+    prior_arches = [row for row in architectures if row["split"] != "heldout_v3"]
+    v3_workloads = [row for row in workloads if row["split"] == "heldout_v3"]
+    prior_workloads = [row for row in workloads if row["split"] != "heldout_v3"]
+
+    architecture_fields = (
+        "chiplet_x",
+        "chiplet_y",
+        "cut_x",
+        "cut_y",
+        "interval",
+        "mtxu_h",
+        "mtxu_w",
+        "ubuf",
+        "nop_bw",
+        "dram_bw",
+    )
+    def signature(row: dict[str, str]) -> tuple[str, ...]:
+        return tuple(row[field] for field in architecture_fields)
+
+    assert len(v3_arches) == 3
+    assert {signature(row) for row in v3_arches}.isdisjoint(
+        {signature(row) for row in prior_arches}
+    )
+    assert all(
+        int(row["chiplet_x"]) % int(row["cut_x"]) == 0
+        and int(row["chiplet_y"]) % int(row["cut_y"]) == 0
+        for row in v3_arches
+    )
+    assert len(v3_workloads) == 4
+    assert {row["thermodse_name"] for row in v3_workloads}.isdisjoint(
+        {row["thermodse_name"] for row in prior_workloads}
+    )
+    assert all(
+        row["b_tot"] == row["b_exe"] == "1"
+        and float(row["sparsity"]) == 0.0
+        for row in v3_workloads
+    )

@@ -9,3 +9,7 @@ mobilenetv2_v2	heldout_v2	mobilenet	4	2	0.368
 unet_v2	heldout_v2	unet	2	1	0.453
 yolov2_v2	heldout_v2	yolo	4	4	0.009
 googlenet_v2	heldout_v2	googlenet	2	2	0.375
+alexnet_v3	heldout_v3	alex_net	1	1	0.000
+vgg16_v3	heldout_v3	vgg_net	1	1	0.000
+gnmt_lstm_v3	heldout_v3	lstm_gnmt	1	1	0.000
+mlp_l_v3	heldout_v3	mlp_l	1	1	0.000

@@ -8,7 +8,7 @@ target_venue:
   year: "TBD"
   mode: "research"
 stage:
-  current: "anytime_proof_carrying_dsos"
+  current: "heldout_v3_preconditions"
   gate: "in_progress"
   updated_at: "2026-07-22"
 active_contract: "docs/INFORMATION_THEORETIC_METHOD.md"
@@ -25,7 +25,7 @@ artifacts:
   method: "docs/INFORMATION_THEORETIC_METHOD.md"
   measurement_library: "docs/MEASUREMENT_LIBRARY.md"
   thermal_error_contract: "docs/THERMAL_ERROR_CONTRACT.md"
-  heldout_protocol: "docs/HELDOUT_PROTOCOL.md"
+  heldout_protocol: "docs/HELDOUT_PROTOCOL_V3.md"
   implementation: "CertiTherm/synthesis.py"
   data_model: "CertiTherm/core.py"
   experiments: "CertiTherm/experiments.py"
@@ -198,10 +198,20 @@ claims:
 
 experiments:
   - id: "DEV"
-    status: "in_progress"
+    status: "complete_negative_exact_closure"
     command: "python -m CertiTherm.experiments --split dev --output artifacts/dev-gpu"
     host: "moe-server"
-    note: "authoritative for C7; do not interrupt"
+    note: "authoritative for C7; exact 0/6, certified heuristic plans 6/6"
+  - id: "HELDOUT-V2"
+    status: "opened_invalid_pilot_only"
+    command: "forbidden as claim-grade evidence"
+    host: "moe-server"
+    note: "incident retained; 12 captures and 10 operators, no results.tsv"
+  - id: "HELDOUT-V3"
+    status: "defined_unopened_preconditions_pending"
+    command: "not executable until the non-thermal precheck is committed"
+    host: "moe-server"
+    note: "new workloads and architectures; frozen guard rejects all runs"
   - id: "SCALE-SYNTH"
     status: "complete"
     command: "python -m research.dr_dsc.profile_synthesis / benchmark"
@@ -241,7 +251,7 @@ revision_ledger:
       exact master never ran with real cuts in that experiment.
 
 reference_sources:
-  - path: "/home/abc/3DIC/chiplet_dse/references-src"
+  - path: "external workspace references-src/ (not distributed)"
     note: >-
       Read-only algorithm references (PySAT Hitman, RoundingSat, VeriPB, SCIP
       exact, PySCIPOpt lazy constraints, VIPR, cuPDLPx, PACE25 hitting-set).
@@ -260,7 +270,7 @@ reference_sources:
 
   - "PARTIAL 2026-07-22 — dev schema rehearsal: all twelve method-freeze-v2.1 columns are present in results.tsv and budget_is_frozen correctly reads 0, so a rehearsal row is self-identifying and cannot be scored against a frozen pass condition. But every endpoint VALUE was empty (U='', L='', anytime_upper_source='none'): at a 25s budget the controller's fixed upper_fraction=0.2 gives width only 5s, while dev measured width needing ~120s to certify. So the schema is verified STRUCTURALLY but not that the fields populate with values. A 700s rehearsal (width gets 140s) is running to close that. This also makes the fixed 0.2 split concretely suspect rather than theoretically so: below ~600s total it starves the upper-bound phase and the run degrades to no interval at all."
 
-  - "INCIDENT 2026-07-22 — heldout_v2 was OPENED out of protocol. A --frozen run executed ~52 min from a DIRTY worktree (baseline 89318c7 + diff 6e133bc8f22c93b2), and commits 47577e3 and bc96f23 changed the algorithm AFTER it started, so no result could be attributed to one method. It produced 12 captures and 10 operators but NO results.tsv, so nothing was concluded and nothing is retracted. Artifacts isolated at /data/ziheng/experiments/certitherm-INVALID-heldout-v2-20260722 with INCIDENT.md and the launch-time diff, retained not deleted. method-freeze-v2.1 is now OPENED_INVALID / PILOT_ONLY: it must not be used for tuning or paper results. Claim-grade work needs a new method-freeze-v3 split with, at minimum, entirely new architectures. Root cause: I launched a held-out run while treating preregistration completeness as the only precondition, ignoring that a clean committed revision and a frozen algorithm are equally required."
+  - "INCIDENT 2026-07-22 — heldout_v2 was OPENED out of protocol. A --frozen run executed ~52 min from a DIRTY worktree (baseline 89318c7 + diff 6e133bc8f22c93b2), and commits 47577e3 and bc96f23 changed the algorithm AFTER it started, so no result could be attributed to one method. It produced 12 captures and 10 operators but NO results.tsv, so nothing was concluded and nothing is retracted. Artifacts are retained on moe-server under external archive ID certitherm-INVALID-heldout-v2-20260722 with INCIDENT.md and the launch-time diff. method-freeze-v2.1 is now OPENED_INVALID / PILOT_ONLY: it must not be used for tuning or paper results. Claim-grade work needs a new method-freeze-v3 split with, at minimum, entirely new architectures. Root cause: I launched a held-out run while treating preregistration completeness as the only precondition, ignoring that a clean committed revision and a frozen algorithm are equally required."
 
 open_risks:
   - "A GitHub PAT has appeared repeatedly in session transcripts. Source is a user-side goal template, not a repo file or hook config. Revocation is outstanding and cannot be performed from here."
