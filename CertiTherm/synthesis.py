@@ -83,9 +83,19 @@ class ContractViolation(ValueError):
 
 
 # Caught at the public boundary -- deliberately classified failures only.
+#
+# TimeoutError is included because a wall-clock budget expiring is an EPISTEMIC
+# failure: the run could not reach a conclusion. Before this, the experiment
+# driver's SIGALRM propagated past this handler and `_timed_call` discarded the
+# whole result, so a 1800s dev query threw away its accumulated cuts, witnesses,
+# candidate cover AND anytime lower bound and reported nothing. That is why the
+# dev report's bound columns are empty despite the bounds being computed. Now a
+# timeout returns UNRESOLVED carrying everything established so far, which is
+# the entire point of an anytime method.
 _UNRESOLVED_FAILURES: Tuple[type, ...] = (
     ContractViolation,
     UnresolvedComputation,
+    TimeoutError,
 )
 
 
@@ -1515,14 +1525,25 @@ def synthesize_minimum_observation(
             candidate_cost=candidate_cost,
         )
     except _UNRESOLVED_FAILURES as exc:
+        if isinstance(exc, TimeoutError):
+            # A timer interrupt fires BETWEEN operations, so unlike a numerical
+            # failure the cut set is intact and a bound computed from it is
+            # valid. Refreshing here is what lets a budget-exhausted run report
+            # an actual interval instead of an empty bound column -- the whole
+            # value of the anytime path. Guarded so a failure here cannot mask
+            # the timeout itself.
+            try:
+                _refresh_bound()
+            except _UNRESOLVED_FAILURES:
+                pass
         candidate_ids, candidate_cost = _candidate_fields()
         return ObservationPlan(
             status="UNRESOLVED",
             selected_action_ids=(),
             exact_cost=None,
-            # Whatever bound the cuts had already established survives the
-            # failure; _refresh_bound is not re-run here because the state that
-            # raised may be inconsistent.
+            # For a numerical failure the state that raised may be inconsistent,
+            # so whatever bound the cuts had already established is reported
+            # unchanged; for a timeout it has just been refreshed above.
             lower_bound=anytime_bound,
             relaxation_bound=anytime_bound,
             optimality_gap=None,

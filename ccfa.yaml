@@ -137,6 +137,17 @@ claims:
       - "9 physical operators admitted, 270 direct replays, max replay residual 0.00149 K against the frozen 0.01 K bound"
       - "0 false certificates, 0 placed-reference model disagreements, max full-rank spectral residual 2.47e-13 K"
       - "certified costs: dual 4100-4132 < width 4174 < fixed 5242 < full registry 5250"
+    evidence_gap_closed: >-
+      2026-07-22: the dev report's bound columns were empty NOT because no
+      bound existed but because `_timed_call` caught the SIGALRM TimeoutError
+      and discarded the whole result. TimeoutError is now classified as an
+      epistemic failure, so a budget-exhausted run returns UNRESOLVED carrying
+      its iterations, witnesses, candidate cover and a freshly refreshed
+      anytime lower bound. Verified under a real SIGALRM: 74 iterations, 234
+      witnesses, an 11-action candidate at cost 26.0, and LB 15.0 all survive.
+      The dev queries must be re-run to populate these columns; the existing
+      dev artifacts predate the fix and their empty bounds are an artifact of
+      it, not evidence that no bound was computable.
     consequence: >-
       This is the result that decides the paper narrative. Pursuing exact
       closure on every query is not viable at this scale, but a CERTIFIED plan
