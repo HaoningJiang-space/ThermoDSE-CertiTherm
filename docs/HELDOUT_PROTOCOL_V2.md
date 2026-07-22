@@ -147,6 +147,20 @@ columns are empty. Any v2 run must be executed with that fix present.
 
 ## Status
 
-No v2 held-out result exists. The split is not defined yet. This document
-freezes the question, the endpoints and the pass conditions before any of that
-happens, which is the only property that makes the eventual result meaningful.
+No v2 held-out result exists and the split has not been opened. The split is
+now DEFINED and registered (see Separation), which is a different thing from
+being opened: the vectors are fixed and recorded, and no query has been run
+against them.
+
+This document freezes the question, the endpoints and the pass conditions
+before any of that happens, which is the only property that makes the eventual
+result meaningful.
+
+Remaining preconditions before a v2 run:
+
+1. Confirm ThermoDSE produces a feasible design for arch_g, arch_h and arch_i
+   and that their EDYP ordering is non-degenerate.
+2. Build the physical HotSpot operators for the v2 architecture x package grid,
+   with the direct-replay error contract enforced as in v1.
+3. Execute with the timeout-preservation fix present, so a budget-exhausted
+   query archives its bound instead of discarding it.
