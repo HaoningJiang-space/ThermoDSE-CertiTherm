@@ -85,3 +85,35 @@ def test_orthogonal_dimensions_agree_with_status() -> None:
     assert plan.status == "OPTIMAL"
     assert plan.plan_validity == "CERTIFIED"
     assert plan.cost_optimality in ("PROVEN_SELF_VERIFIABLE", "PROVEN_SOLVER_ATTESTED")
+
+
+def test_query_bound_does_not_double_count_the_failing_candidate() -> None:
+    """A lower bound above the true optimum would certify a suboptimal plan.
+
+    The failing candidate's local bound is accumulated before its status is
+    examined; adding it again on the failure path counted it twice.
+    """
+    pol, th = _hard_instance()
+    cands = tuple(CandidateSpace(f"c{k}", pol, th) for k in range(2))
+    acts = tuple(
+        MeasurementAction(
+            f"c{k}-p{i}", np.eye(10)[i], cost=float(1 + i % 4), candidate_id=f"c{k}"
+        )
+        for k in range(2)
+        for i in range(10)
+    )
+    plan = _run_under_alarm(
+        lambda: synthesize_ordered_query(
+            cands, acts, max_iterations=10**7, separation_workers=1
+        ),
+        0.35,
+    )
+    assert plan.status == "UNRESOLVED"
+    assert plan.lower_bound is not None
+    # Every action costs at most 4 and each candidate has 10 of them, so no
+    # valid query bound can exceed the full-library cost.
+    full_library = sum(a.cost for a in acts)
+    assert plan.lower_bound <= full_library, (
+        f"query lower bound {plan.lower_bound} exceeds the full library cost "
+        f"{full_library}; a bound above the optimum is never valid"
+    )

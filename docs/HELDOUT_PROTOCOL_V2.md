@@ -1,0 +1,134 @@
+# Frozen Held-out Protocol v2 — Budgeted Anytime Synthesis
+
+Freeze ID: `method-freeze-v2`
+Freeze date: 2026-07-22
+State: **protocol frozen; no held-out result exists and the held-out split has
+not been opened.**
+
+## Why a new freeze rather than an edit to v1
+
+`method-freeze-v1` is preserved unchanged in `HELDOUT_PROTOCOL.md`. Its
+exact-closure gate is recorded as **failed on dev** and that record stands.
+
+The dev matrix returned `{OPTIMAL: 0, UNSYNTHESIZABLE: 0, UNRESOLVED: 6}`: all
+six queries exhausted the 1800 s budget. v1's criterion — "resolvable or proved
+non-identifiable: at least 8 of 12 queries" — is operationalised in the report
+code as `exact_status == OPTIMAL`, so dev scores 0/6 against it.
+
+There is a natural reading under which dev is **6/6**: every query produced an
+oracle-certified contract, just not a proof of its minimality. Choosing that
+reading *after seeing dev* would be exactly the post-hoc protocol tuning this
+project forbids. So v1 keeps its operational definition and its failure, and
+v2 states a different research question up front.
+
+**v2 must not be evaluated on v1's held-out split.** A new split is required
+(see Separation) precisely so that no v2 endpoint is chosen with knowledge of
+v1 held-out data.
+
+## Research question
+
+v1 asked: can the minimum-cost observation contract be computed exactly?
+Dev answered: not within a practical budget on real operators.
+
+v2 asks the question dev actually exposed:
+
+> Under a fixed budget, can a proof-carrying method return an oracle-certified
+> observation contract together with an independently verifiable bound on how
+> far its cost can be from optimal?
+
+This is a weaker claim than v1's and is stated as such. It is not a retreat to
+heuristics: the contract is still verified by the exact collision oracle, and
+the lower bound is still independently checkable.
+
+## The separation dev established, which v2 is built to measure
+
+Dev showed the two halves of the problem have very different difficulty:
+
+- **Finding a sufficient contract is easy.** width reached cost 4174 in ~120 s
+  and dual 4100–4132 in ~1100 s, against a 5250 full registry — a ~20.5% and
+  ~21.3–21.9% reduction respectively.
+- **Proving minimality is hard.** The exact path spent 1800 s on every query
+  and closed none.
+
+Note that dual buys only ~1–1.8% over width for ~9x the runtime, so dual is a
+Pareto point, not a headline. v2 reports the cost–runtime frontier rather than
+a single policy.
+
+## Frozen endpoints
+
+Primary:
+
+1. **Zero false certificates.** Any `CERTIFIED`/`OPTIMAL` result contradicted
+   by replay is a hard failure, independent of every other number.
+2. **Certified-contract coverage** — fraction of queries returning an
+   oracle-verified contract within budget.
+3. **Certified optimality interval** — for each query, the verified upper bound
+   `U`, the independently checkable lower bound `L`, the absolute gap `U − L`
+   and the ratio `U/L`.
+4. **Self-verifiability split** — how many certificates carry
+   `cost_optimality = PROVEN_SELF_VERIFIABLE` (checkable from the returned
+   numbers) versus `PROVEN_SOLVER_ATTESTED` (closed by an unproved solver dual
+   bound).
+
+Secondary:
+
+5. Exact closure count, as a secondary result rather than the gate.
+6. Gap-versus-time curve, or area under it, per query.
+7. Cost–runtime Pareto comparison of fixed, width and dual.
+8. Non-identifiability witnesses, where the full library cannot separate.
+
+## Pass conditions, declared before opening the split
+
+- False certificates: **exactly zero**. No trade against any other endpoint.
+- Certified-contract coverage: **at least 10 of 12** queries.
+- Median certified upper bound: **at least 15% below the full registry cost.**
+- At least **6 of 12** queries report a finite `U − L`, i.e. both a certified
+  contract and a non-trivial lower bound.
+- A run that returns a contract but no bound counts toward coverage and **not**
+  toward the interval criterion.
+
+These thresholds are set from dev's observed behaviour and are frozen now.
+Missing them is a negative result to be reported, not a reason to adjust them.
+
+## What must not be claimed
+
+- Not "the minimum-cost contract" unless `U = L` for that query.
+- Not `U − L` as an optimality gap when `U` is an uncertified candidate cover;
+  only an oracle-verified contract supplies a valid `U`.
+- Not solver-independence for `PROVEN_SOLVER_ATTESTED` results.
+- Not any statement about unrestricted sensors, continuous-adaptive limits, or
+  silicon truth. All results are relative to the registered finite channel
+  library, the HotSpot model family, and the frozen margins and tolerances.
+- Not that collision separation is solver-independent. Master optimality can be
+  independently checked when a lattice or rational certificate closes it, but
+  `no collision` still rests on the LP solver reporting infeasibility under the
+  registered tolerances.
+
+## Separation
+
+Development remains ResNet-50 and Transformer on the three dev architectures
+and three package regimes.
+
+The v2 held-out split must be **disjoint from both the dev set and the v1
+held-out set**. Reusing v1's held-out architectures would mean selecting v2
+endpoints with knowledge of data reserved as held-out, even though v1's
+held-out was never opened. New architecture vectors and their provenance are to
+be registered in `experiments/architectures.tsv` under `split = heldout_v2`
+before any v2 run.
+
+## Artifact contract
+
+Unchanged from v1, plus per query: `certified_upper_bound`, `lower_bound`,
+`absolute_gap`, `relative_gap`, `bound_provenance`, `plan_validity`,
+`cost_optimality`, and the wall-clock at which each was last updated.
+
+A timed-out query must archive its interval rather than reporting nothing. That
+was not true before 2026-07-22: the driver's SIGALRM escaped the synthesis
+boundary and the whole result was discarded, which is why v1's dev bound
+columns are empty. Any v2 run must be executed with that fix present.
+
+## Status
+
+No v2 held-out result exists. The split is not defined yet. This document
+freezes the question, the endpoints and the pass conditions before any of that
+happens, which is the only property that makes the eventual result meaningful.

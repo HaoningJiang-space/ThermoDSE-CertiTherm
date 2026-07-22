@@ -126,7 +126,7 @@ claims:
       favours greedy (adaptive gain recomputation vs a static learned order).
 
   - id: "C8"
-    status: "measured_on_real_operators"
+    status: "measured_on_real_operators_INTERVAL_CLAIM_WITHDRAWN"
     text: >-
       With the timeout-preservation fix, a budget-exhausted query on REAL
       HotSpot operators now reports a genuine anytime interval instead of
@@ -137,7 +137,12 @@ claims:
       - "arch_c: LB 5.0, candidate 6.0, 1525 witnesses, 8 iterations"
       - "arch_a: LB 10.5, candidate 14.0, 1229 witnesses, 3 iterations"
     caveat: >-
-      These are candidate-LOCAL subproblem intervals at a 300s budget, not the
+      The word "interval" is WITHDRAWN. An interval needs a valid upper bound
+      and the candidate cover is not one -- it is not oracle-certified, so
+      candidate-minus-LB bounds nothing. What C8 actually shows is that a
+      timed-out real-operator query now reports a certified lower bound and a
+      working cover instead of nothing. These are candidate-LOCAL subproblem
+      figures at a 300s budget, not the
       full-query optimum, and only 3-8 iterations completed. The candidate cost
       is NOT an upper bound, so candidate-minus-LB is not an optimality gap.
       The striking difference from the synthetic instance is the witness rate:
@@ -246,6 +251,8 @@ reference_sources:
       and never copy code into this permissively licensed core. Any reuse from
       any of these must be recorded in vendor/ with source repo, commit, path,
       owner/license, reuse mode and semantic delta before it lands.
+
+  - "FIXED 2026-07-22, introduced same day: the ordered-query failure path added the failing candidate's local bound twice (it is accumulated before the status is examined, then added again). The reported query lower bound could therefore EXCEED the true optimum -- an invalid bound, the one error class this contract exists to exclude. Caught by ccf-integrity-auditor before any result depended on it; pinned by a regression test asserting the bound never exceeds the full-library cost."
 
 open_risks:
   - "A GitHub PAT has appeared repeatedly in session transcripts. Source is a user-side goal template, not a repo file or hook config. Revocation is outstanding and cannot be performed from here."

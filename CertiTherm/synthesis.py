@@ -1228,7 +1228,13 @@ def synthesize_ordered_query(
                 # merely weaker -- query lower bound. Dropping it meant every
                 # timed-out dev query reported no bound at all, which is
                 # precisely the evidence the anytime path exists to produce.
-                partial_bound = lower_bound + (plan.lower_bound or 0.0)
+                # `lower_bound` ALREADY includes this candidate's bound: it is
+                # accumulated above before the status is examined. Adding it
+                # again here double-counted the failing candidate and could push
+                # the reported bound ABOVE the true optimum -- an invalid lower
+                # bound, which is the one error class this contract exists to
+                # exclude. Caught in audit before any result depended on it.
+                partial_bound = lower_bound
                 return QueryObservationPlan(
                     plan.status,
                     (),
