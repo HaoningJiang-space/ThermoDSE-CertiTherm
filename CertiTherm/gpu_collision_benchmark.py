@@ -65,7 +65,10 @@ def _claim_path_parity(solver: Path, socket_path: Path) -> None:
         "candidate",
         power,
         ThermalFamily(
-            ("block",), np.array([[[2.0, 0.0]]]), np.zeros(1), 1.0
+            ("block",),
+            np.array([[[2.0, 0.0], [2.0, 0.0]]]),
+            np.zeros((1, 2)),
+            1.0,
         ),
     )
     actions = (

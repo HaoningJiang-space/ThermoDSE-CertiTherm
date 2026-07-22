@@ -609,6 +609,48 @@ def _gpu_state_collision(
             np.vstack([row[0] for row in spec_rows]),
             np.asarray([rhs[0] for rhs in spec_rhs]),
         )
+        # Collision is common early in constraint generation. One trusted
+        # HiGHS probe avoids launching an exhaustive GPU batch merely to find
+        # the first cell; the GPU handles the expensive negative tail.
+        probe = batch.system(0)
+        probe_result = run_highs(
+            linprog,
+            np.zeros(2 * n),
+            A_ub=probe.a_ub,
+            b_ub=probe.b_ub,
+            A_eq=probe.a_eq,
+            b_eq=probe.b_eq,
+            bounds=list(zip(probe.lower, probe.upper)),
+            method="highs",
+            label="GPU-prefix query collision LP",
+            options={
+                "primal_feasibility_tolerance": feasibility_tolerance,
+                "dual_feasibility_tolerance": feasibility_tolerance,
+            },
+        )
+        if probe_result.status == 0:
+            model, _point = specs[0]
+            return True, CandidateWorldPair(
+                candidate_id=candidate.candidate_id,
+                left_power_w=probe_result.x[:n].copy(),
+                right_power_w=probe_result.x[n:].copy(),
+                left_state=left_state,
+                right_state=right_state,
+                left_model_id=_state_model_id(
+                    thermal, left_state, model if reject_side == 0 else -1
+                ),
+                right_model_id=_state_model_id(
+                    thermal, right_state, model if reject_side == 1 else -1
+                ),
+            )
+        if probe_result.status != 2:
+            raise UnresolvedComputation(
+                f"GPU-prefix collision LP unresolved: {probe_result.message}"
+            )
+        specs = specs[1:]
+        if not specs:
+            return True, None
+        batch = SharedCollisionBatch(common, batch.spec_rows[1:], batch.spec_rhs[1:])
         solver = Path(
             os.environ.get(
                 "CERTITHERM_GPU_COLLISION_SOLVER",
