@@ -27,6 +27,25 @@ from CertiTherm.synthesis import (
 )
 
 
+def test_width_order_is_truly_sequential_with_one_worker(monkeypatch) -> None:
+    """workers=1 must not construct a spawn pool under the budget alarm."""
+    polytope = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
+    thermal = ThermalFamily(
+        ("block",), np.array([[[2.0, 0.0]]]), np.array([0.0]), 1.0
+    )
+    candidates = (CandidateSpace("only", polytope, thermal),)
+    actions = (
+        MeasurementAction("p0", np.array([1.0, 0.0]), candidate_id="only"),
+        MeasurementAction("p1", np.array([0.0, 1.0]), candidate_id="only"),
+    )
+
+    def forbidden_pool(*_args, **_kwargs):
+        raise AssertionError("one-worker width scoring constructed a process pool")
+
+    monkeypatch.setattr("CertiTherm.policies.ProcessPoolExecutor", forbidden_pool)
+    assert set(uncertainty_width_order(candidates, actions, workers=1)) == {0, 1}
+
+
 def test_exact_plan_reaches_unit_cost_global_limit() -> None:
     polytope = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
     thermal = ThermalFamily(

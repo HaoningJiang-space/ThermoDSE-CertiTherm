@@ -10,7 +10,7 @@ SUPERLU_LIB := $(SUPERLU_BUILD)/SRC/libsuperlu.a
 SUPERLU_BLAS := $(SUPERLU_BUILD)/CBLAS/libblas.a
 CUDA_NVCC ?= /usr/local/cuda-12.8/bin/nvcc
 CUDA_ARCH ?= sm_80
-CERTITHERM_LP_WORKERS ?= 8
+CERTITHERM_LP_WORKERS ?= 1
 
 .PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity gpu-production-parity reproduce-dev reproduce-dev-gpu heldout package-dev package-heldout clean-generated
 

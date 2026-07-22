@@ -181,11 +181,18 @@ def uncertainty_width_order(
         )
         for index, action in enumerate(actions)
     )
-    with ProcessPoolExecutor(
-        max_workers=worker_count,
-        mp_context=get_context("spawn"),
-    ) as pool:
-        scores = list(pool.map(_width_score, tasks, chunksize=4))
+    if worker_count == 1:
+        # Do not create a one-worker spawn pool.  Apart from being slower than
+        # the underlying LP work at the registered scale, pool construction
+        # can be interrupted by the controller's SIGALRM and leave a broken
+        # semaphore.  The explicit multi-worker path remains opt-in.
+        scores = [_width_score(task) for task in tasks]
+    else:
+        with ProcessPoolExecutor(
+            max_workers=worker_count,
+            mp_context=get_context("spawn"),
+        ) as pool:
+            scores = list(pool.map(_width_score, tasks, chunksize=4))
     return tuple(
         item[3] for item in sorted(scores, key=lambda item: (-item[0], item[1], item[2]))
     )
