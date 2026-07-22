@@ -236,6 +236,50 @@ class ObservationPlan:
     candidate_action_ids: Tuple[str, ...] = ()
     candidate_cost: Optional[float] = None
     upper_bound: Optional[float] = None
+
+    @property
+    def plan_validity(self) -> str:
+        """Is there a plan the oracle certified? Independent of its cost.
+
+        CERTIFIED / UNSYNTHESIZABLE / UNRESOLVED.
+        """
+        if self.status in ("OPTIMAL", "CERTIFIED_PLAN"):
+            return "CERTIFIED"
+        if self.status == "UNSYNTHESIZABLE":
+            return "UNSYNTHESIZABLE"
+        return "UNRESOLVED"
+
+    @property
+    def cost_optimality(self) -> str:
+        """How well is the plan's COST established? Independent of validity.
+
+        PROVEN_SELF_VERIFIABLE -- optimal, and the proof is checkable from the
+            returned numbers alone.
+        PROVEN_SOLVER_ATTESTED -- optimal per the MIP solver's asserted dual
+            bound, cross-checked for consistency but not proved. A
+            self-consistent wrong solver would not be caught.
+        BOUNDED_GAP -- a certified plan with a valid lower bound but no proof
+            of minimality.
+        NOT_APPLICABLE -- no plan can exist, so cost optimality is meaningless.
+        UNKNOWN -- nothing established.
+
+        These two properties exist because one `status` enum cannot carry both
+        questions honestly: an OPTIMAL result whose bound is solver-attested is
+        simultaneously "certified" and "not proved from the artifact". Peer
+        review flagged that as a semantic contradiction; splitting the
+        dimensions resolves it without changing any construction site.
+        """
+        if self.status == "UNSYNTHESIZABLE":
+            return "NOT_APPLICABLE"
+        if self.status == "OPTIMAL":
+            return (
+                "PROVEN_SELF_VERIFIABLE"
+                if self.bound_provenance == "weak_duality"
+                else "PROVEN_SOLVER_ATTESTED"
+            )
+        if self.status == "CERTIFIED_PLAN":
+            return "BOUNDED_GAP" if self.lower_bound is not None else "UNKNOWN"
+        return "UNKNOWN"
     # "weak_duality": the reported bound is verifiable from the returned numbers
     # alone. "solver_branch_and_bound": optimality was closed by the MIP
     # solver's asserted dual bound, which is cross-checked for consistency but
@@ -270,3 +314,23 @@ class QueryObservationPlan:
     # Weakest provenance across the candidates: a query is only as
     # self-verifiable as its least self-verifiable subproblem.
     bound_provenance: Optional[str] = None
+
+    @property
+    def plan_validity(self) -> str:
+        if self.status == "OPTIMAL":
+            return "CERTIFIED"
+        if self.status == "UNSYNTHESIZABLE":
+            return "UNSYNTHESIZABLE"
+        return "UNRESOLVED"
+
+    @property
+    def cost_optimality(self) -> str:
+        if self.status == "UNSYNTHESIZABLE":
+            return "NOT_APPLICABLE"
+        if self.status == "OPTIMAL":
+            return (
+                "PROVEN_SELF_VERIFIABLE"
+                if self.bound_provenance == "weak_duality"
+                else "PROVEN_SOLVER_ATTESTED"
+            )
+        return "UNKNOWN"

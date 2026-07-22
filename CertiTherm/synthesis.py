@@ -10,6 +10,8 @@ action library, model family, margins, and numerical tolerances.
 
 from __future__ import annotations
 
+import math
+from fractions import Fraction as _Fraction
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
@@ -862,16 +864,81 @@ def _solve_master(
     # bound is not being relied on. Otherwise the gap is closed only by the
     # solver's asserted dual bound, and the result says so.
     provenance = "solver_branch_and_bound"
-    if certified is not None and exact_cost <= certified + slack:
-        # Report the CERTIFIED bound, not max(solver, certified). Taking the max
-        # could keep the solver's unproved number while labelling the result
-        # weak_duality -- the label would then assert self-verifiability that
-        # the reported value does not have.
+    # LATTICE ROUNDING. Every contract cost is a multiple of the cost lattice g,
+    # so a valid fractional bound L implies C* >= ceil(L/g)*g. On the triangle
+    # instance (LP 1.5, integer costs) this lifts 1.5 to 2 and proves a cost-2
+    # plan optimal WITHOUT trusting the MIP solver -- while a fabricated cost-3
+    # plan only gets 2 <= C* <= 3 and cannot be certified. Requiring the raw LP
+    # bound to be tight would have rejected the legitimate cost-2 answer too.
+    exact_dual = _integer_lagrangian_bound(costs, cuts, dual)
+    lattice = _cost_lattice(costs)
+    if exact_dual is not None and lattice is not None and exact_dual > 0:
+        lifted = _Fraction(math.ceil(exact_dual / lattice)) * lattice
+        if float(lifted) >= exact_cost - slack:
+            lower_bound = float(lifted)
+            provenance = "weak_duality"
+    if provenance != "weak_duality" and certified is not None and exact_cost <= certified + slack:
         lower_bound = certified
         provenance = "weak_duality"
     return _Master(
         selected, exact_cost, lower_bound, float(relaxed.fun), dual, provenance
     )
+
+
+def _cost_lattice(costs: np.ndarray) -> Optional[_Fraction]:
+    """Largest g such that every action cost is an integer multiple of g.
+
+    Every contract cost is then a multiple of g, so a fractional lower bound L
+    can be rounded UP to the next lattice point without losing validity. With
+    the registered costs 1/2/4/8 this is 1.
+    """
+    fractions = []
+    for value in costs:
+        frac = _Fraction(float(value)).limit_denominator(10**6)
+        if abs(float(frac) - float(value)) > 1e-12 * max(1.0, abs(float(value))):
+            return None
+        fractions.append(frac)
+    if not fractions:
+        return None
+    g = fractions[0]
+    for frac in fractions[1:]:
+        # gcd over rationals: gcd(num)/lcm(den)
+        g = _Fraction(
+            np.gcd(g.numerator, frac.numerator),
+            g.denominator * frac.denominator // np.gcd(g.denominator, frac.denominator),
+        )
+    return g if g > 0 else None
+
+
+def _integer_lagrangian_bound(
+    costs: np.ndarray, cuts: Sequence[np.ndarray], dual: np.ndarray
+) -> Optional[_Fraction]:
+    """Exact-arithmetic evaluation of L(y) = 1'y + sum_j min(0, c_j - (C'y)_j).
+
+    Valid for ANY y >= 0 -- dual feasibility is not required -- so the solver's
+    dual vector is only a guess and cannot make the bound wrong. Evaluating in
+    Fractions rather than floats removes the need for the defensive deflation
+    that a float evaluation required, which is what previously left a spurious
+    ~1e-9 gap on instances whose true gap is zero.
+
+    Returns an exact rational, or None if the inputs are not representable.
+    """
+    try:
+        y = [_Fraction(float(v)).limit_denominator(10**9) for v in dual]
+        c = [_Fraction(float(v)).limit_denominator(10**9) for v in costs]
+    except (ValueError, OverflowError):
+        return None
+    if any(v < 0 for v in y):
+        y = [v if v > 0 else _Fraction(0) for v in y]
+    cover = np.asarray(cuts, dtype=float)
+    total = sum(y)
+    for j in range(len(c)):
+        col = cover[:, j]
+        loading = sum(y[i] for i in range(len(y)) if col[i] > 0.5)
+        residual = c[j] - loading
+        if residual < 0:
+            total += residual
+    return total
 
 
 def _anytime_lower_bound(
