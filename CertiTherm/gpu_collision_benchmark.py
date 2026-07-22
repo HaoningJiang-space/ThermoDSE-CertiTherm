@@ -12,6 +12,7 @@ from scipy.optimize import linprog
 
 from .collision_proof import LinearFeasibilitySystem, ProposalKind
 from .gpu_collision import SharedCollisionBatch, propose_collision_batch
+from .gpu_collision_broker import CollisionBroker
 
 
 _BATCH_SIZES = (1, 7, 31, 32, 33, 127, 128, 129, 541)
@@ -62,32 +63,36 @@ def main() -> None:
     parser.add_argument("--device", type=int, default=0)
     args = parser.parse_args()
     rows = []
-    for cells in _BATCH_SIZES:
-        batch = _fixture(cells)
-        expected, cpu_ms = _cpu_status(batch)
-        _proposals, checks, receipt = propose_collision_batch(
-            batch, args.solver, device=args.device
-        )
-        wrong = sum(
-            check.accepted and check.kind != expected[cell]
-            for cell, check in enumerate(checks)
-        )
-        if wrong:
-            raise RuntimeError(f"GPU verifier admitted {wrong} incorrect cells")
-        rows.append(
-            {
-                "cells": cells,
-                "feasible_accepted": receipt.feasible_accepted,
-                "infeasible_accepted": receipt.infeasible_accepted,
-                "fallback": receipt.fallback,
-                "cpu_ms": cpu_ms,
-                "gpu_solver_ms": receipt.solver_ms,
-                "gpu_wall_ms": receipt.wall_ms,
-                "solver_speedup": cpu_ms / receipt.solver_ms,
-                "wall_speedup": cpu_ms / receipt.wall_ms,
-                "wrong_accepted": wrong,
-            }
-        )
+    with CollisionBroker(args.solver, args.device) as broker:
+        for cells in _BATCH_SIZES:
+            batch = _fixture(cells)
+            expected, cpu_ms = _cpu_status(batch)
+            _proposals, checks, receipt = propose_collision_batch(
+                batch,
+                args.solver,
+                device=args.device,
+                broker_socket=broker.socket_path,
+            )
+            wrong = sum(
+                check.accepted and check.kind != expected[cell]
+                for cell, check in enumerate(checks)
+            )
+            if wrong:
+                raise RuntimeError(f"GPU verifier admitted {wrong} incorrect cells")
+            rows.append(
+                {
+                    "cells": cells,
+                    "feasible_accepted": receipt.feasible_accepted,
+                    "infeasible_accepted": receipt.infeasible_accepted,
+                    "fallback": receipt.fallback,
+                    "cpu_ms": cpu_ms,
+                    "gpu_solver_ms": receipt.solver_ms,
+                    "gpu_wall_ms": receipt.wall_ms,
+                    "solver_speedup": cpu_ms / receipt.solver_ms,
+                    "wall_speedup": cpu_ms / receipt.wall_ms,
+                    "wrong_accepted": wrong,
+                }
+            )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=rows[0], delimiter="\t")

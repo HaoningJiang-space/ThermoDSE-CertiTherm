@@ -289,9 +289,9 @@ void write_vector(std::ofstream& stream, const std::vector<T>& values) {
 
 }  // namespace
 
-int main(int argc, char** argv) try {
-  if (argc != 4) throw std::runtime_error("usage: solver input output device");
-  std::ifstream input(argv[1], std::ios::binary);
+void solve_request(const std::string& input_path, const std::string& output_path,
+                   int device) {
+  std::ifstream input(input_path, std::ios::binary);
   InputHeader header{};
   input.read(reinterpret_cast<char*>(&header), sizeof(header));
   if (!input || std::string(header.magic, 7) != "CTCLP01" ||
@@ -329,7 +329,7 @@ int main(int argc, char** argv) try {
   for (double value : eq) frobenius2 += value * value;
   const double step = header.step_scale / std::sqrt(frobenius2 + 1.0);
 
-  cuda_ok(cudaSetDevice(std::stoi(argv[3])), "cudaSetDevice");
+  cuda_ok(cudaSetDevice(device), "cudaSetDevice");
   cublasHandle_t handle;
   cublas_ok(cublasCreate(&handle), "cublasCreate");
   double *d_a = device_copy(a), *d_b = device_copy(b);
@@ -433,7 +433,7 @@ int main(int argc, char** argv) try {
 
   OutputHeader output{{'C','T','C','L','P','O','1','\0'}, 1, 8, batch, n, m, e,
                       iteration, solve_ms};
-  std::ofstream stream(argv[2], std::ios::binary);
+  std::ofstream stream(output_path, std::ios::binary);
   stream.write(reinterpret_cast<const char*>(&output), sizeof(output));
   write_vector(stream, kind);
   write_vector(stream, host_violation);
@@ -442,8 +442,37 @@ int main(int argc, char** argv) try {
   write_vector(stream, host_spec_dual);
   write_vector(stream, host_eq_dual);
   if (!stream) throw std::runtime_error("failed to write collision output");
+  cudaFree(d_a); cudaFree(d_b); cudaFree(d_eq); cudaFree(d_eq_rhs);
+  cudaFree(d_spec); cudaFree(d_spec_rhs); cudaFree(q); cudaFree(q_bar);
+  cudaFree(dual); cudaFree(eq_dual); cudaFree(spec_dual); cudaFree(a_product);
+  cudaFree(eq_product); cudaFree(gradient); cudaFree(eq_gradient);
+  cudaFree(violation); cudaFree(active);
   cublasDestroy(handle);
-  return 0;
+}
+
+int main(int argc, char** argv) try {
+  if (argc == 4) {
+    solve_request(argv[1], argv[2], std::stoi(argv[3]));
+    return 0;
+  }
+  if (argc == 3 && std::string(argv[1]) == "--server") {
+    const int device = std::stoi(argv[2]);
+    cuda_ok(cudaSetDevice(device), "cudaSetDevice");
+    cuda_ok(cudaFree(nullptr), "initialize CUDA context");
+    std::string input_path, output_path;
+    while (std::getline(std::cin, input_path) &&
+           std::getline(std::cin, output_path)) {
+      try {
+        solve_request(input_path, output_path, device);
+        std::cout << "OK\n" << std::flush;
+      } catch (const std::exception& error) {
+        std::cout << "ERROR " << error.what() << "\n" << std::flush;
+      }
+    }
+    return 0;
+  }
+  throw std::runtime_error(
+      "usage: solver input output device | solver --server device");
 } catch (const std::exception& error) {
   std::cerr << "certitherm_collision_cuda: " << error.what() << '\n';
   return 2;

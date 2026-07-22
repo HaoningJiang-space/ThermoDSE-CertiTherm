@@ -8,7 +8,7 @@ import struct
 import subprocess
 import tempfile
 import time
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -19,6 +19,7 @@ from .collision_proof import (
     ProposalKind,
     verify_proposal,
 )
+from .gpu_collision_broker import request as broker_request
 
 
 _INPUT_HEADER = struct.Struct("<8sIIQQQQQQdd")
@@ -163,11 +164,12 @@ def propose_collision_batch(
     solver: Path,
     *,
     device: int = 0,
-    max_iterations: int = 20_000,
+    max_iterations: int = 1_000,
     check_interval: int = 100,
     feasibility_tolerance: float = 1e-11,
     verification_tolerance: float = 1e-10,
     step_scale: float = 0.9,
+    broker_socket: Optional[Path] = None,
 ) -> Tuple[Tuple[CollisionProposal, ...], Tuple[ProofCheck, ...], GpuCollisionReceipt]:
     """Run approximate GPU search, then independently verify every proposal."""
 
@@ -187,14 +189,19 @@ def propose_collision_batch(
             feasibility_tolerance,
             step_scale,
         )
-        result = subprocess.run(
-            [str(solver), str(input_path), str(output_path), str(device)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-        if result.returncode != 0 or not output_path.is_file():
-            raise RuntimeError("GPU collision proposal failed: " + result.stderr[-800:])
+        if broker_socket is not None:
+            broker_request(broker_socket, input_path, output_path)
+        else:
+            result = subprocess.run(
+                [str(solver), str(input_path), str(output_path), str(device)],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            if result.returncode != 0:
+                raise RuntimeError("GPU collision proposal failed: " + result.stderr[-800:])
+        if not output_path.is_file():
+            raise RuntimeError("GPU collision proposal produced no output")
         kinds, values, iterations, solver_ms = _read_output(output_path, batch)
     violations, primal, dual, spec_dual, eq_dual = values
     proposals = []
