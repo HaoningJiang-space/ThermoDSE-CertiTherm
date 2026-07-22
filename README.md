@@ -1,16 +1,21 @@
 # CertiTherm
 
-CertiTherm synthesizes the least-cost physical observation contract needed to
-make an objective-ordered thermal chiplet-DSE decision identifiable.
+CertiTherm synthesizes a physical observation contract that makes an
+objective-ordered thermal chiplet-DSE decision identifiable. It proves the
+least cost when exact closure is reached; otherwise it returns a replayable
+certified contract, a valid lower bound, the remaining gap, and unresolved
+counterexamples under one wall-clock budget.
 
 The current method is **Decision-Sufficient Observation Synthesis (DSOS)**.
 An ordered-decision decomposition reduces the global query exactly to
-independent candidate-local minimum-cost hitting sets, and continuous LP
-counterexample oracles solve those zero-error subproblems. An `OPTIMAL` result
-carries the selected channels, exact cost, MILP lower bound, LP-relaxation
-bound, and zero gap. `UNSYNTHESIZABLE` carries a cross-decision witness that
-the complete registered channel library cannot separate. Numerical
-uncertainty is always `UNRESOLVED`.
+independent candidate-local minimum-cost hitting sets. Continuous LP oracles
+search for zero-error decision collisions; a finite master accumulates the
+resulting necessary cuts. The frozen Anytime-DSOS controller first obtains an
+oracle-certified upper contract, then spends the remaining budget raising a
+weak-duality lower bound. `OPTIMAL` additionally proves closure, while
+`UNSYNTHESIZABLE` carries a cross-decision witness that the complete registered
+channel library cannot separate. Numerical uncertainty is always
+`UNRESOLVED`.
 
 This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
@@ -25,17 +30,22 @@ make bootstrap
 make check
 ```
 
-`bootstrap` checks out the pinned ThermoDSE and official HotSpot gitlinks,
+`bootstrap` checks out the four pinned ThermoDSE, HotSpot, Rodinia, and SuperLU
+gitlinks,
 creates a pinned Python 3.8-compatible environment, and builds HotSpot from an
-exported source tree. It never modifies either submodule.
+exported source tree. It never modifies a submodule.
 
-Claim-grade runs are executed on moe-server:
+Development and legacy-v1 commands are:
 
 ```bash
 make reproduce-dev
 make heldout
 make package-dev package-heldout
 ```
+
+The v3 claim-grade target is deliberately absent until every pre-open gate in
+`docs/HELDOUT_PROTOCOL_V3.md` closes. This prevents a convenient command from
+opening the split before the code, receipts, and report schema are frozen.
 
 The optional custom FP64 CUDA backend builds all zero/impulse responses in one
 batch while retaining CPU HotSpot as the independent truth backend:
@@ -86,7 +96,7 @@ channels are never asked to identify an unobservable simulator label.
 ## Code map
 
 - `CertiTherm/core.py` — validated power, thermal, action, and certificate data;
-- `CertiTherm/synthesis.py` — exact cross-candidate DSOS;
+- `CertiTherm/synthesis.py` — exact and proof-carrying anytime DSOS core;
 - `CertiTherm/policies.py` — matched fixed, width, and dual-price baselines;
 - `CertiTherm/hotspot.py` — official HotSpot operator construction;
 - `CertiTherm/cli.py` — NPZ/TSV command line;
@@ -94,7 +104,7 @@ channels are never asked to identify an unobservable simulator label.
 - `docs/SPECTRAL_DECISION_ENVELOPE.md` — frequency/modal observability audit;
 - `docs/MEASUREMENT_LIBRARY.md` — obtainable EDA channels and costs;
 - `docs/THERMAL_ERROR_CONTRACT.md` — direct-replay error gate;
-- `docs/HELDOUT_PROTOCOL.md` — frozen 4×3×3 evaluation.
+- `docs/HELDOUT_PROTOCOL_V3.md` — current frozen 4×3×3 evaluation.
 
 ## Evidence status
 
@@ -105,5 +115,7 @@ the active claim path. Historical reports under `CertiTherm/results/` and
 `CertiTherm/audit/` are retained only as an audit trail; they are not current
 results.
 
-No held-out performance result is claimed until the frozen protocol completes
-from a fresh clone and is archived unchanged.
+The v3 non-thermal precheck passed all 12 workload/architecture combinations
+without invoking HotSpot; the primary architecture set remains unchanged.
+No held-out thermal or policy result is claimed until the still-unopened v3
+protocol completes from a fresh clone and is archived unchanged.

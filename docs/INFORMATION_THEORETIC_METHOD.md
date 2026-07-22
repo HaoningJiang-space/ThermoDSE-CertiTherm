@@ -1,6 +1,7 @@
 # Decision-Sufficient Observation Synthesis (DSOS)
 
-Status: method freeze candidate v1; claims require the held-out protocol.
+Status: frozen algorithm for `method-freeze-v3.0`; its held-out split remains
+unopened.
 
 ## Why ordinary information gain is not the right primitive
 
@@ -180,6 +181,53 @@ most \(2^{|\mathcal A|}\) oracle iterations with either:
 
 An implementation iteration cap or a solver failure weakens this to
 `UNRESOLVED`; it never weakens into a certificate. \(\square\)
+
+### Theorem 4: proof-carrying anytime interval
+
+Let \(E_t\) be any set of collision cuts returned by the exact separation
+oracle, and let \(C_t\) be their action-incidence matrix. Every globally
+sufficient contract must cover every row of \(C_t\). Therefore the relaxed
+cover optimum is a lower bound on the full-library optimum \(C^\star\).
+CertiTherm evaluates the Lagrangian bound
+
+\[
+ L_t(y)=\mathbf 1^\top y+
+ \sum_a \min\{0,c_a-(C_t^\top y)_a\},\qquad y\ge0,
+\]
+
+in exact rational arithmetic and converts it to binary64 with directed
+downward rounding. Weak duality gives
+\(L_t(y)\le C^\star\) for every nonnegative \(y\), even when the LP solver's
+dual vector is inaccurate. Because every registered action cost is an integer
+multiple of the exact cost lattice \(g\), every feasible contract cost lies in
+\(g\mathbb Z\); hence
+
+\[
+ \widehat L_t=g\left\lceil L_t(y)/g\right\rceil\le C^\star.
+\]
+
+Independently, if exhaustive separation finds no cross-decision collision for
+a selected contract \(S\), then \(S\) is feasible and
+\(C^\star\le U=C(S)\). Thus every emitted finite interval satisfies
+
+\[
+ \widehat L_t\le C^\star\le U.
+\]
+
+The implementation keeps the largest valid lower bound seen and binds the
+upper cost, registered action IDs, and policy source in one immutable
+contract. Solver failure can remove or loosen a bound; it cannot manufacture a
+certificate. An interval contradiction is reported as `UNRESOLVED` rather
+than clipped. \(\square\)
+
+The frozen controller uses one end-to-end budget. Uncertainty-width sequential
+acquisition first searches for a collision-oracle-certified contract; exact
+constraint generation receives only the measured remaining time. Fixed and
+dual policies have independent comparison budgets and can never be substituted
+into this controller's \(U\). Reports expose both orthogonal dimensions:
+`plan_validity` says whether a replayable contract is certified, while
+`cost_optimality` says whether its cost is self-verifiably optimal,
+solver-attested, bounded by a finite gap, or not applicable.
 
 ### Lemma 4: diagonal coupling for equal candidate states
 
