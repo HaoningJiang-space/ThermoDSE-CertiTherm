@@ -1,6 +1,6 @@
 # Frozen Held-out Protocol v2 — Budgeted Anytime Synthesis
 
-Freeze ID: `method-freeze-v2`
+Freeze ID: `method-freeze-v2.1`
 Freeze date: 2026-07-22
 State: **protocol frozen; no held-out result exists and the held-out split has
 not been opened.**
@@ -53,6 +53,31 @@ Dev showed the two halves of the problem have very different difficulty:
 Note that dual buys only ~1–1.8% over width for ~9x the runtime, so dual is a
 Pareto point, not a headline. v2 reports the cost–runtime frontier rather than
 a single policy.
+
+## Budget definition — what "under a fixed budget" means
+
+v1 gave each method its own 1800 s. Combining the exact path's lower bound with
+width's upper bound under that scheme would NOT describe a single 1800 s
+algorithm; it would be a post-hoc pairing of two independently budgeted runs,
+and reporting it as one anytime method would overstate what was measured.
+
+v2.1 therefore freezes a **single 1800 s end-to-end budget per query** for the
+Anytime-DSOS method:
+
+1. width runs first and produces an oracle-certified contract, giving `U`;
+2. the exact/IHS engine spends the REMAINING budget raising the certified
+   lower bound `L`;
+3. at any point the method returns `L <= C* <= U` with the plan, the bound
+   provenance, the proof kind, the absolute gap and `U/L`.
+
+`fixed` and `dual` remain **independent baselines with their own budgets**.
+They do not contribute to the Anytime-DSOS interval and their costs must not be
+substituted into `U`. If a baseline happens to find a cheaper certified
+contract, that is reported in the Pareto comparison, not folded into the
+method's result.
+
+A run whose `U` and `L` come from separately budgeted executions must be
+labelled as such and is not admissible as an Anytime-DSOS result.
 
 ## Frozen endpoints
 
@@ -109,10 +134,21 @@ Missing them is a negative result to be reported, not a reason to adjust them.
 Development remains ResNet-50 and Transformer on the three dev architectures
 and three package regimes.
 
-The v2 held-out split must be **disjoint from both the dev set and the v1
-held-out set**. Reusing v1's held-out architectures would mean selecting v2
-endpoints with knowledge of data reserved as held-out, even though v1's
-held-out was never opened. The v2 architectures are registered in `experiments/architectures.tsv` under
+**Disjointness rule, stated per axis.** v2.1 supersedes v2's blanket "disjoint
+from both the dev set and the v1 held-out set", which contradicted this
+document's own workload decision below.
+
+- **Architectures MUST be set-disjoint** from dev and from v1 held-out. This is
+  where the split's novelty lives.
+- **Workloads MAY reuse v1's held-out workloads**, on the recorded condition
+  that v1's held-out was never opened and no v1 held-out result exists.
+
+The earlier draft called the reuse "vacuously disjoint". That was wrong and is
+withdrawn: set-disjointness is factually **violated** on the workload axis. The
+defensible claim is narrower — no information flows, because there is no v1
+held-out result for information to flow from. If v1's held-out is ever opened,
+this permission lapses and v2.1 results become non-comparable to any later v1
+result on shared workloads. The v2 architectures are registered in `experiments/architectures.tsv` under
 `split = heldout_v2`, **before any v2 run**:
 
 | id | grid | cut | interval | mtxu | ubuf | nop_bw | dram_bw |
@@ -186,9 +222,8 @@ workloads v1 reserved.
 
 The argument, stated explicitly rather than assumed: v1's held-out was **never
 opened** and **no v1 held-out result exists**, so those workloads carry zero
-information. This document's disjointness requirement exists to prevent a v2
-endpoint being chosen with knowledge of held-out data; with no such data in
-existence, that requirement is vacuously satisfied for the workload axis. The
+information. This document's per-axis rule permits the reuse
+explicitly rather than claiming the sets are disjoint when they are not. The
 *architecture* axis is where genuine novelty is required and arch_g/h/i supply
 it, verified disjoint from both earlier sets.
 

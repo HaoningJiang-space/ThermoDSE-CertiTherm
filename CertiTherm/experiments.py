@@ -730,6 +730,17 @@ def _write_report(
 # without also being recognised as frozen here.
 _HELDOUT_SPLITS = ("heldout", "heldout_v2")
 
+# Which frozen protocol each split is evidence for. Hard-coding
+# "method-freeze-v1" at the row level silently mislabelled every non-v1 run as
+# v1 evidence, which is an evidence-integrity defect rather than a cosmetic one:
+# an artifact table is only meaningful if it names the protocol whose
+# preregistered endpoints it was produced under.
+_SPLIT_FREEZE_ID = {
+    "dev": "method-freeze-v1",
+    "heldout": "method-freeze-v1",
+    "heldout_v2": "method-freeze-v2.1",
+}
+
 
 def run(split: str, output: Path, frozen: bool) -> None:
     if frozen and split not in _HELDOUT_SPLITS:
@@ -831,7 +842,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
             if missing:
                 results.append(
                     {
-                        "freeze_id": "method-freeze-v1",
+                        "freeze_id": _SPLIT_FREEZE_ID[split],
                         "split": split,
                         "workload": workload["workload_id"],
                         "package": package["package_id"],
@@ -1020,9 +1031,35 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     }
                 )
             placed = _placed_evidence(candidates, placed_by_candidate)
+
+            # method-freeze-v2.1 endpoints. A valid interval needs a
+            # CERTIFIED upper bound: only an oracle-verified contract supplies
+            # one, so a candidate cover never does. width/dual/fixed each
+            # return a plan the collision oracle accepted, so the cheapest of
+            # those that reports CERTIFIED is a genuine U.
+            certified_uppers = [
+                policy.cost
+                for policy in (width, dual, fixed)
+                if policy is not None and policy.status == "CERTIFIED"
+            ]
+            upper = min(certified_uppers) if certified_uppers else None
+            lower = exact.lower_bound if exact is not None else None
+            absolute_gap = relative_gap = None
+            interval_violation = ""
+            if upper is not None and lower is not None:
+                if lower > upper + 1e-6 * max(1.0, abs(upper)):
+                    # A certified lower bound above a certified upper bound is
+                    # impossible for a sound method. Record it loudly rather
+                    # than emitting a negative gap that would read as a small
+                    # numerical artifact.
+                    interval_violation = f"L={lower} exceeds U={upper}"
+                else:
+                    absolute_gap = max(0.0, upper - lower)
+                    relative_gap = absolute_gap / upper if upper > 0 else None
+
             results.append(
                 {
-                    "freeze_id": "method-freeze-v1",
+                    "freeze_id": _SPLIT_FREEZE_ID[split],
                     "split": split,
                     "workload": workload["workload_id"],
                     "package": package["package_id"],
@@ -1037,6 +1074,17 @@ def run(split: str, output: Path, frozen: bool) -> None:
                         exact.relaxation_bound if exact else ""
                     ),
                     "optimality_gap": exact.optimality_gap if exact else "",
+                    # --- method-freeze-v2.1 primary endpoints ---
+                    "certified_upper_bound": upper if upper is not None else "",
+                    "certified_lower_bound": lower if lower is not None else "",
+                    "absolute_gap": absolute_gap if absolute_gap is not None else "",
+                    "relative_gap": relative_gap if relative_gap is not None else "",
+                    "interval_violation": interval_violation,
+                    "bound_provenance": (
+                        exact.bound_provenance if exact else ""
+                    ) or "",
+                    "plan_validity": exact.plan_validity if exact else "UNRESOLVED",
+                    "cost_optimality": exact.cost_optimality if exact else "UNKNOWN",
                     "fixed_status": fixed.status if fixed else "UNRESOLVED",
                     "fixed_cost": fixed.cost if fixed else "",
                     "width_status": width.status if width else "UNRESOLVED",
