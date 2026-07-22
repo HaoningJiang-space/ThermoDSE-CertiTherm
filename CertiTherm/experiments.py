@@ -50,6 +50,7 @@ from .spectral import (
     channel_spectral_leverage,
     thermal_spectrum,
 )
+from .solver_budget import budget_scope
 from .synthesis import synthesize_ordered_query
 
 
@@ -868,29 +869,37 @@ def _measurement_costs() -> dict[str, float]:
     return {row["action_class"]: float(row["cost"]) for row in rows}
 
 
-def _budgeted_call(
-    function: Callable[[], _T], budget_s: float
+def _call_under_budget(
+    function: Callable[[], _T], budget_s: float, message: str
 ) -> tuple[Optional[_T], float, str]:
-    """Run one call under an explicit wall-clock budget.
-
-    Same fail-closed contract as `_timed_call` but with the budget passed in,
-    so a controller can split ONE budget across phases instead of each method
-    silently receiving a fresh full budget.
-    """
+    """Run one call under a signal fallback and a native-solver deadline."""
 
     def expire(_signum, _frame) -> None:
-        raise TimeoutError(f"{budget_s:.0f}s budget exhausted")
+        raise TimeoutError(message)
 
     previous = signal.signal(signal.SIGALRM, expire)
     signal.setitimer(signal.ITIMER_REAL, max(budget_s, 0.001))
     started = time.perf_counter()
     try:
-        return function(), time.perf_counter() - started, ""
+        with budget_scope(budget_s):
+            return function(), time.perf_counter() - started, ""
     except Exception as exc:
         return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
+
+
+def _budgeted_call(
+    function: Callable[[], _T], budget_s: float
+) -> tuple[Optional[_T], float, str]:
+    """Run one phase under an explicit share of an end-to-end budget."""
+
+    return _call_under_budget(
+        function,
+        budget_s,
+        f"{budget_s:.0f}s budget exhausted",
+    )
 
 
 @dataclass(frozen=True)
@@ -1233,23 +1242,12 @@ class PreparedQuery:
 def _timed_call(function: Callable[[], _T]) -> TimedResult[_T]:
     """Run one query method with a fail-closed wall-clock budget."""
 
-    def expire(_signum, _frame) -> None:
-        raise TimeoutError(f"{QUERY_METHOD_TIMEOUT_S}s method budget exhausted")
-
-    previous = signal.signal(signal.SIGALRM, expire)
-    signal.setitimer(signal.ITIMER_REAL, QUERY_METHOD_TIMEOUT_S)
-    started = time.perf_counter()
-    try:
-        return TimedResult(function(), time.perf_counter() - started, "")
-    except Exception as exc:
-        return TimedResult(
-            None,
-            time.perf_counter() - started,
-            f"{type(exc).__name__}: {exc}",
-        )
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
+    value, seconds, error = _call_under_budget(
+        function,
+        QUERY_METHOD_TIMEOUT_S,
+        f"{QUERY_METHOD_TIMEOUT_S}s method budget exhausted",
+    )
+    return TimedResult(value, seconds, error)
 
 
 def _evaluate_query_methods(

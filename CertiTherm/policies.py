@@ -11,6 +11,7 @@ import numpy as np
 from scipy.optimize import linprog
 
 from .core import CandidateSpace, MeasurementAction, PowerPolytope, WorldPair
+from .solver_budget import run_highs
 from .synthesis import _collision, _configured_workers, _required_candidate_indices
 
 
@@ -34,8 +35,18 @@ def _width_score(
         bounds=list(zip(polytope.lower_w, polytope.upper_w)),
         method="highs",
     )
-    lower = linprog(action.vector, **kwargs)
-    upper = linprog(-action.vector, **kwargs)
+    lower = run_highs(
+        linprog,
+        action.vector,
+        label="uncertainty-width lower LP",
+        **kwargs,
+    )
+    upper = run_highs(
+        linprog,
+        -action.vector,
+        label="uncertainty-width upper LP",
+        **kwargs,
+    )
     if not lower.success or not upper.success:
         raise RuntimeError("width baseline LP unresolved")
     width = -float(upper.fun) - float(lower.fun)
@@ -247,12 +258,14 @@ def dual_price_greedy(
         )
         residual = cover[unresolved]
         bounds = [(0.0, 0.0) if index in selected else (0.0, 1.0) for index in range(len(actions))]
-        relaxation = linprog(
+        relaxation = run_highs(
+            linprog,
             costs,
             A_ub=-residual,
             b_ub=-np.ones(len(residual)),
             bounds=bounds,
             method="highs",
+            label="dual-price policy LP",
         )
         if not relaxation.success:
             return PolicyResult("UNRESOLVED", (), float("nan"), calls + 1)

@@ -33,6 +33,7 @@ from .core import (
     ThermalFamily,
     WorldPair,
 )
+from .solver_budget import run_highs
 
 
 class UnresolvedComputation(RuntimeError):
@@ -160,6 +161,7 @@ def _solve_collision_spec(
     )
     result = _unresolved_solve(
         "collision LP",
+        run_highs,
         linprog,
         problem.objective,
         A_ub=np.vstack((problem.common_a_ub, reject_row)),
@@ -168,6 +170,7 @@ def _solve_collision_spec(
         b_eq=problem.b_eq,
         bounds=problem.bounds,
         method="highs",
+        label="collision LP",
         options={
             "primal_feasibility_tolerance": problem.feasibility_tolerance,
             "dual_feasibility_tolerance": problem.feasibility_tolerance,
@@ -510,7 +513,8 @@ def _single_state_world(
                 )
             )
             model_id = thermal.model_ids[model]
-        result = linprog(
+        result = run_highs(
+            linprog,
             np.zeros(power.dimension),
             A_ub=rows,
             b_ub=rhs,
@@ -518,6 +522,7 @@ def _single_state_world(
             b_eq=power.b_eq,
             bounds=list(zip(power.lower_w, power.upper_w)),
             method="highs",
+            label="state feasibility LP",
             options={
                 "primal_feasibility_tolerance": feasibility_tolerance,
                 "dual_feasibility_tolerance": feasibility_tolerance,
@@ -588,7 +593,8 @@ def _state_collision(
             if action_rows:
                 chunks.append(np.asarray(action_rows))
                 rhs_chunks.append(np.asarray(action_rhs))
-            result = linprog(
+            result = run_highs(
+                linprog,
                 np.zeros(2 * n),
                 A_ub=np.vstack(chunks),
                 b_ub=np.concatenate(rhs_chunks),
@@ -596,6 +602,7 @@ def _state_collision(
                 b_eq=b_eq,
                 bounds=bounds,
                 method="highs",
+                label="query collision LP",
                 options={
                     "primal_feasibility_tolerance": feasibility_tolerance,
                     "dual_feasibility_tolerance": feasibility_tolerance,
@@ -776,12 +783,14 @@ def _solve_master(
     cover = np.asarray(cuts, dtype=float)
     columns, reduced_cover = _undominated_columns(costs, cover)
     reduced_costs = costs[columns]
-    relaxed = linprog(
+    relaxed = run_highs(
+        linprog,
         reduced_costs,
         A_ub=-reduced_cover,
         b_ub=-np.ones(len(cuts)),
         bounds=[(0.0, 1.0)] * reduced_costs.size,
         method="highs",
+        label="observation-master LP relaxation",
     )
     if not relaxed.success:
         raise UnresolvedComputation("observation master did not solve to optimality")
@@ -844,11 +853,13 @@ def _solve_master(
     constraint = LinearConstraint(
         reduced_cover, np.ones(len(cuts)), np.full(len(cuts), np.inf)
     )
-    integer = milp(
+    integer = run_highs(
+        milp,
         c=reduced_costs,
         integrality=np.ones(reduced_costs.size),
         bounds=Bounds(np.zeros(reduced_costs.size), np.ones(reduced_costs.size)),
         constraints=constraint,
+        label="observation-master MILP",
         options={"mip_rel_gap": 0.0},
     )
     if not integer.success:
@@ -1091,12 +1102,14 @@ def _anytime_lower_bound(
         return None
 
     try:
-        relaxed = linprog(
+        relaxed = run_highs(
+            linprog,
             costs,
             A_ub=-cover,
             b_ub=-np.ones(cover.shape[0]),
             bounds=[(0.0, 1.0)] * costs.size,
             method="highs",
+            label="anytime lower-bound LP",
         )
     except (ValueError, TypeError):
         return None
@@ -1366,14 +1379,15 @@ def synthesize_minimum_observation(
     separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
     separation_workers: Optional[int] = None,
-    bound_interval: int = 0,
+    bound_interval: Optional[int] = None,
 ) -> ObservationPlan:
     """Synthesize the exact minimum-cost non-adaptive observation plan.
 
-    `bound_interval` refreshes the anytime LP lower bound every N iterations
-    during cut discovery (0 disables periodic refresh). The bound is computed
-    once at exit regardless, so an unfinished run still reports how close its
-    accumulated cuts came to proving the candidate optimal.
+    By default the anytime LP lower bound is refreshed at geometric checkpoints
+    1, 2, 4, 8, ... during cut discovery. This retains recent proof progress
+    with only logarithmically many extra solves. A positive `bound_interval`
+    requests a fixed cadence; 0 disables periodic refresh. The bound is also
+    attempted once at normal exit.
     """
 
     # Hoisted above the try so a failure at iteration N still reports the work
@@ -1441,7 +1455,7 @@ def synthesize_minimum_observation(
             raise ContractViolation("measurement action IDs must be unique")
         if margin_k <= 0 or feasibility_tolerance <= 0 or separation_tolerance < 0:
             raise ContractViolation("invalid registered tolerance")
-        if bound_interval < 0:
+        if bound_interval is not None and bound_interval < 0:
             raise ContractViolation("bound_interval must be nonnegative")
 
         costs = np.asarray([action.cost for action in actions])
@@ -1531,7 +1545,12 @@ def synthesize_minimum_observation(
             selected = _greedy_cover(costs, cuts)
             covered_cut_count = len(cuts)
             exact_candidate = False
-            if bound_interval and iteration % bound_interval == 0:
+            refresh_due = (
+                iteration & (iteration - 1) == 0
+                if bound_interval is None
+                else bool(bound_interval and iteration % bound_interval == 0)
+            )
+            if refresh_due:
                 _refresh_bound()
         _refresh_bound()
 
