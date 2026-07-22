@@ -52,7 +52,7 @@ CUDA_VISIBLE_DEVICES=0 make v3-dev-rehearsal
 ```
 
 It builds and checks the GPU backend, then runs `method-freeze-v3.0` on the
-existing development registry under a 150-second query budget. It writes
+existing development registry under the frozen 1800-second query budget. It writes
 `split=dev_v3`, `registry_split=dev`, and a fixed full result schema, so it
 cannot be confused with either v1 evidence or the unopened v3 held-out split.
 The command refuses an existing output directory. The v3 **held-out** target

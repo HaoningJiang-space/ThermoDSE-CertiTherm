@@ -12,7 +12,7 @@ SUPERLU_BLAS := $(SUPERLU_BUILD)/CBLAS/libblas.a
 CUDA_NVCC ?= /usr/local/cuda-12.8/bin/nvcc
 CUDA_ARCH ?= sm_80
 CERTITHERM_LP_WORKERS ?= 1
-V3_REHEARSAL_BUDGET ?= 150
+V3_REHEARSAL_BUDGET ?= 1800
 V3_REHEARSAL_OUTPUT ?= artifacts/v3-dev-rehearsal
 
 .PHONY: bootstrap gpu-bootstrap check gpu-check test hotspot-smoke gpu-parity gpu-production-parity reproduce-dev reproduce-dev-gpu v3-dev-rehearsal heldout package-dev package-heldout clean-generated

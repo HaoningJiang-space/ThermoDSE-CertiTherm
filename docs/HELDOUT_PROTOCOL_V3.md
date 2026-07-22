@@ -148,7 +148,10 @@ Only then may the protocol become `READY_UNOPENED` and obtain a Make target.
 2. [complete] Commit the receipt and accept the unchanged primary set under
    the frozen rule.
 3. [pending] Run the full core tests and a dev-only value-populating rehearsal from the
-   exact candidate commit.
+   exact candidate commit. A first 150-second infrastructure rehearsal completed
+   cleanly but populated neither U nor L; it is archived in
+   `V3_DEV_REHEARSAL_EVIDENCE.md` and does not satisfy this condition. The
+   value rehearsal therefore uses the protocol's actual 1800-second budget.
 4. [pending] Audit the report schema, secret/path scan, submodule pins, and artifact
    producer labels.
 5. [pending] Change the state to `READY_UNOPENED`, enable the frozen guard, and then open
