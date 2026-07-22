@@ -72,7 +72,8 @@ CALIBRATION_VECTOR_IDS = (
 # budget differs from 1800 must be labelled as such and must never be reported
 # against a frozen pass condition.
 QUERY_METHOD_TIMEOUT_S = float(os.environ.get("CERTITHERM_QUERY_BUDGET_S", "1800"))
-_BUDGET_IS_FROZEN = abs(QUERY_METHOD_TIMEOUT_S - 1800.0) < 1e-9
+FROZEN_QUERY_BUDGET_S = 1800.0
+_BUDGET_IS_FROZEN = abs(QUERY_METHOD_TIMEOUT_S - FROZEN_QUERY_BUDGET_S) < 1e-9
 _T = TypeVar("_T")
 
 
@@ -1115,6 +1116,7 @@ def _write_report(
 # v1. They are listed together so a future split cannot be added to the CLI
 # without also being recognised as frozen here.
 _HELDOUT_SPLITS = ("heldout", "heldout_v2")
+_BURNED_SPLITS = frozenset({"heldout_v2"})
 
 # Which frozen protocol each split is evidence for. Hard-coding
 # "method-freeze-v1" at the row level silently mislabelled every non-v1 run as
@@ -1128,9 +1130,52 @@ _SPLIT_FREEZE_ID = {
 }
 
 
-def run(split: str, output: Path, frozen: bool) -> None:
-    if frozen and split not in _HELDOUT_SPLITS:
+def _validate_run_request(
+    split: str,
+    frozen: bool,
+    budget_s: Optional[float] = None,
+) -> None:
+    """Reject requests that cannot produce protocol-valid evidence."""
+
+    if split not in _SPLIT_FREEZE_ID:
+        raise ValueError(f"unregistered experiment split {split}")
+    if not frozen:
+        return
+    if split not in _HELDOUT_SPLITS:
         raise ValueError("--frozen is reserved for a held-out split")
+    if split in _BURNED_SPLITS:
+        raise ValueError(
+            f"{split} is OPENED_INVALID / PILOT_ONLY and cannot be frozen evidence"
+        )
+    actual_budget = QUERY_METHOD_TIMEOUT_S if budget_s is None else budget_s
+    if (
+        not np.isfinite(actual_budget)
+        or abs(actual_budget - FROZEN_QUERY_BUDGET_S) >= 1e-9
+    ):
+        raise ValueError(
+            f"frozen runs require exactly {FROZEN_QUERY_BUDGET_S:.0f}s per query; "
+            f"got {actual_budget}"
+        )
+
+
+def _assert_clean_revision() -> None:
+    """Require a committed, attribution-safe worktree before frozen evidence."""
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--ignore-submodules=none"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if status:
+        raise RuntimeError(f"frozen run requires a clean revision:\n{status}")
+
+
+def run(split: str, output: Path, frozen: bool) -> None:
+    _validate_run_request(split, frozen)
+    if frozen:
+        _assert_clean_revision()
     if not HOTSPOT.is_file() or not THERMODSE.is_dir():
         raise RuntimeError("run make bootstrap before experiments")
     output.mkdir(parents=True, exist_ok=True)
