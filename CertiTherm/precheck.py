@@ -12,7 +12,6 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 import socket
-import subprocess
 import sys
 import traceback
 from typing import Iterable, Mapping
@@ -21,6 +20,7 @@ from .experiments import (
     ROOT,
     THERMODSE,
     _assert_clean_revision,
+    _git_revision,
     _rows,
     _sha256,
     _write_tsv,
@@ -90,16 +90,6 @@ def classify_precheck(
     if invalid_candidates or minimum_gap < MIN_ADJACENT_EDYP_GAP:
         return REPLACEMENT_REQUIRED
     return PASS
-
-
-def _git_revision(path: Path) -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=path,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
 
 
 def run(output: Path) -> bool:

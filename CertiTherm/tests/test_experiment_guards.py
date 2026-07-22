@@ -94,3 +94,24 @@ def test_v3_registry_is_new_on_both_heldout_axes() -> None:
         and float(row["sparsity"]) == 0.0
         for row in v3_workloads
     )
+
+
+def test_hotspot_binary_must_match_bootstrap_receipt(tmp_path) -> None:
+    binary = tmp_path / "hotspot"
+    receipt = tmp_path / "SHA256SUMS"
+    binary.write_bytes(b"pinned binary")
+    digest = experiments._sha256(binary)
+    receipt.write_text(f"{digest}  hotspot\n", encoding="utf-8")
+    assert experiments._verified_binary_digest(binary, receipt) == digest
+
+    receipt.write_text(f"{'0' * 64}  hotspot\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="no longer matches"):
+        experiments._verified_binary_digest(binary, receipt)
+
+
+def test_producer_label_names_the_actual_split() -> None:
+    assert "--split dev" in experiments._canonical_producer("dev", False)
+    v3 = experiments._canonical_producer("heldout_v3", True)
+    assert "--split heldout_v3" in v3
+    assert v3.endswith("--frozen")
+    assert "/home/" not in v3 and "/data/" not in v3

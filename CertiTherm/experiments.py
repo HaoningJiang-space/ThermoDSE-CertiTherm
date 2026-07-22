@@ -6,12 +6,14 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import csv
+from datetime import datetime, timezone
 import hashlib
 import os
 from pathlib import Path
 import re
 import shlex
 import shutil
+import socket
 from dataclasses import dataclass
 import signal
 import subprocess
@@ -58,6 +60,17 @@ GPU_HOTSPOT_SOLVER = ROOT / ".build" / "hotspot-cuda" / "certitherm_hotspot_cuda
 MODELS = ("block", "grid64-avg", "grid128-avg")
 THERMAL_LIMIT_K = 330.0
 MODEL_ERROR_LIMIT_K = 0.01
+SUBMODULE_PATHS = ("ThermoDSE", "HotSpot", "Rodinia", "SuperLU")
+RESULT_ARTIFACT_NAMES = frozenset(
+    {
+        "results.tsv",
+        "plans.tsv",
+        "REPORT.md",
+        "witnesses.tsv",
+        "witness_replays.tsv",
+        "spectral_envelopes.tsv",
+    }
+)
 HOTSPOT_TOTAL_WORKERS = min(48, os.cpu_count() or 1)
 OPERATOR_WORKERS = min(3, HOTSPOT_TOTAL_WORKERS)
 HOTSPOT_WORKERS = max(1, HOTSPOT_TOTAL_WORKERS // OPERATOR_WORKERS)
@@ -103,6 +116,30 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _git_revision(path: Path) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _verified_binary_digest(binary: Path, receipt: Path) -> str:
+    """Return a binary digest only when its bootstrap receipt still matches."""
+
+    if not binary.is_file() or not receipt.is_file():
+        raise RuntimeError("HotSpot build or bootstrap digest receipt is missing")
+    fields = receipt.read_text(encoding="utf-8").split()
+    if not fields:
+        raise RuntimeError("HotSpot bootstrap digest receipt is empty")
+    actual = _sha256(binary)
+    if fields[0] != actual:
+        raise RuntimeError("HotSpot binary no longer matches its bootstrap receipt")
+    return actual
 
 
 def _architecture(row: dict[str, str]) -> list[float]:
@@ -1496,12 +1533,77 @@ def _assert_clean_revision() -> None:
         raise RuntimeError(f"frozen run requires a clean revision:\n{status}")
 
 
+def _canonical_producer(split: str, frozen: bool) -> str:
+    command = (
+        f"python -m CertiTherm.experiments --split {split} "
+        "--output <artifact-root>"
+    )
+    return command + (" --frozen" if frozen else "")
+
+
+def _artifact_role(path: Path) -> str:
+    if path.name == "RUN_RECEIPT.tsv":
+        return "receipt"
+    if (
+        path.name in RESULT_ARTIFACT_NAMES
+        or "witnesses" in path.parts
+        or "witness_replays" in path.parts
+    ):
+        return "result"
+    return "scientific_input"
+
+
+def _run_receipt(
+    split: str,
+    frozen: bool,
+    started_at: datetime,
+    hotspot_digest: str,
+) -> dict[str, object]:
+    """Build one complete, path-private provenance row for an artifact."""
+
+    registries = {
+        name: _sha256(ROOT / "experiments" / f"{name}.tsv")
+        for name in ("architectures", "workloads", "packages", "measurements")
+    }
+    submodules = {
+        f"{name.lower()}_sha": _git_revision(ROOT / name)
+        for name in SUBMODULE_PATHS
+    }
+    return {
+        "freeze_id": _SPLIT_FREEZE_ID[split],
+        "protocol_state": _SPLIT_PROTOCOL_STATE[split],
+        "split": split,
+        "frozen": int(frozen),
+        "query_budget_s": QUERY_METHOD_TIMEOUT_S,
+        "budget_is_frozen": int(_BUDGET_IS_FROZEN),
+        "git_sha": _git_revision(ROOT),
+        **submodules,
+        "hotspot_binary_sha256": hotspot_digest,
+        "operator_backend": (
+            "gpu-proposal+cpu-hotspot-calibration"
+            if os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") == "1"
+            else "cpu-hotspot"
+        ),
+        **{f"{name}_registry_sha256": digest for name, digest in registries.items()},
+        "host": socket.gethostname(),
+        "python": sys.version.split()[0],
+        "started_at_utc": started_at.isoformat(),
+        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "producer": _canonical_producer(split, frozen),
+    }
+
+
 def run(split: str, output: Path, frozen: bool) -> None:
+    started_at = datetime.now(timezone.utc)
     _validate_run_request(split, frozen)
     if frozen:
         _assert_clean_revision()
     if not HOTSPOT.is_file() or not THERMODSE.is_dir():
         raise RuntimeError("run make bootstrap before experiments")
+    hotspot_digest = _verified_binary_digest(
+        HOTSPOT,
+        HOTSPOT.parent / "SHA256SUMS",
+    )
     output.mkdir(parents=True, exist_ok=True)
     architectures = sorted(
         (
@@ -1853,13 +1955,11 @@ def run(split: str, output: Path, frozen: bool) -> None:
         failures,
         spectral_rows,
     )
-    git_sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    git_sha = _git_revision(ROOT)
+    _write_tsv(
+        output / "RUN_RECEIPT.tsv",
+        [_run_receipt(split, frozen, started_at, hotspot_digest)],
+    )
     scientific_paths = [
         path
         for path in sorted(output.rglob("*"))
@@ -1886,25 +1986,11 @@ def run(split: str, output: Path, frozen: bool) -> None:
         ):
             artifacts.append(
                 {
-                    "role": (
-                        "result"
-                        if path.name
-                        in {
-                            "results.tsv",
-                            "plans.tsv",
-                            "REPORT.md",
-                            "witnesses.tsv",
-                            "witness_replays.tsv",
-                            "spectral_envelopes.tsv",
-                        }
-                        or "witnesses" in path.parts
-                        or "witness_replays" in path.parts
-                        else "scientific_input"
-                    ),
+                    "role": _artifact_role(path.relative_to(output)),
                     "path": str(path.relative_to(output)),
                     "sha256": _sha256(path),
                     "git_sha": git_sha,
-                    "producer": f"make {'heldout' if frozen else 'reproduce-dev'}",
+                    "producer": _canonical_producer(split, frozen),
                 }
             )
     _write_tsv(output / "ARTIFACTS.tsv", artifacts)
