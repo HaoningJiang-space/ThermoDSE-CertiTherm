@@ -17,7 +17,6 @@ It then executes the G3 suite runner and writes:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -106,10 +105,6 @@ def _component_group(name: str) -> str:
     if "_" in name and name.rsplit("_", 1)[1].isdigit():
         return name.rsplit("_", 1)[0]
     return name
-
-
-def _sha_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 def _template_root() -> Path:

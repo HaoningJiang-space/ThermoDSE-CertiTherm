@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from CertiTherm import experiments
 from CertiTherm.core import (
     CandidateSpace,
     MeasurementAction,
@@ -71,3 +72,54 @@ def test_query_batch_rejects_nonpositive_worker_count() -> None:
             include_anytime=False,
             workers=0,
         )
+
+
+def test_worker_failure_is_archived_without_dropping_the_query(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class FailedFuture:
+        def result(self):
+            raise RuntimeError("worker disappeared")
+
+    class FailedPool:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def submit(self, *_args):
+            return FailedFuture()
+
+    monkeypatch.setattr(experiments, "ProcessPoolExecutor", FailedPool)
+    query = _prepared_query("failed")
+    results = _evaluate_query_batch(
+        (query,),
+        include_anytime=True,
+        workers=2,
+    )
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.exact.value is None
+    assert "worker disappeared" in result.query_error
+    assert tuple(result.errors) == ("query_worker",)
+    assert result.anytime is not None
+    assert result.anytime.plan_validity == "UNRESOLVED"
+    assert "worker disappeared" in result.anytime.error
+
+    evidence = experiments._archive_query_evidence(
+        query,
+        result,
+        split="dev",
+        operators={},
+        output=tmp_path,
+    )
+    assert evidence.result["plan_validity"] == "UNRESOLVED"
+    assert "query_worker=" in evidence.result["failure"]
+    assert len(evidence.failures) == 1
+    assert evidence.failures[0]["stage"] == "query_worker"

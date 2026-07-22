@@ -45,6 +45,9 @@ wall-clock throughput, not the per-query feasible set, objective, budget, or
 proof rule. `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, and `MKL_NUM_THREADS`
 are each frozen to one before Python starts, preventing hidden nested
 parallelism; their values are also stored in the run receipt.
+If a query worker or the pool fails, its registry slot is retained as an
+explicit `UNRESOLVED` row with a `query_worker` failure record. Process
+parallelism therefore cannot silently shorten the evidence table.
 
 The fixed, width, dual, and exact methods also run as independently budgeted
 baselines. Their values cannot be substituted into the Anytime interval.

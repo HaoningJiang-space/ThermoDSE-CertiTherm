@@ -1012,9 +1012,12 @@ class QueryMethodResults:
     width: TimedResult[PolicyResult]
     dual: TimedResult[PolicyResult]
     anytime: Optional[AnytimeResult]
+    query_error: str = ""
 
     @property
     def errors(self) -> dict[str, str]:
+        if self.query_error:
+            return {"query_worker": self.query_error}
         methods = (
             ("exact_dsos", self.exact),
             ("fixed_early_stop", self.fixed),
@@ -1102,6 +1105,30 @@ def _evaluate_prepared_query(
     )
 
 
+def _failed_query_methods(
+    error: str,
+    *,
+    include_anytime: bool,
+) -> QueryMethodResults:
+    """Represent an infrastructure failure without losing the query row."""
+
+    failed_exact: TimedResult[QueryObservationPlan] = TimedResult(None, 0.0, "")
+    failed_policy: TimedResult[PolicyResult] = TimedResult(None, 0.0, "")
+    anytime = (
+        AnytimeResult(None, None, 0.0, 0.0, errors=(error,))
+        if include_anytime
+        else None
+    )
+    return QueryMethodResults(
+        exact=failed_exact,
+        fixed=failed_policy,
+        width=failed_policy,
+        dual=failed_policy,
+        anytime=anytime,
+        query_error=error,
+    )
+
+
 def _evaluate_query_batch(
     queries: Sequence[PreparedQuery],
     *,
@@ -1112,8 +1139,10 @@ def _evaluate_query_batch(
 
     The old failed parallel path built a spawn-context pool inside every
     separation iteration. Here the pool is created exactly once for the whole
-    experiment and each task runs a complete query. `map` preserves registry
-    order, so scheduling cannot reorder evidence rows.
+    experiment and each task runs a complete query. Futures are consumed in
+    registry order, so scheduling cannot reorder evidence rows. A worker or
+    pool failure becomes an explicit unresolved row; KeyboardInterrupt and
+    other BaseException control flow still propagate.
     """
 
     if workers < 1:
@@ -1124,11 +1153,31 @@ def _evaluate_query_batch(
     if workers == 1:
         return tuple(_evaluate_prepared_query(job) for job in jobs)
     context = multiprocessing.get_context("spawn")
-    with ProcessPoolExecutor(
-        max_workers=min(workers, len(jobs)),
-        mp_context=context,
-    ) as pool:
-        return tuple(pool.map(_evaluate_prepared_query, jobs))
+    try:
+        with ProcessPoolExecutor(
+            max_workers=min(workers, len(jobs)),
+            mp_context=context,
+        ) as pool:
+            futures = [pool.submit(_evaluate_prepared_query, job) for job in jobs]
+            results = []
+            for future in futures:
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    error = f"query worker failure: {type(exc).__name__}: {exc}"
+                    results.append(
+                        _failed_query_methods(
+                            error,
+                            include_anytime=include_anytime,
+                        )
+                    )
+            return tuple(results)
+    except Exception as exc:
+        error = f"query pool failure: {type(exc).__name__}: {exc}"
+        return tuple(
+            _failed_query_methods(error, include_anytime=include_anytime)
+            for _query in queries
+        )
 
 
 def _ordered_outcome(

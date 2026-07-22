@@ -32,7 +32,6 @@ sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE/tools')
 sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE/core')
 
 from core.chiplet_eva import chiplet_evaluator
-from core.gen_hw_setting import nop_setting_gen
 
 
 def get_evaluator(sys_info, sim_path, hotspot_path, power_mode='uniform'):
