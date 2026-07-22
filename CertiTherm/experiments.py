@@ -997,9 +997,13 @@ def _call_under_budget(
     onto 52 cores, and a process descheduled in that interval sits there for
     milliseconds. It showed up on 2 of 6 rehearsal rows.
 
-    Two defences, because neither alone is airtight in pure Python: disarm
-    *inside* the guarded region so a racing alarm is still caught, and gate the
-    handler on a completion flag so any later delivery is a no-op.
+    Three defences, because none alone is airtight in pure Python: disarm
+    *inside* the guarded region so a racing alarm is still caught; gate the
+    handler on a completion flag so a later delivery is a no-op; and wrap the
+    whole thing so anything that still escapes is converted rather than raised.
+    The third matters for one residual sequence the first two cannot close -- a
+    NON-timeout exception raised close to the deadline, with the alarm then
+    delivered during the few bytecodes of the `except` body before it disarms.
 
     **The budget must actually bind.** Disarming unconditionally on exit meant a
     nested call that finished early cancelled its caller's deadline, after which
@@ -1017,6 +1021,21 @@ def _call_under_budget(
             return
         raise TimeoutError(message)
 
+    def guarded() -> tuple[Optional[_T], float, str]:
+        nonlocal finished
+        try:
+            with budget_scope(budget_s):
+                value = function()
+            # Disarmed INSIDE the try: an alarm racing this call is still
+            # caught below and reported as an ordinary timeout.
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            finished = True
+            return value, time.perf_counter() - started, ""
+        except Exception as exc:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            finished = True
+            return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
+
     # An outer budget still owns whatever time remains on it; this call may
     # tighten that deadline but must never extend or discard it.
     outer_remaining = signal.getitimer(signal.ITIMER_REAL)[0]
@@ -1028,17 +1047,9 @@ def _call_under_budget(
     signal.setitimer(signal.ITIMER_REAL, effective)
     started = time.perf_counter()
     try:
-        with budget_scope(budget_s):
-            value = function()
-        # Inside the `try` deliberately: an alarm racing this disarm is still
-        # caught below and reported as an ordinary timeout.
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        finished = True
-        return value, time.perf_counter() - started, ""
-    except Exception as exc:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        finished = True
-        return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
+        return guarded()
+    except TimeoutError:
+        return None, time.perf_counter() - started, f"TimeoutError: {message}"
     finally:
         finished = True
         signal.setitimer(signal.ITIMER_REAL, 0)

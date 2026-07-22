@@ -173,3 +173,40 @@ def test_containment_failure_keeps_child_side_elapsed_time() -> None:
     # Labelled as a containment failure, NOT relabelled as an ordinary timeout:
     # the gate depends on telling those apart.
     assert result.error.startswith("method containment failure")
+
+
+def test_alarm_during_exception_handling_does_not_escape(monkeypatch) -> None:
+    """The one window the inner defences cannot close.
+
+    A NON-timeout exception raised close to the deadline, with the alarm then
+    delivered during the few bytecodes of the `except` body before it disarms.
+    Pure Python cannot make that sequence atomic, so an outer guard converts it
+    instead of letting it propagate.
+
+    Simulated by delaying the disarm that the `except` body performs, which is
+    what a descheduled process looks like to a pending signal.
+    """
+
+    real_setitimer = signal.setitimer
+    widen = {"armed": True}
+
+    def slow_setitimer(which, value, *rest):
+        if widen["armed"] and value == 0:
+            widen["armed"] = False
+            _spin(0.3)
+        return real_setitimer(which, value, *rest)
+
+    def raises_other() -> None:
+        _spin(0.05)
+        raise ValueError("a different failure near the deadline")
+
+    monkeypatch.setattr(signal, "setitimer", slow_setitimer)
+
+    value, seconds, error = _call_under_budget(
+        raises_other, 0.2, "exception-window budget exhausted"
+    )
+
+    assert value is None
+    # Either the original error or the timeout is a legitimate report; raising
+    # is not.
+    assert error.startswith("ValueError") or error.startswith("TimeoutError")
