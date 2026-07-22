@@ -5,3 +5,7 @@ mobilenetv2	heldout	mobilenet	4	2	0.368
 unet	heldout	unet	2	1	0.453
 yolov2	heldout	yolo	4	4	0.009
 googlenet	heldout	googlenet	2	2	0.375
+mobilenetv2_v2	heldout_v2	mobilenet	4	2	0.368
+unet_v2	heldout_v2	unet	2	1	0.453
+yolov2_v2	heldout_v2	yolo	4	4	0.009
+googlenet_v2	heldout_v2	googlenet	2	2	0.375

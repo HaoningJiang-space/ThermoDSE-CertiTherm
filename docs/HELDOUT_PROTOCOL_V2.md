@@ -180,24 +180,32 @@ v2 has no entry there. Registering only half a split is a preregistration that
 cannot be honoured, and the driver's refusal to emit an empty evidence table is
 what caught it.
 
-Choosing the v2 workloads is a preregistration decision that must be made and
-recorded here BEFORE any run, exactly like the architectures were. It is
-deliberately left open rather than filled in hastily under time pressure,
-because picking workloads is precisely the kind of choice that must not be made
-with any result in view.
+**Workload decision, recorded 2026-07-22 before any v2 result exists.**
+v2 uses `mobilenetv2`, `unet`, `yolov2` and `googlenet` — the same four
+workloads v1 reserved.
 
-Note for whoever closes this: v1's held-out workloads (mobilenetv2, unet,
-yolov2, googlenet) carry no information, since v1's held-out was never opened
-and no v1 result exists. Reusing them with the disjoint v2 architectures would
-therefore leak nothing — but that argument should be stated and accepted
-explicitly in this document before it is acted on, not assumed.
+The argument, stated explicitly rather than assumed: v1's held-out was **never
+opened** and **no v1 held-out result exists**, so those workloads carry zero
+information. This document's disjointness requirement exists to prevent a v2
+endpoint being chosen with knowledge of held-out data; with no such data in
+existence, that requirement is vacuously satisfied for the workload axis. The
+*architecture* axis is where genuine novelty is required and arch_g/h/i supply
+it, verified disjoint from both earlier sets.
+
+What preregistration protects against here is selecting workloads to flatter a
+result. That is impossible in this instance: zero v2 results exist to select
+toward, and this commitment is recorded before the first query runs. Deferring
+the choice would add no scientific protection, only delay.
+
+The resulting matrix is 4 workloads x 3 architectures x 3 packages = 36 cases
+grouped into 12 ordered three-candidate queries, matching v1's shape so the two
+freezes remain comparable.
 
 Remaining preconditions before a v2 run:
 
 1. ~~Confirm ThermoDSE feasibility and non-degenerate EDYP ordering~~ — DONE
    2026-07-22, passed; see Separation.
-2. Register the v2 workloads in `experiments/workloads.tsv` under
-   `split = heldout_v2`, with the reasoning recorded above.
+2. ~~Register the v2 workloads~~ — DONE 2026-07-22, see Separation.
 3. Build the physical HotSpot operators for the v2 architecture x package grid,
    with the direct-replay error contract enforced as in v1.
 4. Execute with the timeout-preservation fix present, so a budget-exhausted
