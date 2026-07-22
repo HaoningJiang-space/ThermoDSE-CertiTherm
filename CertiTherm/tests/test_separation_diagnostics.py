@@ -215,3 +215,35 @@ def test_diagnostics_are_present_in_the_result_schema() -> None:
     # assert "ran and did nothing", a different claim from "never reported".
     blank = _diagnostic_result_fields(None)
     assert set(blank.values()) == {""}
+
+
+def test_bound_provenance_is_explicit_and_the_schema_is_versioned() -> None:
+    """`milp_lower_bound` is a legacy name that often holds an LP bound.
+
+    `_solve_master` runs only on the collision-free branch, so on every other
+    path the value comes from `_anytime_lower_bound` -- a weak-duality
+    Lagrangian, not a MILP bound. The two differ by orders of magnitude in
+    practice, so the row must carry the provenance explicitly rather than
+    leaving a reader to infer the algorithm from a column name.
+    """
+
+    from CertiTherm.experiments import (
+        RESULT_SCHEMA_VERSION,
+        _diagnostic_result_fields,
+        _result_fieldnames,
+    )
+
+    fields = _result_fieldnames("dev_v3")
+    assert "exact_lower_bound_provenance" in fields
+    assert "result_schema_version" in fields
+    assert RESULT_SCHEMA_VERSION >= 2
+
+    candidates, actions = _two_candidate_instance()
+    plan = synthesize_ordered_query(candidates, actions)
+    row = _diagnostic_result_fields(plan)
+    assert row["exact_lower_bound_provenance"] in (
+        "weak_duality",
+        "solver_branch_and_bound",
+        "",
+    )
+    assert row["exact_lower_bound_provenance"] == (plan.bound_provenance or "")

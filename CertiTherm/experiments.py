@@ -874,7 +874,16 @@ def _write_tsv(
         writer.writerows(rows)
 
 
+# Bumped whenever the result-table contract changes shape. Explicit, because
+# adding or removing a column silently changes what a downstream reader can
+# assume -- and one column here (`milp_lower_bound`) already carries a name
+# that misdescribes its contents for compatibility reasons.
+#   1 -> pre-diagnostics (method-freeze-v1 through v3.1 rehearsals)
+#   2 -> adds separation diagnostics and explicit bound provenance
+RESULT_SCHEMA_VERSION = 2
+
 _BASE_RESULT_FIELDS = (
+    "result_schema_version",
     "freeze_id",
     "split",
     "registry_split",
@@ -911,6 +920,17 @@ _ANYTIME_RESULT_FIELDS = (
 # schedule that never reached most of its subproblems. They are observational
 # only -- no status, bound, or gate condition reads them.
 _DIAGNOSTIC_RESULT_FIELDS = (
+    # Which algorithm actually produced `milp_lower_bound` for this row.
+    # `milp_lower_bound` is a LEGACY NAME and is frequently NOT a MILP bound:
+    # `_solve_master` runs only on the collision-free branch, so on every other
+    # path the value comes from `_anytime_lower_bound`, an LP weak-duality
+    # Lagrangian. The two differ by orders of magnitude in practice, so no
+    # downstream reader may infer the algorithm from the column name.
+    #   weak_duality           -> restricted-master LP Lagrangian
+    #   solver_branch_and_bound-> restricted-master MILP asserted dual bound
+    # The value is a query-level aggregate: a sum over candidate-local bounds,
+    # which `exact_candidates_completed` qualifies.
+    "exact_lower_bound_provenance",
     "exact_iterations",
     "exact_candidates_required",
     "exact_candidates_completed",
@@ -1333,6 +1353,7 @@ def _diagnostic_result_fields(
     if exact is None:
         return {field: "" for field in _DIAGNOSTIC_RESULT_FIELDS}
     return {
+        "exact_lower_bound_provenance": exact.bound_provenance or "",
         "exact_iterations": exact.iterations,
         "exact_candidates_required": exact.candidates_required,
         "exact_candidates_completed": exact.candidates_completed,
@@ -1991,6 +2012,7 @@ def _archive_query_evidence(
     placed = _placed_evidence(query.candidates, query.placed_by_candidate)
     unexpected_failures = _unexpected_method_failures(method_errors)
     result = {
+        "result_schema_version": RESULT_SCHEMA_VERSION,
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "split": split,
         "registry_split": _registry_split(split),
@@ -2464,6 +2486,7 @@ def _run_receipt(
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
         }
     return {
+        "result_schema_version": RESULT_SCHEMA_VERSION,
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "protocol_state": _SPLIT_PROTOCOL_STATE[split],
         "split": split,
@@ -2612,6 +2635,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
             if missing:
                 results.append(
                     {
+                        "result_schema_version": RESULT_SCHEMA_VERSION,
                         "freeze_id": _SPLIT_FREEZE_ID[split],
                         "split": split,
                         "registry_split": registry_split,
