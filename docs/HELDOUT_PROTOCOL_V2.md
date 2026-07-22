@@ -168,11 +168,37 @@ This document freezes the question, the endpoints and the pass conditions
 before any of that happens, which is the only property that makes the eventual
 result meaningful.
 
+**Attempted 2026-07-22 and correctly refused.** A `--split heldout_v2 --frozen`
+run aborted immediately with "refusing to write empty evidence table": the
+driver found zero workloads for this split, so zero queries were built. No
+operator, capture, query result or observation contract was produced, and the
+empty scaffolding was removed. The split therefore remains UNOPENED.
+
+The cause is a gap in this preregistration: architectures were registered but
+**workloads were not**. `experiments/workloads.tsv` is also split-keyed, and
+v2 has no entry there. Registering only half a split is a preregistration that
+cannot be honoured, and the driver's refusal to emit an empty evidence table is
+what caught it.
+
+Choosing the v2 workloads is a preregistration decision that must be made and
+recorded here BEFORE any run, exactly like the architectures were. It is
+deliberately left open rather than filled in hastily under time pressure,
+because picking workloads is precisely the kind of choice that must not be made
+with any result in view.
+
+Note for whoever closes this: v1's held-out workloads (mobilenetv2, unet,
+yolov2, googlenet) carry no information, since v1's held-out was never opened
+and no v1 result exists. Reusing them with the disjoint v2 architectures would
+therefore leak nothing — but that argument should be stated and accepted
+explicitly in this document before it is acted on, not assumed.
+
 Remaining preconditions before a v2 run:
 
 1. ~~Confirm ThermoDSE feasibility and non-degenerate EDYP ordering~~ — DONE
    2026-07-22, passed; see Separation.
-2. Build the physical HotSpot operators for the v2 architecture x package grid,
+2. Register the v2 workloads in `experiments/workloads.tsv` under
+   `split = heldout_v2`, with the reasoning recorded above.
+3. Build the physical HotSpot operators for the v2 architecture x package grid,
    with the direct-replay error contract enforced as in v1.
-3. Execute with the timeout-preservation fix present, so a budget-exhausted
-   query archives its bound instead of discarding it.
+4. Execute with the timeout-preservation fix present, so a budget-exhausted
+   query archives its bound instead of discarding it. (Verified in place.)
