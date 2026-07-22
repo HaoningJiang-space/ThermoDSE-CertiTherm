@@ -31,9 +31,11 @@ make check
 ```
 
 `bootstrap` checks out the four pinned ThermoDSE, HotSpot, Rodinia, and SuperLU
-gitlinks,
-creates a pinned Python 3.8-compatible environment, and builds HotSpot from an
-exported source tree. It never modifies a submodule.
+gitlinks, creates the locked Python 3.8 environment, and builds HotSpot from an
+exported source tree. It invokes `python3.8` by default even when an interactive
+shell has activated another Python (for example, Conda); override
+`BOOTSTRAP_PYTHON` only with another Python 3.8 executable. It never modifies a
+submodule.
 
 Development and legacy-v1 commands are:
 

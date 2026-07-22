@@ -33,8 +33,9 @@ make bootstrap   # pins a .venv, installs requirements.lock, builds HotSpot from
 make check       # test + hotspot-smoke + git diff --check + submodule cleanliness
 ```
 
-`make bootstrap` creates `.venv` with `requirements.lock` (numpy/scipy/pytest/tabulate/
-matplotlib pinned for Python 3.8 compatibility), exports `HotSpot/` HEAD into
+`make bootstrap` creates `.venv` with the explicit `python3.8` interpreter and
+`requirements.lock` (numpy/scipy/pytest/tabulate/matplotlib pinned for Python
+3.8), exports `HotSpot/` HEAD into
 `.build/hotspot`, applies `patches/hotspot-output-precision.patch` and
 `patches/hotspot-grid-convergence.patch`, builds the `hotspot` binary, and records its
 SHA-256. It never modifies either submodule in place.

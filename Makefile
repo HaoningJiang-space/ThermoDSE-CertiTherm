@@ -1,4 +1,5 @@
 PYTHON := .venv/bin/python
+BOOTSTRAP_PYTHON ?= python3.8
 HOTSPOT_BUILD := .build/hotspot
 HOTSPOT_BIN := $(HOTSPOT_BUILD)/hotspot
 GPU_HOTSPOT_BUILD := .build/hotspot-gpu-export
@@ -17,8 +18,9 @@ CERTITHERM_LP_WORKERS ?= 1
 bootstrap:
 	git submodule sync --recursive
 	git submodule update --init --recursive
-	python3 -m pip install --user virtualenv==20.26.6
-	python3 -m virtualenv --python=python3 .venv
+	$(BOOTSTRAP_PYTHON) -c 'import sys; assert sys.version_info[:2] == (3, 8), "CertiTherm requires Python 3.8"'
+	$(BOOTSTRAP_PYTHON) -m pip install --user virtualenv==20.26.6
+	$(BOOTSTRAP_PYTHON) -m virtualenv --python=$(BOOTSTRAP_PYTHON) .venv
 	$(PYTHON) -m pip install --upgrade pip
 	$(PYTHON) -m pip install -r requirements.lock
 	mkdir -p $(HOTSPOT_BUILD)
