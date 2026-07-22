@@ -84,14 +84,20 @@ class ContractViolation(ValueError):
 
 # Caught at the public boundary -- deliberately classified failures only.
 #
-# TimeoutError is included because a wall-clock budget expiring is an EPISTEMIC
-# failure: the run could not reach a conclusion. Before this, the experiment
-# driver's SIGALRM propagated past this handler and `_timed_call` discarded the
-# whole result, so a 1800s dev query threw away its accumulated cuts, witnesses,
-# candidate cover AND anytime lower bound and reported nothing. That is why the
-# dev report's bound columns are empty despite the bounds being computed. Now a
-# timeout returns UNRESOLVED carrying everything established so far, which is
-# the entire point of an anytime method.
+# TimeoutError: a wall-clock budget expiring is EPISTEMIC -- the run could not
+# reach a conclusion. Before it was caught here, the driver's SIGALRM escaped
+# and `_timed_call` discarded the whole result, so a 1800s dev query threw away
+# its cuts, witnesses, candidate cover and anytime bound; that is why the dev
+# report's bound columns are empty despite the bounds being computed.
+#
+# Catching the builtin globally does sit awkwardly with this file's own
+# classify-at-origin rule: a dependency, socket or future defect can raise the
+# same class. It is accepted deliberately and narrowly. The driver is the only
+# component that installs a SIGALRM around this call, the budget is the only
+# timeout in the registered pipeline, and the alternative -- letting it escape
+# -- destroys the evidence an anytime method exists to produce. A dedicated
+# BudgetExhausted type would be cleaner but must be raised by the driver, which
+# is outside this module; recorded in ccfa.yaml rather than silently accepted.
 _UNRESOLVED_FAILURES: Tuple[type, ...] = (
     ContractViolation,
     UnresolvedComputation,
@@ -1033,13 +1039,19 @@ def _anytime_lower_bound(
     dual = np.maximum(-np.asarray(relaxed.ineqlin.marginals, dtype=float), 0.0)
     if not np.all(np.isfinite(dual)):
         return None
-    reduced = costs - cover.T @ dual
-    bound = float(dual.sum() + np.minimum(reduced, 0.0).sum())
+    # EXACT evaluation. The float path this replaces used a 1e-9 relative
+    # deflation to absorb rounding error, which is a heuristic rather than a
+    # proved bound and degrades as cut and action counts grow -- exactly the
+    # regime this project runs in. `_integer_lagrangian_bound` evaluates the
+    # same L(y) in Fractions with the costs converted losslessly, so no
+    # deflation is needed and the result is checkable by re-running the
+    # arithmetic in integers.
+    exact = _integer_lagrangian_bound(costs, cuts, dual)
+    if exact is None:
+        return None
+    bound = float(exact)
     if not np.isfinite(bound):
         return None
-    # Deflate by a relative epsilon so float error in evaluating L(y) cannot
-    # push the reported value above the true optimum.
-    bound -= 1e-9 * max(1.0, abs(bound))
     return max(bound, 0.0)
 
 
@@ -1311,7 +1323,7 @@ def synthesize_minimum_observation(
             anytime_bound = value
             bound_cut_count = len(cuts)
 
-    def _candidate_fields() -> Tuple[Tuple[str, ...], Optional[float]]:
+    def _candidate_fields() -> Tuple[Tuple[str, ...], Optional[float]]:  # noqa: D401
         """The last successfully computed working cover. NOT oracle-certified.
 
         It hits every cut that existed when it was last recomputed -- which on
@@ -1531,6 +1543,7 @@ def synthesize_minimum_observation(
             message="registered constraint-generation budget exhausted",
             candidate_action_ids=candidate_ids,
             candidate_cost=candidate_cost,
+            candidate_covered_cuts=covered_cut_count,
         )
     except _UNRESOLVED_FAILURES as exc:
         if isinstance(exc, TimeoutError):
@@ -1560,4 +1573,8 @@ def synthesize_minimum_observation(
             message=str(exc),
             candidate_action_ids=candidate_ids,
             candidate_cost=candidate_cost,
+            # How many cuts this cover actually hits. On an interrupted run it
+            # can be fewer than len(cuts): the failure may land after a cut is
+            # inserted but before the cover is rebuilt.
+            candidate_covered_cuts=covered_cut_count,
         )

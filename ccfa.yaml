@@ -125,6 +125,27 @@ claims:
       Retained as a negative result per project policy. A known asymmetry
       favours greedy (adaptive gain recomputation vs a static learned order).
 
+  - id: "C8"
+    status: "measured_on_real_operators"
+    text: >-
+      With the timeout-preservation fix, a budget-exhausted query on REAL
+      HotSpot operators now reports a genuine anytime interval instead of
+      nothing.
+    evidence:
+      - "resnet50/default, 3 candidates, 693 actions, 227 blocks, 300s per candidate"
+      - "arch_b: LB 4.0, candidate 8.0, 1719 witnesses, 4 iterations"
+      - "arch_c: LB 5.0, candidate 6.0, 1525 witnesses, 8 iterations"
+      - "arch_a: LB 10.5, candidate 14.0, 1229 witnesses, 3 iterations"
+    caveat: >-
+      These are candidate-LOCAL subproblem intervals at a 300s budget, not the
+      full-query optimum, and only 3-8 iterations completed. The candidate cost
+      is NOT an upper bound, so candidate-minus-LB is not an optimality gap.
+      The striking difference from the synthetic instance is the witness rate:
+      ~1500 witnesses per iteration here versus exactly 2 there, so real
+      instances have far more reject cells and far costlier iterations. Any
+      extrapolation from the synthetic study to real operators must account for
+      that.
+
   - id: "C7"
     status: "CONFIRMED_on_real_operators"
     text: >-
@@ -213,6 +234,18 @@ revision_ledger:
     change: >-
       Withdrew "MILP is too slow, measured" and the ~8-hour extrapolation. The
       exact master never ran with real cuts in that experiment.
+
+reference_sources:
+  - path: "/home/abc/3DIC/chiplet_dse/references-src"
+    note: >-
+      Read-only algorithm references (PySAT Hitman, RoundingSat, VeriPB, SCIP
+      exact, PySCIPOpt lazy constraints, VIPR, cuPDLPx, PACE25 hitting-set).
+    license_boundary: >-
+      PACE25 hitting-set is GPL-3.0. Read its algorithm structure only --
+      lower-bound computation, core minimisation, disjoint cores, restarts --
+      and never copy code into this permissively licensed core. Any reuse from
+      any of these must be recorded in vendor/ with source repo, commit, path,
+      owner/license, reuse mode and semantic delta before it lands.
 
 open_risks:
   - "A GitHub PAT has appeared repeatedly in session transcripts. Source is a user-side goal template, not a repo file or hook config. Revocation is outstanding and cannot be performed from here."

@@ -217,10 +217,15 @@ class ObservationPlan:
     established.
 
     `candidate_action_ids` / `candidate_cost` carry the last working cover
-    when synthesis ended without certification. That cover hits every cut
-    discovered so far but has NOT been re-checked by the oracle since it was
-    last recomputed, so its cost is NOT a valid upper bound on the optimum and
-    must never be reported as one. Promoting a candidate to
+    when synthesis ended without certification. It has NOT been re-checked by
+    the oracle since it was last recomputed, so its cost is NOT a valid upper
+    bound and must never be reported as one.
+
+    It hits every cut that existed WHEN IT WAS LAST REBUILT, which is not
+    necessarily every cut in the result: an interruption after a cut is
+    inserted but before the cover is rebuilt leaves a stale cover.
+    `candidate_covered_cuts` records how many cuts it actually covers, so the
+    staleness is visible instead of contradicted by the documentation. Promoting a candidate to
     `selected_action_ids` requires an oracle pass proving it collision-free.
     """
 
@@ -236,6 +241,7 @@ class ObservationPlan:
     candidate_action_ids: Tuple[str, ...] = ()
     candidate_cost: Optional[float] = None
     upper_bound: Optional[float] = None
+    candidate_covered_cuts: Optional[int] = None
 
     @property
     def plan_validity(self) -> str:
