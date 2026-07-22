@@ -30,6 +30,7 @@ artifacts:
   data_model: "CertiTherm/core.py"
   experiments: "CertiTherm/experiments.py"
   scale_study: "research/dr_dsc/"
+  query_parallelism_smoke: "docs/QUERY_PARALLELISM_EVIDENCE.md"
 
 claims:
   - id: "C0"
@@ -235,6 +236,9 @@ reviews:
   - id: "ccf-integrity-auditor"
     date: "2026-07-22"
     outcome: "1 fabricated number found and corrected; see revision_ledger"
+  - id: "query-pool-smoke"
+    date: "2026-07-22"
+    outcome: "6/6 dev rows completed in registry order through one persistent three-process pool; 5s budget marks the run non-claim"
 
 revision_ledger:
   - date: "2026-07-22"
