@@ -1,7 +1,7 @@
 # Registered EDA Measurement Library
 
 Status: unchanged and frozen for `method-freeze-v1` and
-`method-freeze-v3.0`.
+`method-freeze-v3.1`.
 
 CertiTherm begins with one workload-level fact: total chip power. Individual
 block powers remain free and nonnegative subject to that total and

@@ -8,7 +8,9 @@ query, registry, or observation-contract result.
 ## Attempt A1 — unresolved, no replacement authorized
 
 - Producer commit: `6b3cf11eecd635df2768e4771c0cc9225a53d963`
-- Protocol: `method-freeze-v3.0`, state `DEFINED_UNOPENED`
+- Protocol at execution: `method-freeze-v3.0`, state `DEFINED_UNOPENED`.
+  The physical split and this non-thermal evidence carry unchanged into v3.1;
+  v3.0 was superseded before held-out opening only by the method scheduler.
 - Host / Python: `hpclab03` / `3.8.10`
 - Time: `2026-07-22T05:18:50Z`–`2026-07-22T05:18:51Z`
 - Outcome: `UNRESOLVED`; 6/12 combinations completed, 0 invalid metrics,

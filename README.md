@@ -51,7 +51,7 @@ The non-claim v3 development rehearsal has one reproducible entry point:
 CUDA_VISIBLE_DEVICES=0 make v3-dev-rehearsal
 ```
 
-It builds and checks the GPU backend, then runs `method-freeze-v3.0` on the
+It builds and checks the GPU backend, then runs `method-freeze-v3.1` on the
 existing development registry under the frozen 1800-second query budget. It writes
 `split=dev_v3`, `registry_split=dev`, and a fixed full result schema, so it
 cannot be confused with either v1 evidence or the unopened v3 held-out split.
@@ -68,6 +68,9 @@ CUDA_VISIBLE_DEVICES=0 make gpu-check
 CUDA_VISIBLE_DEVICES=0 make gpu-production-parity
 CUDA_VISIBLE_DEVICES=0 make reproduce-dev-gpu
 ```
+
+The separate CUDA collision proposer is retained as a reproducible negative
+result and is not used by v3.1; see `docs/GPU_COLLISION_NEGATIVE_RESULT.md`.
 
 The GPU path is currently admitted only for steady `grid64-avg` and
 `grid128-avg` models with fixed linear package physics. Leakage feedback,
