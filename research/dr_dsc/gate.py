@@ -139,39 +139,3 @@ def soft_min(values: torch.Tensor, beta: float) -> torch.Tensor:
     if beta <= 0:
         raise ValueError("beta must be positive (soft_min is a lower bound only for beta > 0)")
     return -torch.logsumexp(-beta * values, dim=0) / beta
-
-
-def action_scores(
-    separation: torch.Tensor,
-    dual_plus: torch.Tensor,
-    dual_minus: torch.Tensor,
-    thermal_influence: torch.Tensor,
-    cost: torch.Tensor,
-) -> torch.Tensor:
-    """score_a = |w_a^T(p^S-p^R)| * |lambda_a^+ - lambda_a^-| * thermal_influence_a / cost_a.
-
-    A diagnostic / gate-logit-initialization heuristic (not the training
-    loss): favors actions that separate the current worst witness by a wide
-    margin, carry high dual sensitivity in the collision LP, sit on a
-    thermally influential block, and cost little.
-    """
-    return separation.abs() * (dual_plus - dual_minus).abs() * thermal_influence / cost.clamp(min=1e-12)
-
-
-def project_budget(gates: torch.Tensor, cost: torch.Tensor, budget: float, iters: int = 60) -> torch.Tensor:
-    """Euclidean projection of `gates` onto {0<=g<=1, cost^T g <= budget} via
-    bisection on the dual variable mu>=0 (KKT: g = clip(gates - mu*cost, 0, 1),
-    and cost^T g is monotonically non-increasing in mu). Not currently wired
-    into train.py's loop (kept as a standalone, independently testable
-    building block -- see README.md).
-    """
-    clipped = torch.clamp(gates, 0.0, 1.0)
-    if torch.dot(cost, clipped) <= budget:
-        return clipped
-    lo = torch.zeros((), dtype=gates.dtype, device=gates.device)
-    hi = (gates.abs().max() + 1.0) / cost.clamp(min=1e-12).min()
-    for _ in range(iters):
-        mu = (lo + hi) / 2.0
-        spend = torch.dot(cost, torch.clamp(gates - mu * cost, 0.0, 1.0))
-        lo, hi = (mu, hi) if spend > budget else (lo, mu)
-    return torch.clamp(gates - hi * cost, 0.0, 1.0)

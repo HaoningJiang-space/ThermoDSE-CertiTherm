@@ -1192,20 +1192,6 @@ def _insert_minimal_cut(
     return True
 
 
-def dual_information_scores(
-    actions: Sequence[MeasurementAction],
-    cuts: Sequence[np.ndarray],
-    dual_prices: np.ndarray,
-) -> np.ndarray:
-    """Zero-error InfoCertGain/cost induced by the master LP dual."""
-
-    if not cuts:
-        return np.zeros(len(actions))
-    cover = np.asarray(cuts, dtype=float)
-    costs = np.asarray([action.cost for action in actions])
-    return cover.T @ np.asarray(dual_prices) / costs
-
-
 def synthesize_ordered_query(
     candidates: Sequence[CandidateSpace],
     actions: Sequence[MeasurementAction],
