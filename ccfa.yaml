@@ -126,14 +126,30 @@ claims:
       favours greedy (adaptive gain recomputation vs a static learned order).
 
   - id: "C7"
-    status: "blocked_on_dev_run"
+    status: "CONFIRMED_on_real_operators"
     text: >-
-      The behaviour above reproduces on real HotSpot operators rather than
-      being an artifact of the synthetic kernel.
-    evidence: []
-    blocking: >-
-      `CertiTherm.experiments --split dev` has been running ~5h on moe-server
-      and is still building operators; no query results exist yet.
+      Non-closure reproduces on REAL HotSpot operators: it is not an artifact
+      of the synthetic kernel. On all 6 dev queries the exact path exhausts the
+      frozen 1800s budget and returns UNRESOLVED, while every heuristic policy
+      returns a CERTIFIED plan in 60-1600s.
+    evidence:
+      - "artifacts/dev-gpu/REPORT.md: exact status {OPTIMAL: 0, UNSYNTHESIZABLE: 0, UNRESOLVED: 6}"
+      - "9 physical operators admitted, 270 direct replays, max replay residual 0.00149 K against the frozen 0.01 K bound"
+      - "0 false certificates, 0 placed-reference model disagreements, max full-rank spectral residual 2.47e-13 K"
+      - "certified costs: dual 4100-4132 < width 4174 < fixed 5242 < full registry 5250"
+    consequence: >-
+      This is the result that decides the paper narrative. Pursuing exact
+      closure on every query is not viable at this scale, but a CERTIFIED plan
+      exists and is cheap to find -- dual reaches 4100 against a 5250 full
+      registry, a 22% saving. The anytime framing (certified lower bound,
+      verified upper bound, real gap, counterexample) is therefore the
+      defensible claim, and it is now implemented.
+    threatens: >-
+      docs/HELDOUT_PROTOCOL.md requires "resolvable or proved non-identifiable:
+      at least 8 of 12 queries". Dev scored 0/6 on the exact path. If held-out
+      resembles dev, that predeclared criterion fails as written. Changing it
+      after seeing dev would be post-hoc tuning of a frozen protocol and must
+      instead go through a new freeze ID.
 
 experiments:
   - id: "DEV"
