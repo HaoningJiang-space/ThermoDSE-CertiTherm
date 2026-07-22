@@ -110,6 +110,29 @@ def _outward_dot(left: Sequence[float], right: Sequence[float]) -> Tuple[float, 
     )
 
 
+def _outward_matvec(matrix: np.ndarray, vector: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Conservatively enclose all rows of one BLAS matrix-vector product."""
+
+    if matrix.shape[1] != vector.size:
+        raise ValueError("matrix-vector dimensions disagree")
+    if not matrix.shape[0]:
+        empty = np.empty(0)
+        return empty, empty
+    center = matrix @ vector
+    magnitude = np.abs(matrix) @ np.abs(vector)
+    operations = max(1, 2 * vector.size)
+    unit = np.finfo(float).eps / 2.0
+    gamma = operations * unit / (1.0 - operations * unit)
+    # The magnitude is itself a rounded dot product. Dividing by (1-gamma)
+    # upper-bounds its exact non-negative sum before it bounds the signed dot.
+    radius = gamma * np.nextafter(magnitude, math.inf) / (1.0 - gamma)
+    radius += np.abs(np.nextafter(center, math.inf) - center)
+    return (
+        np.nextafter(center - radius, -math.inf),
+        np.nextafter(center + radius, math.inf),
+    )
+
+
 def _outward_sum_lower(values: Sequence[float]) -> float:
     if not all(math.isfinite(value) for value in values):
         raise ValueError("non-finite interval sum")
@@ -141,15 +164,17 @@ def verify_feasible_point(
     )
     if np.any(x < lower) or np.any(x > upper):
         return ProofCheck(False, ProposalKind.UNKNOWN, "bound violation")
-    for row, rhs in zip(system.a_ub, system.b_ub):
-        if _outward_dot(row, x)[1] > _expanded(float(rhs), tolerance, 1.0):
-            return ProofCheck(False, ProposalKind.UNKNOWN, "inequality violation")
-    for row, rhs in zip(system.a_eq, system.b_eq):
-        lower, upper = _outward_dot(row, x)
-        if lower < _expanded(float(rhs), tolerance, -1.0) or upper > _expanded(
-            float(rhs), tolerance, 1.0
-        ):
-            return ProofCheck(False, ProposalKind.UNKNOWN, "equality violation")
+    _lower, inequality_upper = _outward_matvec(system.a_ub, x)
+    inequality_rhs = np.nextafter(system.b_ub + tolerance, math.inf)
+    if np.any(inequality_upper > inequality_rhs):
+        return ProofCheck(False, ProposalKind.UNKNOWN, "inequality violation")
+    equality_lower, equality_upper = _outward_matvec(system.a_eq, x)
+    equality_rhs_lower = np.nextafter(system.b_eq - tolerance, -math.inf)
+    equality_rhs_upper = np.nextafter(system.b_eq + tolerance, math.inf)
+    if np.any(equality_lower < equality_rhs_lower) or np.any(
+        equality_upper > equality_rhs_upper
+    ):
+        return ProofCheck(False, ProposalKind.UNKNOWN, "equality violation")
     return ProofCheck(True, ProposalKind.FEASIBLE, "all primal constraints verified")
 
 
@@ -172,21 +197,16 @@ def verify_infeasible_ray(
         return ProofCheck(False, ProposalKind.UNKNOWN, "ray is not non-negative")
     y = y / float(np.max(y))
 
-    residual_intervals = [
-        _outward_dot(matrix[:, column], y)
-        for column in range(system.variables)
-    ]
-    coordinate_lowers = []
-    for (r_lower, r_upper), x_lower, x_upper in zip(
-        residual_intervals, system.lower, system.upper
-    ):
-        products = (
-            r_lower * x_lower,
-            r_lower * x_upper,
-            r_upper * x_lower,
-            r_upper * x_upper,
+    residual_lower, residual_upper = _outward_matvec(matrix.T, y)
+    products = np.vstack(
+        (
+            residual_lower * system.lower,
+            residual_lower * system.upper,
+            residual_upper * system.lower,
+            residual_upper * system.upper,
         )
-        coordinate_lowers.append(float(np.nextafter(min(products), -math.inf)))
+    )
+    coordinate_lowers = np.nextafter(np.min(products, axis=0), -math.inf)
     left_lower = _outward_sum_lower(coordinate_lowers)
     right_upper = _outward_dot(rhs, y)[1]
     slack = left_lower - right_upper
