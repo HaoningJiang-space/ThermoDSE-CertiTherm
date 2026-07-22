@@ -1309,6 +1309,12 @@ def _anytime_plan_row(query_id: str, result: AnytimeResult) -> dict[str, object]
     }
 
 
+def _optional_seconds(result: "TimedResult") -> object:
+    """Serialize an execution time, or blank when it was never measured."""
+
+    return "" if result.seconds is None else result.seconds
+
+
 def _diagnostic_result_fields(
     exact: Optional[QueryObservationPlan],
 ) -> dict[str, object]:
@@ -1368,10 +1374,17 @@ def _anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
 
 @dataclass(frozen=True)
 class TimedResult(Generic[_T]):
-    """One independently budgeted method result and its execution receipt."""
+    """One independently budgeted method result and its execution receipt.
+
+    `seconds` is None when the elapsed time is genuinely unknown -- a worker
+    that died before reporting. It must never be filled with 0.0 in that case:
+    a run that consumed its whole budget was once recorded as
+    `width_seconds = 0.0`, which reads as "returned instantly" in the evidence
+    table. An unmeasured quantity is reported as missing, not as zero.
+    """
 
     value: Optional[_T]
-    seconds: float
+    seconds: Optional[float]
     error: str
 
 
@@ -1488,6 +1501,28 @@ def _evaluate_prepared_method(
     """Process-pool entry point for one independently budgeted method."""
 
     query, method = job
+    started = time.perf_counter()
+    try:
+        return _dispatch_prepared_method(query, method)
+    except Exception as exc:
+        # `_call_under_budget` is supposed to convert every ordinary exception
+        # into a returned tuple, so reaching here is a containment failure and
+        # stays labelled as one -- it must NOT be relabelled as an ordinary
+        # timeout, which would erase the distinction the gate depends on. What
+        # is preserved is the child-side elapsed time: the parent cannot
+        # measure it (futures are consumed in schedule order, so parent timing
+        # includes queueing), and fabricating 0.0 put a false number into the
+        # evidence table.
+        elapsed = time.perf_counter() - started
+        error = f"method containment failure: {type(exc).__name__}: {exc}"
+        if method == "anytime":
+            return AnytimeResult(None, None, elapsed, 0.0, errors=(error,))
+        return TimedResult(None, elapsed, error)
+
+
+def _dispatch_prepared_method(query: PreparedQuery, method: str):
+    """Run one method. Every branch is independently budgeted."""
+
     if method == "anytime":
         return anytime_dsos(query.candidates, query.actions, QUERY_METHOD_TIMEOUT_S)
     if method == "width":
@@ -1522,8 +1557,10 @@ def _failed_query_methods(
 ) -> QueryMethodResults:
     """Represent an infrastructure failure without losing the query row."""
 
-    failed_exact: TimedResult[QueryObservationPlan] = TimedResult(None, 0.0, "")
-    failed_policy: TimedResult[PolicyResult] = TimedResult(None, 0.0, "")
+    # Timing is unknown, not zero: a pool failure says nothing about whether or
+    # how long the individual methods ran before it.
+    failed_exact: TimedResult[QueryObservationPlan] = TimedResult(None, None, "")
+    failed_policy: TimedResult[PolicyResult] = TimedResult(None, None, "")
     anytime = (
         AnytimeResult(None, None, 0.0, 0.0, errors=(error,))
         if include_anytime
@@ -1637,11 +1674,17 @@ def _evaluate_method_batch(
                 try:
                     slots[index][method] = future.result()
                 except Exception as exc:
+                    # The worker died without reporting -- process kill, pickling
+                    # failure, pool breakage. Its elapsed time is genuinely
+                    # unknown here, so it is recorded as missing rather than as
+                    # a fabricated 0.0. Parent-side timing would be wrong too:
+                    # futures are consumed in schedule order, so it would
+                    # include queueing and waiting on earlier futures.
                     error = f"method worker failure: {type(exc).__name__}: {exc}"
                     slots[index][method] = (
                         AnytimeResult(None, None, 0.0, 0.0, errors=(error,))
                         if method == "anytime"
-                        else TimedResult(None, 0.0, error)
+                        else TimedResult(None, None, error)
                     )
     except Exception as exc:
         error = f"method pool failure: {type(exc).__name__}: {exc}"
@@ -1971,10 +2014,11 @@ def _archive_query_evidence(
         "width_cost": width.cost if width else "",
         "dual_status": dual.status if dual else "UNRESOLVED",
         "dual_cost": dual.cost if dual else "",
-        "exact_seconds": methods.exact.seconds,
-        "fixed_seconds": methods.fixed.seconds,
-        "width_seconds": methods.width.seconds,
-        "dual_seconds": methods.dual.seconds,
+        # Blank, never 0.0, when the elapsed time was never measured.
+        "exact_seconds": _optional_seconds(methods.exact),
+        "fixed_seconds": _optional_seconds(methods.fixed),
+        "width_seconds": _optional_seconds(methods.width),
+        "dual_seconds": _optional_seconds(methods.dual),
         "full_registry_cost": sum(action.cost for action in query.actions),
         "witnesses": len(exact.witnesses) if exact else 0,
         "placed_robust_outcome": placed["robust_outcome"],

@@ -131,3 +131,45 @@ def test_a_timeout_cannot_leak_into_the_next_call_in_the_same_process() -> None:
     value, seconds, error = _call_under_budget(lambda: "second", 5.0, "second task")
     assert value == "second"
     assert error == ""
+
+
+def test_unmeasured_time_is_reported_missing_not_zero() -> None:
+    """A worker that died without reporting has unknown elapsed time.
+
+    Recording 0.0 put a false number into the evidence table: the v3.1
+    rehearsal showed `width_seconds = 0.0` for a method that had consumed its
+    full 150 s budget.
+    """
+
+    from CertiTherm.experiments import TimedResult, _optional_seconds
+
+    assert _optional_seconds(TimedResult(None, None, "worker died")) == ""
+    assert _optional_seconds(TimedResult(None, 12.5, "")) == 12.5
+    assert _optional_seconds(TimedResult(None, 0.0, "")) == 0.0
+
+
+def test_containment_failure_keeps_child_side_elapsed_time() -> None:
+    """An escape must still report how long the method actually ran.
+
+    The parent cannot measure it: futures are consumed in schedule order, so
+    parent-side timing would include queueing and waiting on earlier futures.
+    """
+
+    import CertiTherm.experiments as experiments
+
+    def exploding(_query, _method):
+        _spin(0.15)
+        raise RuntimeError("containment breached")
+
+    original = experiments._dispatch_prepared_method
+    experiments._dispatch_prepared_method = exploding
+    try:
+        result = experiments._evaluate_prepared_method((object(), "width"))
+    finally:
+        experiments._dispatch_prepared_method = original
+
+    assert result.value is None
+    assert result.seconds is not None and result.seconds >= 0.1
+    # Labelled as a containment failure, NOT relabelled as an ordinary timeout:
+    # the gate depends on telling those apart.
+    assert result.error.startswith("method containment failure")
