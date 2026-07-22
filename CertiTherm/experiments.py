@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+from dataclasses import dataclass
 import signal
 import subprocess
 import sys
@@ -422,6 +423,114 @@ def _write_tsv(path: Path, rows: Iterable[dict[str, object]]) -> None:
 def _measurement_costs() -> dict[str, float]:
     rows = _rows(ROOT / "experiments" / "measurements.tsv")
     return {row["action_class"]: float(row["cost"]) for row in rows}
+
+
+def _budgeted_call(
+    function: Callable[[], _T], budget_s: float
+) -> tuple[Optional[_T], float, str]:
+    """Run one call under an explicit wall-clock budget.
+
+    Same fail-closed contract as `_timed_call` but with the budget passed in,
+    so a controller can split ONE budget across phases instead of each method
+    silently receiving a fresh full budget.
+    """
+
+    def expire(_signum, _frame) -> None:
+        raise TimeoutError(f"{budget_s:.0f}s budget exhausted")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, max(budget_s, 0.001))
+    started = time.perf_counter()
+    try:
+        return function(), time.perf_counter() - started, ""
+    except Exception as exc:
+        return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+@dataclass(frozen=True)
+class AnytimeResult:
+    """One Anytime-DSOS run under a SINGLE end-to-end budget.
+
+    `upper_bound` comes only from an oracle-certified contract, so
+    `lower_bound <= C* <= upper_bound` is a genuine interval rather than a
+    pairing of two independently budgeted runs. That distinction is the whole
+    point of method-freeze-v2.1's budget clause: reporting a `U` from one 1800s
+    run beside an `L` from another describes no single algorithm.
+    """
+
+    plan: Optional[object]
+    upper_bound: Optional[float]
+    lower_bound: Optional[float]
+    upper_source: str
+    upper_seconds: float
+    lower_seconds: float
+    error: str
+
+    @property
+    def absolute_gap(self) -> Optional[float]:
+        if self.upper_bound is None or self.lower_bound is None:
+            return None
+        return max(0.0, self.upper_bound - self.lower_bound)
+
+    @property
+    def interval_violation(self) -> str:
+        if self.upper_bound is None or self.lower_bound is None:
+            return ""
+        slack = 1e-6 * max(1.0, abs(self.upper_bound))
+        if self.lower_bound > self.upper_bound + slack:
+            return f"L={self.lower_bound} exceeds U={self.upper_bound}"
+        return ""
+
+
+def anytime_dsos(
+    candidates: tuple[CandidateSpace, ...],
+    actions: Sequence[MeasurementAction],
+    budget_s: float,
+    upper_fraction: float = 0.2,
+) -> AnytimeResult:
+    """Anytime-DSOS under one end-to-end budget (method-freeze-v2.1).
+
+    Phase 1 spends `upper_fraction` of the budget on the width policy to obtain
+    an oracle-certified contract, giving a real upper bound. Phase 2 spends
+    everything left raising the certified lower bound.
+
+    `fixed` and `dual` are deliberately NOT consulted: they are independent
+    baselines, and substituting a cheaper baseline contract into `U` would make
+    this a combination of separately budgeted runs again.
+    """
+
+    started = time.perf_counter()
+    upper_budget = max(1.0, budget_s * upper_fraction)
+    width, upper_seconds, upper_error = _budgeted_call(
+        lambda: sequential_early_stop(
+            candidates, actions, uncertainty_width_order(candidates, actions)
+        ),
+        upper_budget,
+    )
+    upper = None
+    source = "none"
+    if width is not None and width.status == "CERTIFIED":
+        upper = width.cost
+        source = "width"
+
+    remaining = budget_s - (time.perf_counter() - started)
+    if remaining <= 1.0:
+        return AnytimeResult(
+            None, upper, None, source, upper_seconds, 0.0,
+            upper_error or "budget consumed by the upper-bound phase",
+        )
+
+    plan, lower_seconds, lower_error = _budgeted_call(
+        lambda: synthesize_ordered_query(candidates, actions), remaining
+    )
+    lower = plan.lower_bound if plan is not None else None
+    return AnytimeResult(
+        plan, upper, lower, source, upper_seconds, lower_seconds,
+        "; ".join(e for e in (upper_error, lower_error) if e),
+    )
 
 
 def _timed_call(function: Callable[[], _T]) -> tuple[Optional[_T], float, str]:
@@ -1032,30 +1141,22 @@ def run(split: str, output: Path, frozen: bool) -> None:
                 )
             placed = _placed_evidence(candidates, placed_by_candidate)
 
-            # method-freeze-v2.1 endpoints. A valid interval needs a
-            # CERTIFIED upper bound: only an oracle-verified contract supplies
-            # one, so a candidate cover never does. width/dual/fixed each
-            # return a plan the collision oracle accepted, so the cheapest of
-            # those that reports CERTIFIED is a genuine U.
-            certified_uppers = [
-                policy.cost
-                for policy in (width, dual, fixed)
-                if policy is not None and policy.status == "CERTIFIED"
-            ]
-            upper = min(certified_uppers) if certified_uppers else None
-            lower = exact.lower_bound if exact is not None else None
-            absolute_gap = relative_gap = None
-            interval_violation = ""
-            if upper is not None and lower is not None:
-                if lower > upper + 1e-6 * max(1.0, abs(upper)):
-                    # A certified lower bound above a certified upper bound is
-                    # impossible for a sound method. Record it loudly rather
-                    # than emitting a negative gap that would read as a small
-                    # numerical artifact.
-                    interval_violation = f"L={lower} exceeds U={upper}"
-                else:
-                    absolute_gap = max(0.0, upper - lower)
-                    relative_gap = absolute_gap / upper if upper > 0 else None
+            # method-freeze-v2.1 endpoints come from ONE Anytime-DSOS run under
+            # a single end-to-end budget. An earlier revision built them here as
+            # min(width, dual, fixed) beside exact's lower bound, which violated
+            # the freeze twice over: U and L came from separately budgeted runs,
+            # and fixed/dual were substituted into U despite being independent
+            # baselines. Those remain reported below as baselines only.
+            anytime = anytime_dsos(candidates, actions, QUERY_METHOD_TIMEOUT_S)
+            upper = anytime.upper_bound
+            lower = anytime.lower_bound
+            absolute_gap = anytime.absolute_gap
+            interval_violation = anytime.interval_violation
+            relative_gap = (
+                absolute_gap / upper
+                if absolute_gap is not None and upper is not None and upper > 0
+                else None
+            )
 
             results.append(
                 {
@@ -1080,6 +1181,10 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "absolute_gap": absolute_gap if absolute_gap is not None else "",
                     "relative_gap": relative_gap if relative_gap is not None else "",
                     "interval_violation": interval_violation,
+                    "anytime_upper_source": anytime.upper_source,
+                    "anytime_upper_seconds": anytime.upper_seconds,
+                    "anytime_lower_seconds": anytime.lower_seconds,
+                    "anytime_error": anytime.error,
                     "bound_provenance": (
                         exact.bound_provenance if exact else ""
                     ) or "",
