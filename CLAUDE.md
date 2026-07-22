@@ -61,6 +61,17 @@ make heldout          # python -m CertiTherm.experiments --split heldout --outpu
 make package-dev package-heldout   # tar + sha256 the artifacts/ bundles for release
 ```
 
+The pre-open v3 rehearsal is intentionally separate from claim-grade held-out
+execution:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 make v3-dev-rehearsal
+```
+
+It runs the v3 controller on the development registry and refuses to reuse an
+existing output directory. There is no `heldout-v3` target until the rehearsal
+and artifact audit close the remaining gates in `docs/HELDOUT_PROTOCOL_V3.md`.
+
 ### Remote execution
 
 Per the parent workspace's execution authority, HotSpot builds, `make bootstrap`,

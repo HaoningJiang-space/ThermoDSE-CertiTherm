@@ -45,9 +45,19 @@ make heldout
 make package-dev package-heldout
 ```
 
-The v3 claim-grade target is deliberately absent until every pre-open gate in
-`docs/HELDOUT_PROTOCOL_V3.md` closes. This prevents a convenient command from
-opening the split before the code, receipts, and report schema are frozen.
+The non-claim v3 development rehearsal has one reproducible entry point:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 make v3-dev-rehearsal
+```
+
+It builds and checks the GPU backend, then runs `method-freeze-v3.0` on the
+existing development registry under a 150-second query budget. It writes
+`split=dev_v3`, `registry_split=dev`, and a fixed full result schema, so it
+cannot be confused with either v1 evidence or the unopened v3 held-out split.
+The command refuses an existing output directory. The v3 **held-out** target
+remains deliberately absent until every pre-open gate in
+`docs/HELDOUT_PROTOCOL_V3.md` closes.
 
 The optional custom FP64 CUDA backend builds all zero/impulse responses in one
 batch while retaining CPU HotSpot as the independent truth backend:
@@ -77,6 +87,10 @@ workers for frozen v3). Query-internal algorithms and timers remain serial;
 this avoids the previously measured cost of constructing a process pool in
 every separation iteration. The worker count and scheduling mode are bound
 into each run receipt.
+Every HiGHS LP/MILP call also receives the remaining wall-clock budget as its
+native `time_limit`. The Python alarm remains a fail-closed fallback, but a
+long C++ presolve can no longer run past the method deadline merely because it
+has not returned control to Python.
 
 Each workload's candidates are ordered by its captured ThermoDSE
 `latency × energy / die_yield` value before thermal feasibility is applied.
