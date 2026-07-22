@@ -487,7 +487,9 @@ def _single_state_world(
         if result.status == 0:
             return result.x.copy(), model_id
         if result.status != 2:
-            raise RuntimeError(f"state feasibility LP unresolved: {result.message}")
+            raise UnresolvedComputation(
+                f"state feasibility LP unresolved: {result.message}"
+            )
     return None
 
 
@@ -575,7 +577,9 @@ def _state_collision(
                     ),
                 )
             if result.status != 2:
-                raise RuntimeError(f"query collision LP unresolved: {result.message}")
+                raise UnresolvedComputation(
+                    f"query collision LP unresolved: {result.message}"
+                )
     return None
 
 
@@ -783,10 +787,61 @@ def _solve_master(
         options={"mip_rel_gap": 0.0},
     )
     if not integer.success:
-        raise RuntimeError("observation master did not solve to optimality")
+        raise UnresolvedComputation("observation master did not solve to optimality")
     selected = tuple(columns[np.flatnonzero(integer.x > 0.5)].tolist())
+
+    # Verify the solver's answer instead of trusting it. `OPTIMAL` is issued
+    # when this cost meets this bound, so an unverified solver result is a
+    # direct route to a false certificate. Each check below is cheap relative
+    # to the solve that produced it.
+    plan = np.zeros(costs.size)
+    if selected:
+        plan[list(selected)] = 1.0
+    if not np.all(cover @ plan >= 1.0 - 1e-8):
+        # The returned selection must actually hit every accumulated cut.
+        raise UnresolvedComputation(
+            "observation master returned a selection that does not cover "
+            "every discovered cut"
+        )
+    exact_cost = float(costs @ plan)
+    if abs(exact_cost - float(integer.fun)) > 1e-6 * max(1.0, abs(exact_cost)):
+        # A reported objective that disagrees with the cost of the reported
+        # selection means one of the two is not what it claims to be.
+        raise UnresolvedComputation(
+            f"observation master objective {integer.fun} disagrees with the "
+            f"cost {exact_cost} of its own selection"
+        )
+
     lower_bound = float(getattr(integer, "mip_dual_bound", integer.fun))
-    return _Master(selected, float(integer.fun), lower_bound, float(relaxed.fun), dual)
+    slack = 1e-6 * max(1.0, abs(exact_cost))
+
+    # Cross-check against a bound this module can certify itself. The weak-duality
+    # bound is valid regardless of solver accuracy, so a claimed MILP bound below
+    # it is provably wrong and is rejected.
+    certified = _anytime_lower_bound(costs, cuts)
+    if certified is not None and lower_bound < certified - slack:
+        raise UnresolvedComputation(
+            f"observation master dual bound {lower_bound} lies below the "
+            f"independently certified bound {certified}"
+        )
+    if lower_bound > exact_cost + slack:
+        raise UnresolvedComputation(
+            f"observation master dual bound {lower_bound} exceeds its own "
+            f"integer cost {exact_cost}"
+        )
+
+    # KNOWN RESIDUAL, do not overstate this function's guarantees.
+    # These checks make an INCONSISTENT solver answer detectable; they do NOT
+    # make integer optimality solver-independent. A self-consistent wrong
+    # answer still passes: with true optimum 2 and LP relaxation 1.5, a solver
+    # returning a feasible plan of cost 3 with mip_dual_bound 3 satisfies
+    # coverage, objective agreement, and both bound comparisons, and
+    # cost == bound would then yield OPTIMAL at a suboptimal plan.
+    # Closing this needs either a certified branch-and-bound proof object
+    # (SciPy/HiGHS does not expose one) or exhaustive enumeration. Until then
+    # OPTIMAL's integer-optimality claim rests on trusting HiGHS whenever the
+    # LP relaxation is not tight. Recorded in ccfa.yaml open_risks.
+    return _Master(selected, exact_cost, lower_bound, float(relaxed.fun), dual)
 
 
 def _anytime_lower_bound(
@@ -877,6 +932,12 @@ def _greedy_cover(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> Tuple[int, .
         gains = np.count_nonzero(cover[uncovered], axis=0)
         available = np.flatnonzero(gains)
         if not len(available):
+            # Deliberately NOT UnresolvedComputation. Unseparable witnesses are
+            # detected and returned as UNSYNTHESIZABLE before any cut is
+            # inserted, so an all-zero cut reaching the cover builder means the
+            # cut set contradicts that check. That is an internal invariant
+            # break and must stay loud rather than being reported as an honest
+            # "cannot certify".
             raise RuntimeError("registered cuts contain an unseparable witness")
         index = max(
             available,
@@ -1002,6 +1063,10 @@ def synthesize_ordered_query(
                         feasibility_tolerance,
                     )
                     if witness is None:
+                        # Also deliberately loud: a candidate-local
+                        # UNSYNTHESIZABLE proof that the global oracle cannot
+                        # reproduce means the decomposition is unsound, not
+                        # that this instance is merely hard.
                         raise RuntimeError(
                             "local and global unsynthesizability certificates disagree"
                         )
