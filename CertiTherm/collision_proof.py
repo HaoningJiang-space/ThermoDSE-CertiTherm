@@ -220,6 +220,92 @@ def verify_infeasible_ray(
     return ProofCheck(False, ProposalKind.UNKNOWN, "ray contradiction is not strict")
 
 
+def verify_extra_inequality(
+    row: Sequence[float],
+    rhs: float,
+    point: Sequence[float],
+    tolerance: float,
+) -> bool:
+    """Check one cell-specific row after shared primal constraints pass."""
+
+    return _outward_dot(row, point)[1] <= _expanded(rhs, tolerance, 1.0)
+
+
+def verify_infeasible_ray_with_extra_row(
+    common: LinearFeasibilitySystem,
+    extra_row: Sequence[float],
+    extra_rhs: float,
+    ray: Sequence[float],
+) -> ProofCheck:
+    """Verify a ray without copying the shared matrix for every batch cell."""
+
+    m, e, n = common.b_ub.size, common.b_eq.size, common.variables
+    y = np.asarray(ray, dtype=float)
+    if y.shape != (m + 1 + 2 * e,) or not np.all(np.isfinite(y)):
+        return ProofCheck(False, ProposalKind.UNKNOWN, "invalid ray proposal")
+    if np.any(y < 0.0) or not np.any(y > 0.0):
+        return ProofCheck(False, ProposalKind.UNKNOWN, "ray is not non-negative")
+    y = y / float(np.max(y))
+    y_common, y_extra = y[:m], y[m]
+    y_positive, y_negative = y[m + 1 : m + 1 + e], y[m + 1 + e :]
+
+    lower, upper = _outward_matvec(common.a_ub.T, y_common)
+    extra = np.asarray(extra_row, dtype=float) * y_extra
+    extra_lower = np.nextafter(extra, -math.inf)
+    extra_upper = np.nextafter(extra, math.inf)
+    positive_lower, positive_upper = _outward_matvec(
+        common.a_eq.T, y_positive
+    )
+    negative_lower, negative_upper = _outward_matvec(
+        (-common.a_eq).T, y_negative
+    )
+    contributions = (
+        extra_lower,
+        positive_lower,
+        negative_lower,
+    )
+    upper_contributions = (
+        extra_upper,
+        positive_upper,
+        negative_upper,
+    )
+    for addition in contributions:
+        lower = np.nextafter(lower + addition, -math.inf)
+    for addition in upper_contributions:
+        upper = np.nextafter(upper + addition, math.inf)
+
+    products = np.vstack(
+        (
+            lower * common.lower,
+            lower * common.upper,
+            upper * common.lower,
+            upper * common.upper,
+        )
+    )
+    left_lower = _outward_sum_lower(
+        np.nextafter(np.min(products, axis=0), -math.inf)
+    )
+    rhs_intervals = (
+        _outward_dot(common.b_ub, y_common),
+        _outward_dot((extra_rhs,), (y_extra,)),
+        _outward_dot(common.b_eq, y_positive),
+        _outward_dot(-common.b_eq, y_negative),
+    )
+    right_upper = _outward_sum_lower(
+        [-interval[1] for interval in rhs_intervals]
+    )
+    right_upper = float(np.nextafter(-right_upper, math.inf))
+    slack = left_lower - right_upper
+    if math.isfinite(slack) and left_lower > right_upper:
+        return ProofCheck(
+            True,
+            ProposalKind.INFEASIBLE,
+            "residual-aware Farkas inequality verified",
+            slack,
+        )
+    return ProofCheck(False, ProposalKind.UNKNOWN, "ray contradiction is not strict")
+
+
 def verify_proposal(
     system: LinearFeasibilitySystem,
     proposal: CollisionProposal,

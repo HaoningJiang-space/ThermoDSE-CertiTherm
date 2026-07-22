@@ -7,6 +7,7 @@ from CertiTherm.collision_proof import (
     ProposalKind,
     verify_feasible_point,
     verify_infeasible_ray,
+    verify_infeasible_ray_with_extra_row,
     verify_proposal,
 )
 
@@ -42,6 +43,16 @@ def test_residual_free_farkas_ray_is_accepted() -> None:
     check = verify_infeasible_ray(system, [1.0, 1.0])
     assert check.accepted and check.kind == ProposalKind.INFEASIBLE
     assert check.certified_slack is not None and check.certified_slack > 0.99
+
+
+def test_shared_extra_row_verifier_matches_full_system() -> None:
+    common = _system([[-1.0]], [0.0], bounds=((0.0, 2.0),))
+    ray = np.array([0.0, 1.0])
+    shared = verify_infeasible_ray_with_extra_row(common, [1.0], -1.0, ray)
+    full = _system([[-1.0], [1.0]], [0.0, -1.0], bounds=((0.0, 2.0),))
+    direct = verify_infeasible_ray(full, ray)
+    assert shared.accepted == direct.accepted
+    assert shared.kind == direct.kind == ProposalKind.INFEASIBLE
 
 
 def test_residual_aware_ray_uses_box_bounds() -> None:

@@ -17,6 +17,9 @@ from .collision_proof import (
     LinearFeasibilitySystem,
     ProofCheck,
     ProposalKind,
+    verify_extra_inequality,
+    verify_feasible_point,
+    verify_infeasible_ray_with_extra_row,
     verify_proposal,
 )
 from .gpu_collision_broker import request as broker_request
@@ -224,7 +227,30 @@ def propose_collision_batch(
             proposal = CollisionProposal(ProposalKind.INFEASIBLE, ray=ray)
         else:
             proposal = CollisionProposal(ProposalKind.UNKNOWN)
-        check = verify_proposal(batch.system(cell), proposal, verification_tolerance)
+        if proposal.kind == ProposalKind.FEASIBLE:
+            check = verify_feasible_point(
+                batch.common, proposal.primal, verification_tolerance
+            )
+            if check.accepted and not verify_extra_inequality(
+                batch.spec_rows[cell],
+                float(batch.spec_rhs[cell]),
+                proposal.primal,
+                verification_tolerance,
+            ):
+                check = ProofCheck(
+                    False, ProposalKind.UNKNOWN, "cell inequality violation"
+                )
+        elif proposal.kind == ProposalKind.INFEASIBLE:
+            check = verify_infeasible_ray_with_extra_row(
+                batch.common,
+                batch.spec_rows[cell],
+                float(batch.spec_rhs[cell]),
+                proposal.ray,
+            )
+        else:
+            check = verify_proposal(
+                batch.system(cell), proposal, verification_tolerance
+            )
         proposals.append(proposal)
         checks.append(check)
     feasible = sum(check.accepted and check.kind == ProposalKind.FEASIBLE for check in checks)
