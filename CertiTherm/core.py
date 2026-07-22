@@ -202,7 +202,14 @@ class ObservationPlan:
     CERTIFIED collision-free. It is empty whenever no such plan was reached.
 
     `status` separates two independent questions. `OPTIMAL` means a certified
-    plan whose minimum cost is proven. `CERTIFIED_PLAN` means the plan is
+    plan whose minimum cost is established -- but read `bound_provenance`
+    before treating that as proved. Only `weak_duality` results are verifiable
+    from the returned numbers alone; `solver_branch_and_bound` results are
+    conditional on the MIP solver being correct, which is cross-checked for
+    consistency but not proved. Reporting both under one `OPTIMAL` status is a
+    known API weakness: peer review recommends splitting plan validity from
+    cost optimality into orthogonal fields, which is deferred rather than
+    resolved. `CERTIFIED_PLAN` means the plan is
     oracle-certified but the budget ran out before minimum cost could be
     proven -- `lower_bound` and `optimality_gap` are then both real, since the
     certified plan supplies a genuine upper bound. `UNSYNTHESIZABLE` means no
@@ -229,6 +236,12 @@ class ObservationPlan:
     candidate_action_ids: Tuple[str, ...] = ()
     candidate_cost: Optional[float] = None
     upper_bound: Optional[float] = None
+    # "weak_duality": the reported bound is verifiable from the returned numbers
+    # alone. "solver_branch_and_bound": optimality was closed by the MIP
+    # solver's asserted dual bound, which is cross-checked for consistency but
+    # not proved -- a self-consistent wrong solver could still pass. Report the
+    # split rather than implying every certificate is equally self-contained.
+    bound_provenance: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -254,3 +267,6 @@ class QueryObservationPlan:
     witnesses: Tuple[QueryWorldPair, ...]
     message: str
     certified_prefix_action_ids: Tuple[str, ...] = ()
+    # Weakest provenance across the candidates: a query is only as
+    # self-verifiable as its least self-verifiable subproblem.
+    bound_provenance: Optional[str] = None

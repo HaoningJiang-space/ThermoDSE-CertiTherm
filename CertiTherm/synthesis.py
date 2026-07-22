@@ -94,6 +94,11 @@ class _Master:
     lower_bound: float
     relaxation_bound: float
     dual_prices: np.ndarray
+    # Where lower_bound came from, so a certificate's trust basis is visible
+    # rather than implicit. "weak_duality" is verifiable from the returned
+    # numbers alone; "solver_branch_and_bound" is asserted by HiGHS and is only
+    # cross-checked for consistency, not proved.
+    bound_provenance: str = "weak_duality"
 
 
 @dataclass(frozen=True)
@@ -757,7 +762,17 @@ def _solve_master(
         selected = tuple(columns[np.flatnonzero(rounded > 0.5)].tolist())
         exact_cost = float(np.sum(costs[list(selected)]))
         if abs(exact_cost - float(relaxed.fun)) <= tolerance:
-            return _Master(selected, exact_cost, exact_cost, float(relaxed.fun), dual)
+            # Self-verifiable without the MIP solver: the code above has
+            # checked that the LP solution is integral, covers every cut, and
+            # costs what the LP reports. An integral LP optimum IS the integer
+            # optimum, so weak duality certifies it directly. The bound here is
+            # the LP optimum rather than `_anytime_lower_bound`'s deflated
+            # value -- the integrality check, not the deflation, is what makes
+            # it certifiable, and deflating would leave a spurious nonzero gap.
+            return _Master(
+                selected, exact_cost, exact_cost, float(relaxed.fun), dual,
+                "weak_duality",
+            )
 
     if incumbent is not None:
         selected = tuple(sorted(int(index) for index in incumbent))
@@ -774,6 +789,7 @@ def _solve_master(
                 incumbent_cost,
                 float(relaxed.fun),
                 dual,
+                "weak_duality",
             )
 
     constraint = LinearConstraint(
@@ -841,7 +857,21 @@ def _solve_master(
     # (SciPy/HiGHS does not expose one) or exhaustive enumeration. Until then
     # OPTIMAL's integer-optimality claim rests on trusting HiGHS whenever the
     # LP relaxation is not tight. Recorded in ccfa.yaml open_risks.
-    return _Master(selected, exact_cost, lower_bound, float(relaxed.fun), dual)
+    # If the certified bound already meets the integer cost, this certificate is
+    # self-contained: the numbers alone prove optimality and HiGHS's branch and
+    # bound is not being relied on. Otherwise the gap is closed only by the
+    # solver's asserted dual bound, and the result says so.
+    provenance = "solver_branch_and_bound"
+    if certified is not None and exact_cost <= certified + slack:
+        # Report the CERTIFIED bound, not max(solver, certified). Taking the max
+        # could keep the solver's unproved number while labelling the result
+        # weak_duality -- the label would then assert self-verifiability that
+        # the reported value does not have.
+        lower_bound = certified
+        provenance = "weak_duality"
+    return _Master(
+        selected, exact_cost, lower_bound, float(relaxed.fun), dual, provenance
+    )
 
 
 def _anytime_lower_bound(
@@ -1036,6 +1066,7 @@ def synthesize_ordered_query(
         selected_ids: List[str] = []
         lower_bound = relaxation_bound = 0.0
         iterations = 0
+        provenances: List[str] = []
         for candidate_index in required:
             candidate = candidates[candidate_index]
             plan = synthesize_minimum_observation(
@@ -1052,6 +1083,8 @@ def synthesize_ordered_query(
             iterations += plan.iterations
             lower_bound += plan.lower_bound or 0.0
             relaxation_bound += plan.relaxation_bound or 0.0
+            if plan.bound_provenance:
+                provenances.append(plan.bound_provenance)
             if plan.status != "OPTIMAL":
                 witnesses: Tuple[QueryWorldPair, ...] = ()
                 if plan.status == "UNSYNTHESIZABLE":
@@ -1112,6 +1145,11 @@ def synthesize_ordered_query(
             iterations,
             (),
             "ordered-decision decomposition proves the global batch optimum",
+            (),
+            # The whole query is self-verifiable only if EVERY candidate was.
+            "weak_duality"
+            if provenances and all(p == "weak_duality" for p in provenances)
+            else "solver_branch_and_bound",
         )
     except _UNRESOLVED_FAILURES as exc:
         return QueryObservationPlan(
@@ -1239,7 +1277,16 @@ def synthesize_minimum_observation(
                     optimality_gap=gap,
                     iterations=iteration,
                     witnesses=tuple(witnesses),
-                    message="zero-error decision uncertainty is eliminated",
+                    message=(
+                        "zero-error decision uncertainty is eliminated"
+                        + (
+                            ""
+                            if master.bound_provenance == "weak_duality"
+                            else "; optimality closed by the solver's asserted "
+                            "dual bound, not by a self-contained certificate"
+                        )
+                    ),
+                    bound_provenance=master.bound_provenance,
                 )
             added = 0
             for witness in batch:
