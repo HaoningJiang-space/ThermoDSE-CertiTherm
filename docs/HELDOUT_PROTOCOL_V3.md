@@ -48,6 +48,10 @@ parallelism; their values are also stored in the run receipt.
 If a query worker or the pool fails, its registry slot is retained as an
 explicit `UNRESOLVED` row with a `query_worker` failure record. Process
 parallelism therefore cannot silently shorten the evidence table.
+Resume safety is likewise fail-closed: cached captures and operators are reused
+only when their sidecars match the current source bundle, physical inputs,
+binary/submodule identity, and every cached file digest. Legacy filename-only
+caches are rebuilt.
 
 The fixed, width, dual, and exact methods also run as independently budgeted
 baselines. Their values cannot be substituted into the Anytime interval.

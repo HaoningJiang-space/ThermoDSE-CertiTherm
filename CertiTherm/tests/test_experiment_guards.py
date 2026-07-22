@@ -110,6 +110,41 @@ def test_hotspot_binary_must_match_bootstrap_receipt(tmp_path) -> None:
         experiments._verified_binary_digest(binary, receipt)
 
 
+def test_cache_receipt_binds_inputs_and_every_cached_file(tmp_path) -> None:
+    artifact = tmp_path / "operator.npz"
+    calibration = tmp_path / "operator.calibration.tsv"
+    artifact.write_bytes(b"operator-v1")
+    calibration.write_bytes(b"calibration-v1")
+    signature = {
+        "kind": "hotspot-operator",
+        "builder_sha256": "a" * 64,
+        "input_sha256": "b" * 64,
+    }
+    related = {"calibration": calibration}
+
+    assert not experiments._cache_receipt_matches(
+        artifact,
+        signature,
+        related,
+    )
+    experiments._write_cache_receipt(artifact, signature, related)
+    assert experiments._cache_receipt_matches(artifact, signature, related)
+
+    artifact.write_bytes(b"operator-tampered")
+    assert not experiments._cache_receipt_matches(
+        artifact,
+        signature,
+        related,
+    )
+    artifact.write_bytes(b"operator-v1")
+    calibration.write_bytes(b"calibration-tampered")
+    assert not experiments._cache_receipt_matches(
+        artifact,
+        signature,
+        related,
+    )
+
+
 def test_producer_label_names_the_actual_split() -> None:
     assert "--split dev" in experiments._canonical_producer("dev", False)
     v3 = experiments._canonical_producer("heldout_v3", True)

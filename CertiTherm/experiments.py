@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import csv
 from datetime import datetime, timezone
 import hashlib
+import json
 import multiprocessing
 import os
 from pathlib import Path
@@ -99,6 +100,7 @@ FROZEN_NUMERIC_THREAD_VARIABLES = (
     "MKL_NUM_THREADS",
 )
 _T = TypeVar("_T")
+CACHE_RECEIPT_SCHEMA = "certitherm-cache-v1"
 
 
 class NonthermalCandidateInvalid(RuntimeError):
@@ -126,6 +128,139 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _canonical_sha256(payload: Mapping[str, object]) -> str:
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _source_bundle_sha256(relative_paths: Sequence[str]) -> str:
+    return _canonical_sha256(
+        {
+            relative: _sha256(ROOT / relative)
+            for relative in sorted(relative_paths)
+        }
+    )
+
+
+def _cache_receipt_path(artifact: Path) -> Path:
+    return artifact.with_name(f"{artifact.name}.receipt.tsv")
+
+
+def _write_cache_receipt(
+    artifact: Path,
+    signature: Mapping[str, str],
+    related: Optional[Mapping[str, Path]] = None,
+) -> None:
+    related = {} if related is None else related
+    row: dict[str, object] = {
+        "schema": CACHE_RECEIPT_SCHEMA,
+        **signature,
+        "artifact_sha256": _sha256(artifact),
+    }
+    row.update(
+        {f"{name}_sha256": _sha256(path) for name, path in related.items()}
+    )
+    _write_tsv(_cache_receipt_path(artifact), [row])
+
+
+def _cache_receipt_matches(
+    artifact: Path,
+    signature: Mapping[str, str],
+    related: Optional[Mapping[str, Path]] = None,
+) -> bool:
+    related = {} if related is None else related
+    receipt = _cache_receipt_path(artifact)
+    if not artifact.is_file() or not receipt.is_file():
+        return False
+    try:
+        rows = _rows(receipt)
+        if len(rows) != 1:
+            return False
+        expected = {
+            "schema": CACHE_RECEIPT_SCHEMA,
+            **signature,
+            "artifact_sha256": _sha256(artifact),
+            **{
+                f"{name}_sha256": _sha256(path)
+                for name, path in related.items()
+            },
+        }
+    except (OSError, ValueError):
+        return False
+    return rows[0] == expected
+
+
+def _capture_cache_signature(
+    arch: Mapping[str, str],
+    workload: Mapping[str, str],
+    package: Mapping[str, str],
+) -> dict[str, str]:
+    inputs = {
+        "architecture": dict(arch),
+        "workload": dict(workload),
+        "package": dict(package),
+        "thermodse_sha": _git_revision(THERMODSE),
+    }
+    return {
+        "kind": "thermodse-capture",
+        "builder_sha256": _source_bundle_sha256(
+            ("CertiTherm/experiments.py", "requirements.lock")
+        ),
+        "input_sha256": _canonical_sha256(inputs),
+    }
+
+
+def _operator_cache_signature(
+    arch: Mapping[str, str],
+    package: Mapping[str, str],
+    captures: Sequence[Path],
+) -> dict[str, str]:
+    gpu_enabled = os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") == "1"
+    inputs: dict[str, object] = {
+        "architecture": dict(arch),
+        "package": dict(package),
+        "captures": {path.name: _sha256(path) for path in captures},
+        "hotspot_sha": _git_revision(ROOT / "HotSpot"),
+        "hotspot_binary_sha256": _verified_binary_digest(
+            HOTSPOT,
+            HOTSPOT.parent / "SHA256SUMS",
+        ),
+        "materials_sha256": _sha256(TEMPLATE / "example.materials"),
+        "config_template_sha256": _sha256(TEMPLATE / "example.config"),
+        "models": MODELS,
+        "thermal_limit_k": THERMAL_LIMIT_K,
+        "error_limit_k": MODEL_ERROR_LIMIT_K,
+        "calibration_vectors": CALIBRATION_VECTOR_IDS,
+        "gpu_enabled": gpu_enabled,
+    }
+    if gpu_enabled:
+        inputs.update(
+            {
+                "gpu_exporter_sha256": _sha256(GPU_HOTSPOT_EXPORTER),
+                "gpu_solver_sha256": _sha256(GPU_HOTSPOT_SOLVER),
+                "gpu_device": int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
+            }
+        )
+    return {
+        "kind": "hotspot-operator",
+        "builder_sha256": _source_bundle_sha256(
+            (
+                "CertiTherm/core.py",
+                "CertiTherm/experiments.py",
+                "CertiTherm/gpu_hotspot.py",
+                "CertiTherm/hotspot.py",
+                "CertiTherm/measurements.py",
+                "requirements.lock",
+            )
+        ),
+        "input_sha256": _canonical_sha256(inputs),
+    }
 
 
 def _git_revision(path: Path) -> str:
@@ -374,8 +509,11 @@ def _capture(
     output: Path,
 ) -> Path:
     capture = output / "captures" / f"{workload['workload_id']}--{arch['architecture_id']}.npz"
-    if capture.is_file():
+    signature = _capture_cache_signature(arch, workload, package)
+    if _cache_receipt_matches(capture, signature):
         return capture
+    capture.unlink(missing_ok=True)
+    _cache_receipt_path(capture).unlink(missing_ok=True)
     sim = _prepare_thermodse_sim(
         arch,
         workload,
@@ -401,6 +539,7 @@ def _capture(
         energy_mj=np.asarray(energy),
         die_yield=np.asarray(die_yield),
     )
+    _write_cache_receipt(capture, signature)
     return capture
 
 
@@ -518,8 +657,13 @@ def _operator(
     target = output / "operators" / f"{arch['architecture_id']}--{package['package_id']}.npz"
     captures = tuple(captures)
     calibration_path = target.with_suffix(".calibration.tsv")
+    signature = _operator_cache_signature(arch, package, captures)
     expected_rows = len(captures) * (2 + len(CALIBRATION_SEEDS)) * len(MODELS)
-    if target.is_file() and calibration_path.is_file():
+    if _cache_receipt_matches(
+        target,
+        signature,
+        {"calibration": calibration_path},
+    ):
         cached = _rows(calibration_path)
         if len(cached) == expected_rows and {
             row["vector_id"] for row in cached
@@ -527,6 +671,7 @@ def _operator(
             return target
     target.unlink(missing_ok=True)
     calibration_path.unlink(missing_ok=True)
+    _cache_receipt_path(target).unlink(missing_ok=True)
     work = output / "work" / f"operator--{arch['architecture_id']}--{package['package_id']}"
     work.mkdir(parents=True, exist_ok=True)
     with np.load(captures[0], allow_pickle=False) as data:
@@ -641,6 +786,11 @@ def _operator(
         np.full(len(family.model_ids), MODEL_ERROR_LIMIT_K),
     )
     save_family(target, family, blocks)
+    _write_cache_receipt(
+        target,
+        signature,
+        {"calibration": calibration_path},
+    )
     return target
 
 
