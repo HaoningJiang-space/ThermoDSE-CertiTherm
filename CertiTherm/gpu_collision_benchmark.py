@@ -16,6 +16,15 @@ from .collision_proof import LinearFeasibilitySystem, ProposalKind
 from .gpu_collision import SharedCollisionBatch, propose_collision_batch
 from .gpu_collision_broker import CollisionBroker
 from .synthesis import _state_collision
+from .synthesis import _pair_rows, _state_constraints, _state_specs
+from .experiments import (
+    _measurement_costs,
+    _ordered_architectures,
+    _power_space,
+    _rows,
+)
+from .hotspot import load_family
+from .measurements import build_measurement_library
 
 
 _BATCH_SIZES = (1, 7, 31, 32, 33, 127, 128, 129, 541)
@@ -107,11 +116,70 @@ def _claim_path_parity(solver: Path, socket_path: Path) -> None:
                 os.environ[name] = value
 
 
+def _real_negative_tail(root: Path) -> SharedCollisionBatch:
+    """Rebuild one registered full-observation negative tail from artifacts."""
+
+    registry = Path(__file__).resolve().parents[1] / "experiments"
+    architectures = sorted(
+        (row for row in _rows(registry / "architectures.tsv") if row["split"] == "dev"),
+        key=lambda row: int(row["rank"]),
+    )
+    captures = {
+        ("resnet50", row["architecture_id"]):
+        root / "captures" / f"resnet50--{row['architecture_id']}.npz"
+        for row in architectures
+    }
+    architecture = _ordered_architectures("resnet50", architectures, captures)[0]
+    candidate_id = architecture["architecture_id"]
+    power, blocks, _placed, floorplan = _power_space(
+        captures[("resnet50", candidate_id)]
+    )
+    thermal, operator_blocks = load_family(
+        root / "operators" / f"{candidate_id}--standard.npz"
+    )
+    if blocks != operator_blocks:
+        raise RuntimeError("real collision corpus block registry disagrees")
+    actions = build_measurement_library(
+        candidate_id, blocks, floorplan, architecture, _measurement_costs()
+    )
+    n = power.dimension
+    a_eq, b_eq, a_ub, b_ub = _pair_rows(power)
+    safe_rows, safe_rhs = _state_constraints(
+        thermal, "SAFE", -1, -1, 0, 1e-4
+    )
+    chunks, rhs_chunks = [a_ub, safe_rows], [b_ub, safe_rhs]
+    for action in actions:
+        delta = np.concatenate((action.vector, -action.vector))
+        chunks.append(np.vstack((delta, -delta)))
+        rhs_chunks.append(np.full(2, action.tolerance))
+    specs = tuple(_state_specs(thermal, "REJECT"))
+    rows_and_rhs = [
+        _state_constraints(thermal, "REJECT", model, point, 1, 1e-4)
+        for model, point in specs
+    ]
+    bounds = tuple(zip(power.lower_w, power.upper_w)) * 2
+    common = LinearFeasibilitySystem(
+        np.vstack(chunks),
+        np.concatenate(rhs_chunks),
+        a_eq,
+        b_eq,
+        np.asarray([bound[0] for bound in bounds]),
+        np.asarray([bound[1] for bound in bounds]),
+    )
+    return SharedCollisionBatch(
+        common,
+        np.vstack([row[0] for row, _rhs in rows_and_rhs]),
+        np.asarray([rhs[0] for _row, rhs in rows_and_rhs]),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--solver", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", type=int, default=0)
+    parser.add_argument("--real-artifact-root", type=Path)
+    parser.add_argument("--real-iterations", type=int, default=1000)
     args = parser.parse_args()
     rows = []
     with CollisionBroker(args.solver, args.device) as broker:
@@ -145,6 +213,16 @@ def main() -> None:
                 }
             )
         _claim_path_parity(args.solver.resolve(), broker.socket_path)
+        if args.real_artifact_root is not None:
+            real_batch = _real_negative_tail(args.real_artifact_root)
+            _proposals, _checks, real_receipt = propose_collision_batch(
+                real_batch,
+                args.solver,
+                device=args.device,
+                max_iterations=args.real_iterations,
+                broker_socket=broker.socket_path,
+            )
+            print(f"real_negative_tail\t{real_receipt}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=rows[0], delimiter="\t")
