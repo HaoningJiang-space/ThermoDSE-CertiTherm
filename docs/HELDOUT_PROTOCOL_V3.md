@@ -35,6 +35,15 @@ For every ordered workload/package query:
 5. report `L`, `U`, `U-L`, `(U-L)/L`, `U/L`, bound provenance, plan validity,
    cost optimality, action IDs, and phase times from that one invocation.
 
+The 12 independent queries execute through one persistent three-process spawn
+pool. Each process owns a complete query, including its per-method signals and
+1800-second timers; no method or separation iteration is split across workers.
+The pool is created once, registry order is preserved on collection, and the
+worker count is recorded in `RUN_RECEIPT.tsv`. A frozen v3 invocation with any
+worker count other than three is rejected. This scheduling choice changes
+wall-clock throughput, not the per-query feasible set, objective, budget, or
+proof rule.
+
 The fixed, width, dual, and exact methods also run as independently budgeted
 baselines. Their values cannot be substituted into the Anytime interval.
 `method-freeze-v1` remains unchanged and does not run this controller.

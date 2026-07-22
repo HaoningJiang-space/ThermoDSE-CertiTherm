@@ -70,6 +70,12 @@ Generated evidence is written outside Git under `artifacts/` as
 TSV/CSV/NPZ/Markdown. No secret, machine-specific path, fitted power scale, or
 3D-ICE conversion is part of the method.
 
+Independent workload/package queries use one persistent spawn pool (three
+workers for frozen v3). Query-internal algorithms and timers remain serial;
+this avoids the previously measured cost of constructing a process pool in
+every separation iteration. The worker count and scheduling mode are bound
+into each run receipt.
+
 Each workload's candidates are ordered by its captured ThermoDSE
 `latency × energy / die_yield` value before thermal feasibility is applied.
 The registered observation library spans module, chiplet, placement-region,

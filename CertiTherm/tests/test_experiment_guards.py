@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -115,3 +116,33 @@ def test_producer_label_names_the_actual_split() -> None:
     assert "--split heldout_v3" in v3
     assert v3.endswith("--frozen")
     assert "/home/" not in v3 and "/data/" not in v3
+
+
+def test_v3_frozen_worker_count_is_part_of_the_protocol(monkeypatch) -> None:
+    monkeypatch.setattr(
+        experiments,
+        "_FROZEN_ENABLED_SPLITS",
+        frozenset({"heldout", "heldout_v3"}),
+    )
+    monkeypatch.setattr(experiments, "QUERY_WORKERS", 2)
+    with pytest.raises(ValueError, match="exactly 3 query workers"):
+        experiments._validate_run_request(
+            "heldout_v3", True, budget_s=1800.0
+        )
+
+    monkeypatch.setattr(experiments, "QUERY_WORKERS", 3)
+    experiments._validate_run_request("heldout_v3", True, budget_s=1800.0)
+
+
+def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
+    monkeypatch.setattr(experiments, "_sha256", lambda _path: "a" * 64)
+    monkeypatch.setattr(experiments, "_git_revision", lambda _path: "b" * 40)
+    receipt = experiments._run_receipt(
+        "dev",
+        False,
+        datetime(2026, 7, 22, tzinfo=timezone.utc),
+        "c" * 64,
+    )
+
+    assert receipt["query_workers"] == experiments.QUERY_WORKERS
+    assert receipt["query_parallelism"] == "persistent-spawn-pool"

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import contextmanager
 import csv
 from datetime import datetime, timezone
 import hashlib
+import multiprocessing
 import os
 from pathlib import Path
 import re
@@ -88,6 +89,10 @@ CALIBRATION_VECTOR_IDS = (
 QUERY_METHOD_TIMEOUT_S = float(os.environ.get("CERTITHERM_QUERY_BUDGET_S", "1800"))
 FROZEN_QUERY_BUDGET_S = 1800.0
 _BUDGET_IS_FROZEN = abs(QUERY_METHOD_TIMEOUT_S - FROZEN_QUERY_BUDGET_S) < 1e-9
+QUERY_WORKERS = int(os.environ.get("CERTITHERM_QUERY_WORKERS", "3"))
+if QUERY_WORKERS < 1:
+    raise RuntimeError("CERTITHERM_QUERY_WORKERS must be a positive integer")
+FROZEN_V3_QUERY_WORKERS = 3
 _T = TypeVar("_T")
 
 
@@ -1014,6 +1019,19 @@ class QueryMethodResults:
         return {name: run.error for name, run in methods if run.error}
 
 
+@dataclass(frozen=True)
+class PreparedQuery:
+    """Immutable handoff from physical preparation to method evaluation."""
+
+    query_id: str
+    workload_id: str
+    package_id: str
+    candidates: tuple[CandidateSpace, ...]
+    actions: tuple[MeasurementAction, ...]
+    fixed_order: tuple[int, ...]
+    placed_by_candidate: Mapping[str, np.ndarray]
+
+
 def _timed_call(function: Callable[[], _T]) -> TimedResult[_T]:
     """Run one query method with a fail-closed wall-clock budget."""
 
@@ -1063,6 +1081,49 @@ def _evaluate_query_methods(
         else None
     )
     return QueryMethodResults(exact, fixed, width, dual, anytime)
+
+
+def _evaluate_prepared_query(
+    job: tuple[PreparedQuery, bool],
+) -> QueryMethodResults:
+    """Process-pool entry point; one worker owns one query and its timers."""
+
+    query, include_anytime = job
+    return _evaluate_query_methods(
+        query.candidates,
+        query.actions,
+        query.fixed_order,
+        include_anytime=include_anytime,
+    )
+
+
+def _evaluate_query_batch(
+    queries: Sequence[PreparedQuery],
+    *,
+    include_anytime: bool,
+    workers: int = QUERY_WORKERS,
+) -> tuple[QueryMethodResults, ...]:
+    """Evaluate independent queries in one persistent process pool.
+
+    The old failed parallel path built a spawn-context pool inside every
+    separation iteration. Here the pool is created exactly once for the whole
+    experiment and each task runs a complete query. `map` preserves registry
+    order, so scheduling cannot reorder evidence rows.
+    """
+
+    if workers < 1:
+        raise ValueError("query workers must be positive")
+    if not queries:
+        return ()
+    jobs = tuple((query, include_anytime) for query in queries)
+    if workers == 1:
+        return tuple(_evaluate_prepared_query(job) for job in jobs)
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(
+        max_workers=min(workers, len(jobs)),
+        mp_context=context,
+    ) as pool:
+        return tuple(pool.map(_evaluate_prepared_query, jobs))
 
 
 def _ordered_outcome(
@@ -1225,6 +1286,165 @@ def _replay_unsynth_witness(
         replay_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(replay_path, **payload)
     return rows, accepted
+
+
+@dataclass(frozen=True)
+class QueryEvidence:
+    """Deterministic, serializable evidence emitted for one prepared query."""
+
+    result: dict[str, object]
+    plans: tuple[dict[str, object], ...]
+    witnesses: tuple[dict[str, object], ...]
+    witness_replays: tuple[dict[str, object], ...]
+    failures: tuple[dict[str, object], ...]
+
+
+def _archive_query_evidence(
+    query: PreparedQuery,
+    methods: QueryMethodResults,
+    *,
+    split: str,
+    operators: Mapping[tuple[str, str], Path],
+    output: Path,
+) -> QueryEvidence:
+    """Replay and serialize one query after its method evaluation completes."""
+
+    exact = methods.exact.value
+    fixed = methods.fixed.value
+    width = methods.width.value
+    dual = methods.dual.value
+    anytime = methods.anytime
+    method_errors = methods.errors
+    failures = [
+        {
+            "stage": method,
+            "workload": query.workload_id,
+            "architecture": "ORDERED_SET",
+            "package": query.package_id,
+            "failure_type": error.split(":", 1)[0],
+            "message": error,
+        }
+        for method, error in method_errors.items()
+    ]
+
+    witness_rows: list[dict[str, object]] = []
+    witness_replay_rows: list[dict[str, object]] = []
+    witness_path = output / "witnesses" / f"{query.query_id}.npz"
+    exact_status = exact.status if exact else "UNRESOLVED"
+    if exact is not None and _save_unsynth_witness(witness_path, exact):
+        witness_rows.append(
+            {
+                "query_id": query.query_id,
+                "status": exact.status,
+                "left_decision": exact.witnesses[-1].left_decision,
+                "right_decision": exact.witnesses[-1].right_decision,
+                "path": str(witness_path.relative_to(output)),
+            }
+        )
+        replay_rows, replay_pass = _replay_unsynth_witness(
+            query.query_id,
+            exact,
+            query.candidates,
+            operators,
+            query.package_id,
+            output,
+        )
+        witness_replay_rows.extend(replay_rows)
+        witness_rows[-1]["physical_replay_status"] = (
+            "PASS" if replay_pass else "REJECT"
+        )
+        if not replay_pass:
+            exact_status = "UNRESOLVED"
+            error = "witness direct replay violates frozen error contract"
+            method_errors["exact_dsos_replay"] = error
+            failures.append(
+                {
+                    "stage": "exact_dsos_replay",
+                    "workload": query.workload_id,
+                    "architecture": "ORDERED_SET",
+                    "package": query.package_id,
+                    "failure_type": "ErrorContractViolation",
+                    "message": error,
+                }
+            )
+
+    plan_rows = []
+    for policy_name, policy in (
+        ("exact_dsos", exact),
+        ("fixed_early_stop", fixed),
+        ("uncertainty_width", width),
+        ("dual_price", dual),
+    ):
+        if policy is None:
+            continue
+        selected = policy.selected_action_ids
+        plan_rows.append(
+            {
+                "query_id": query.query_id,
+                "policy": policy_name,
+                "status": exact_status if policy_name == "exact_dsos" else policy.status,
+                "cost": (
+                    policy.exact_cost if policy_name == "exact_dsos" else policy.cost
+                ),
+                "selected_count": len(selected),
+                "selected_action_ids": ";".join(selected),
+            }
+        )
+    if anytime is not None:
+        plan_rows.append(_anytime_plan_row(query.query_id, anytime))
+
+    placed = _placed_evidence(query.candidates, query.placed_by_candidate)
+    result = {
+        "freeze_id": _SPLIT_FREEZE_ID[split],
+        "split": split,
+        "workload": query.workload_id,
+        "package": query.package_id,
+        "objective": "EDYP_ASCENDING",
+        "candidate_order": ";".join(
+            candidate.candidate_id for candidate in query.candidates
+        ),
+        "exact_status": exact_status,
+        "exact_cost": exact.exact_cost if exact else "",
+        "milp_lower_bound": exact.lower_bound if exact else "",
+        "lp_relaxation_bound": exact.relaxation_bound if exact else "",
+        "optimality_gap": exact.optimality_gap if exact else "",
+        # v1 does not silently acquire the later Anytime method.
+        **(_anytime_result_fields(anytime) if anytime is not None else {}),
+        "fixed_status": fixed.status if fixed else "UNRESOLVED",
+        "fixed_cost": fixed.cost if fixed else "",
+        "width_status": width.status if width else "UNRESOLVED",
+        "width_cost": width.cost if width else "",
+        "dual_status": dual.status if dual else "UNRESOLVED",
+        "dual_cost": dual.cost if dual else "",
+        "exact_seconds": methods.exact.seconds,
+        "fixed_seconds": methods.fixed.seconds,
+        "width_seconds": methods.width.seconds,
+        "dual_seconds": methods.dual.seconds,
+        "full_registry_cost": sum(action.cost for action in query.actions),
+        "witnesses": len(exact.witnesses) if exact else 0,
+        "placed_robust_outcome": placed["robust_outcome"],
+        "placed_model_outcomes": ";".join(
+            f"{model}={outcome}" for model, outcome in placed["model_outcomes"]
+        ),
+        "placed_model_disagreement": placed["model_disagreement"],
+        "false_certificate": (
+            int(bool(anytime.interval_violation))
+            if anytime is not None
+            else 0
+            if exact is not None and exact.status == "OPTIMAL"
+            else ""
+        ),
+        "failure": "; ".join(
+            f"{method}={error}" for method, error in method_errors.items()
+        ),
+    }
+    return QueryEvidence(
+        result=result,
+        plans=tuple(plan_rows),
+        witnesses=tuple(witness_rows),
+        witness_replays=tuple(witness_replay_rows),
+        failures=tuple(failures),
+    )
 
 
 @dataclass(frozen=True)
@@ -1491,6 +1711,12 @@ _SPLIT_FREEZE_ID = {
 }
 
 
+def _query_worker_count(split: str) -> int:
+    """Keep legacy v1 serial while v3 uses its preregistered scheduler."""
+
+    return 1 if split == "heldout" else QUERY_WORKERS
+
+
 def _validate_run_request(
     split: str,
     frozen: bool,
@@ -1520,6 +1746,11 @@ def _validate_run_request(
         raise ValueError(
             f"frozen runs require exactly {FROZEN_QUERY_BUDGET_S:.0f}s per query; "
             f"got {actual_budget}"
+        )
+    if split == "heldout_v3" and QUERY_WORKERS != FROZEN_V3_QUERY_WORKERS:
+        raise ValueError(
+            f"heldout_v3 requires exactly {FROZEN_V3_QUERY_WORKERS} query workers; "
+            f"got {QUERY_WORKERS}"
         )
 
 
@@ -1573,6 +1804,7 @@ def _run_receipt(
         f"{name.lower()}_sha": _git_revision(ROOT / name)
         for name in SUBMODULE_PATHS
     }
+    query_workers = _query_worker_count(split)
     return {
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "protocol_state": _SPLIT_PROTOCOL_STATE[split],
@@ -1580,6 +1812,10 @@ def _run_receipt(
         "frozen": int(frozen),
         "query_budget_s": QUERY_METHOD_TIMEOUT_S,
         "budget_is_frozen": int(_BUDGET_IS_FROZEN),
+        "query_workers": query_workers,
+        "query_parallelism": (
+            "serial" if query_workers == 1 else "persistent-spawn-pool"
+        ),
         "git_sha": _git_revision(ROOT),
         **submodules,
         "hotspot_binary_sha256": hotspot_digest,
@@ -1676,6 +1912,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
     results, order_rows, registry_rows, spectral_rows = [], [], [], []
     spectra = {}
     plan_rows, witness_rows, witness_replay_rows = [], [], []
+    prepared_queries: list[PreparedQuery] = []
     for workload in workloads:
         ordered_arches = _ordered_architectures(
             workload["workload_id"], architectures, captures
@@ -1789,154 +2026,49 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     ),
                 )
             )
-            methods = _evaluate_query_methods(
-                candidates,
-                actions,
-                fixed_order,
-                include_anytime=split in _ANYTIME_SPLITS,
+            prepared_queries.append(
+                PreparedQuery(
+                    query_id=query_id,
+                    workload_id=workload["workload_id"],
+                    package_id=package["package_id"],
+                    candidates=tuple(candidates),
+                    actions=tuple(actions),
+                    fixed_order=fixed_order,
+                    placed_by_candidate=placed_by_candidate,
+                )
             )
-            exact = methods.exact.value
-            fixed = methods.fixed.value
-            width = methods.width.value
-            dual = methods.dual.value
-            anytime = methods.anytime
-            method_errors = methods.errors
-            for method, error in method_errors.items():
-                failures.append(
-                    {
-                        "stage": method,
-                        "workload": workload["workload_id"],
-                        "architecture": "ORDERED_SET",
-                        "package": package["package_id"],
-                        "failure_type": error.split(":", 1)[0],
-                        "message": error,
-                    }
-                )
-            witness_path = output / "witnesses" / f"{query_id}.npz"
-            exact_status = exact.status if exact else "UNRESOLVED"
-            if exact is not None and _save_unsynth_witness(witness_path, exact):
-                witness_rows.append(
-                    {
-                        "query_id": query_id,
-                        "status": exact.status,
-                        "left_decision": exact.witnesses[-1].left_decision,
-                        "right_decision": exact.witnesses[-1].right_decision,
-                        "path": str(witness_path.relative_to(output)),
-                    }
-                )
-                replay_rows, replay_pass = _replay_unsynth_witness(
-                    query_id,
-                    exact,
-                    candidates,
-                    operators,
-                    package["package_id"],
-                    output,
-                )
-                witness_replay_rows.extend(replay_rows)
-                witness_rows[-1]["physical_replay_status"] = (
-                    "PASS" if replay_pass else "REJECT"
-                )
-                if not replay_pass:
-                    exact_status = "UNRESOLVED"
-                    error = "witness direct replay violates frozen error contract"
-                    method_errors["exact_dsos_replay"] = error
-                    failures.append(
-                        {
-                            "stage": "exact_dsos_replay",
-                            "workload": workload["workload_id"],
-                            "architecture": "ORDERED_SET",
-                            "package": package["package_id"],
-                            "failure_type": "ErrorContractViolation",
-                            "message": error,
-                        }
-                    )
-            for policy_name, policy in (
-                ("exact_dsos", exact),
-                ("fixed_early_stop", fixed),
-                ("uncertainty_width", width),
-                ("dual_price", dual),
-            ):
-                if policy is None:
-                    continue
-                selected = policy.selected_action_ids
-                plan_rows.append(
-                    {
-                        "query_id": query_id,
-                        "policy": policy_name,
-                        "status": (
-                            exact_status
-                            if policy_name == "exact_dsos"
-                            else policy.status
-                        ),
-                        "cost": (
-                            policy.exact_cost
-                            if policy_name == "exact_dsos"
-                            else policy.cost
-                        ),
-                        "selected_count": len(selected),
-                        "selected_action_ids": ";".join(selected),
-                    }
-                )
-            placed = _placed_evidence(candidates, placed_by_candidate)
 
-            if anytime is not None:
-                plan_rows.append(_anytime_plan_row(query_id, anytime))
+    method_batches = _evaluate_query_batch(
+        prepared_queries,
+        include_anytime=split in _ANYTIME_SPLITS,
+        workers=_query_worker_count(split),
+    )
+    if len(method_batches) != len(prepared_queries):
+        raise RuntimeError("query evaluator returned an incomplete result batch")
+    for query, methods in zip(prepared_queries, method_batches):
+        evidence = _archive_query_evidence(
+            query,
+            methods,
+            split=split,
+            operators=operators,
+            output=output,
+        )
+        results.append(evidence.result)
+        plan_rows.extend(evidence.plans)
+        witness_rows.extend(evidence.witnesses)
+        witness_replay_rows.extend(evidence.witness_replays)
+        failures.extend(evidence.failures)
 
-            results.append(
-                {
-                    "freeze_id": _SPLIT_FREEZE_ID[split],
-                    "split": split,
-                    "workload": workload["workload_id"],
-                    "package": package["package_id"],
-                    "objective": "EDYP_ASCENDING",
-                    "candidate_order": ";".join(
-                        candidate.candidate_id for candidate in candidates
-                    ),
-                    "exact_status": exact_status,
-                    "exact_cost": exact.exact_cost if exact else "",
-                    "milp_lower_bound": exact.lower_bound if exact else "",
-                    "lp_relaxation_bound": (
-                        exact.relaxation_bound if exact else ""
-                    ),
-                    "optimality_gap": exact.optimality_gap if exact else "",
-                    # v1 does not silently acquire the later Anytime method.
-                    **(
-                        _anytime_result_fields(anytime)
-                        if anytime is not None
-                        else {}
-                    ),
-                    "fixed_status": fixed.status if fixed else "UNRESOLVED",
-                    "fixed_cost": fixed.cost if fixed else "",
-                    "width_status": width.status if width else "UNRESOLVED",
-                    "width_cost": width.cost if width else "",
-                    "dual_status": dual.status if dual else "UNRESOLVED",
-                    "dual_cost": dual.cost if dual else "",
-                    "exact_seconds": methods.exact.seconds,
-                    "fixed_seconds": methods.fixed.seconds,
-                    "width_seconds": methods.width.seconds,
-                    "dual_seconds": methods.dual.seconds,
-                    "full_registry_cost": sum(action.cost for action in actions),
-                    "witnesses": len(exact.witnesses) if exact else 0,
-                    "placed_robust_outcome": placed["robust_outcome"],
-                    "placed_model_outcomes": ";".join(
-                        f"{model}={outcome}"
-                        for model, outcome in placed["model_outcomes"]
-                    ),
-                    "placed_model_disagreement": placed["model_disagreement"],
-                    "false_certificate": (
-                        int(bool(anytime.interval_violation))
-                        if anytime is not None
-                        else 0
-                        if exact is not None and exact.status == "OPTIMAL"
-                        else ""
-                    ),
-                    "failure": "; ".join(
-                        f"{method}={error}" for method, error in method_errors.items()
-                    ),
-                }
-            )
-    result_path = output / "results.tsv"
-    _write_tsv(result_path, results)
+    query_order = {}
+    for workload in workloads:
+        for package in packages:
+            key = workload["workload_id"], package["package_id"]
+            query_order[key] = len(query_order)
+    results.sort(
+        key=lambda row: query_order[(str(row["workload"]), str(row["package"]))]
+    )
+
+    _write_tsv(output / "results.tsv", results)
     _write_tsv(output / "candidate_order.tsv", order_rows)
     if registry_rows:
         _write_tsv(output / "measurement_registry.tsv", registry_rows)
