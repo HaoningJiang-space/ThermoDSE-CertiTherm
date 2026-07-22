@@ -283,6 +283,42 @@ def _install_thermodse_compatibility() -> None:
         add_with_prevs._certitherm_accepts_prevs = True  # type: ignore[attr-defined]
         Network.add = add_with_prevs  # type: ignore[assignment]
 
+    # The pinned breadth-first traversal omits external inputs from its
+    # initially satisfied dependency set. Recurrent networks therefore stall
+    # even though Network itself explicitly supports external layers.
+    original_traverse = Network.traverese_layer
+    if not getattr(original_traverse, "_certitherm_handles_external", False):
+        def traverse_with_external_inputs(self, check=False) -> None:
+            self.layer_idx_bfs = type(self.layer_dict)()
+            finished = {self.INPUT_LAYER_KEY, *self.ext_layers()}
+            pending = [
+                name for name in self.layer_dict if name != self.INPUT_LAYER_KEY
+            ]
+            depth = 0
+            while pending:
+                ready = []
+                for name in pending:
+                    dependencies = tuple(self.ifm_prevs_dict[name])
+                    if self.wgt_prevs_dict[name] is not None:
+                        dependencies += tuple(self.wgt_prevs_dict[name])
+                    if all(dependency in finished for dependency in dependencies):
+                        ready.append(name)
+                if not ready:
+                    raise RuntimeError(
+                        "ThermoDSE network contains cyclic or unresolved dependencies: "
+                        + ", ".join(pending)
+                    )
+                self.layer_idx_bfs[depth] = ready
+                if check:
+                    print(f"Depth {depth}: {ready}")
+                finished.update(ready)
+                pending = [name for name in pending if name not in finished]
+                depth += 1
+            self.depth = depth
+
+        traverse_with_external_inputs._certitherm_handles_external = True  # type: ignore[attr-defined]
+        Network.traverese_layer = traverse_with_external_inputs  # type: ignore[assignment]
+
 
 def _capture(
     arch: dict[str, str],

@@ -121,4 +121,6 @@ def test_compatibility_layer_loads_frozen_legacy_workloads() -> None:
     from nns import import_network  # type: ignore
 
     for workload in ("alex_net", "lstm_gnmt"):
-        assert import_network(workload).net_name
+        network = import_network(workload)
+        network.traverese_layer(check=False)
+        assert sum(map(len, network.layer_idx_bfs.values())) == len(network)

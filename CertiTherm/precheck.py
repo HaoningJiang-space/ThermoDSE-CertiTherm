@@ -14,6 +14,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import traceback
 from typing import Iterable, Mapping
 
 from .experiments import (
@@ -159,6 +160,7 @@ def run(output: Path) -> bool:
                         **identity,
                         "failure_type": type(exc).__name__,
                         "message": str(exc),
+                        "traceback": traceback.format_exc(),
                         "git_sha": git_sha,
                     }
                 )

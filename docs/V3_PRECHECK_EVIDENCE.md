@@ -27,3 +27,26 @@ query, registry, or observation-contract result.
 Decision: preserve the primary architecture set unchanged. Repair only the
 documented keyword compatibility layer, commit it, rerun the identical check,
 and retain A1 permanently as an unresolved attempt.
+
+## Attempt A2 — unresolved, no replacement authorized
+
+- Producer commit: `7728f0208858dd9bb0db958300def9efecac7c84`
+- Outcome: `UNRESOLVED`; 9/12 combinations completed, 0 invalid metrics,
+  3 execution failures
+- A1 resolution: AlexNet completed for all three primary architectures.
+- Remaining failure: all three GNMT evaluations reached the pinned
+  `Network.traverese_layer` and stopped at its progress assertion. Diagnosis
+  showed that this traversal seeds its satisfied set with only `__INPUT__`,
+  even though the same class explicitly registers LSTM hidden/cell state as
+  external input layers. Consequently no first recurrent layer is eligible.
+- Thermal guard: `hotspot_invocations=0`; the bundle contains no `.steady`,
+  `.ptrace`, `.flp`, or `.npz` file.
+- Raw `SHA256SUMS` digest:
+  `1bc21b4fb867d62afac928e9f7d6405d9222ed53544f0d1d29c9e4d48940754a`
+- Execution-log digest:
+  `04e9aedb524c7c793dc2fb655a3e0828dd8a6ea028790a704c1c44047c04a84a`
+
+Decision: again preserve the primary set. Correct the traversal to seed every
+registered external input, add a recurrent-network completeness regression,
+commit, and rerun the identical check. This changes neither the workload nor
+any observed metric.
