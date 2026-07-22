@@ -133,6 +133,35 @@ def _outward_matvec(matrix: np.ndarray, vector: np.ndarray) -> Tuple[np.ndarray,
     )
 
 
+def _outward_matmul(left: np.ndarray, right: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Conservatively enclose a BLAS matrix product column batch."""
+
+    if left.shape[1] != right.shape[0]:
+        raise ValueError("matrix product dimensions disagree")
+    center = left @ right
+    magnitude = np.abs(left) @ np.abs(right)
+    operations = max(1, 2 * left.shape[1])
+    unit = np.finfo(float).eps / 2.0
+    gamma = operations * unit / (1.0 - operations * unit)
+    radius = gamma * np.nextafter(magnitude, math.inf) / (1.0 - gamma)
+    radius += np.abs(np.nextafter(center, math.inf) - center)
+    return (
+        np.nextafter(center - radius, -math.inf),
+        np.nextafter(center + radius, math.inf),
+    )
+
+
+def _outward_column_sum_lower(values: np.ndarray) -> np.ndarray:
+    center = np.sum(values, axis=0)
+    magnitude = np.sum(np.abs(values), axis=0)
+    count = max(1, values.shape[0])
+    unit = np.finfo(float).eps / 2.0
+    gamma = count * unit / (1.0 - count * unit)
+    radius = gamma * np.nextafter(magnitude, math.inf) / (1.0 - gamma)
+    radius += np.abs(np.nextafter(center, math.inf) - center)
+    return np.nextafter(center - radius, -math.inf)
+
+
 def _outward_sum_lower(values: Sequence[float]) -> float:
     if not all(math.isfinite(value) for value in values):
         raise ValueError("non-finite interval sum")
@@ -304,6 +333,133 @@ def verify_infeasible_ray_with_extra_row(
             slack,
         )
     return ProofCheck(False, ProposalKind.UNKNOWN, "ray contradiction is not strict")
+
+
+def verify_shared_collision_batch(
+    common: LinearFeasibilitySystem,
+    spec_rows: np.ndarray,
+    spec_rhs: np.ndarray,
+    kinds: np.ndarray,
+    primal: np.ndarray,
+    common_dual: np.ndarray,
+    spec_dual: np.ndarray,
+    equality_dual: np.ndarray,
+    tolerance: float,
+) -> Tuple[ProofCheck, ...]:
+    """Vectorized proof gate for cells sharing one constraint operator."""
+
+    cells, n = spec_rows.shape
+    m, e = common.b_ub.size, common.b_eq.size
+    expected = (
+        spec_rhs.shape == (cells,)
+        and kinds.shape == (cells,)
+        and primal.shape == (n, cells)
+        and common_dual.shape == (m, cells)
+        and spec_dual.shape == (cells,)
+        and equality_dual.shape == (e, cells)
+    )
+    arrays = (spec_rows, spec_rhs, primal, common_dual, spec_dual, equality_dual)
+    if not expected or not all(np.all(np.isfinite(value)) for value in arrays):
+        return tuple(
+            ProofCheck(False, ProposalKind.UNKNOWN, "malformed batch proposal")
+            for _cell in range(cells)
+        )
+    checks = [ProofCheck(False, ProposalKind.UNKNOWN, "no checkable proposal")] * cells
+
+    feasible = np.flatnonzero(kinds == 1)
+    if feasible.size:
+        x = primal[:, feasible]
+        valid = np.all(
+            (x >= np.nextafter(common.lower[:, None] - tolerance, -math.inf))
+            & (x <= np.nextafter(common.upper[:, None] + tolerance, math.inf)),
+            axis=0,
+        )
+        _lower, upper = _outward_matmul(common.a_ub, x)
+        valid &= np.all(
+            upper <= np.nextafter(common.b_ub[:, None] + tolerance, math.inf),
+            axis=0,
+        )
+        eq_lower, eq_upper = _outward_matmul(common.a_eq, x)
+        valid &= np.all(
+            (eq_lower >= np.nextafter(common.b_eq[:, None] - tolerance, -math.inf))
+            & (eq_upper <= np.nextafter(common.b_eq[:, None] + tolerance, math.inf)),
+            axis=0,
+        )
+        selected_rows = spec_rows[feasible]
+        products = selected_rows * x.T
+        center = np.sum(products, axis=1)
+        magnitude = np.sum(np.abs(products), axis=1)
+        unit = np.finfo(float).eps / 2.0
+        gamma = max(1, 2 * n) * unit / (1.0 - max(1, 2 * n) * unit)
+        spec_upper = np.nextafter(
+            center + gamma * np.nextafter(magnitude, math.inf) / (1.0 - gamma),
+            math.inf,
+        )
+        valid &= spec_upper <= np.nextafter(spec_rhs[feasible] + tolerance, math.inf)
+        for cell, accepted in zip(feasible, valid):
+            checks[cell] = ProofCheck(
+                bool(accepted),
+                ProposalKind.FEASIBLE if accepted else ProposalKind.UNKNOWN,
+                "all primal constraints verified" if accepted else "primal verification failed",
+            )
+
+    infeasible = np.flatnonzero(kinds == 2)
+    if infeasible.size:
+        yc = common_dual[:, infeasible]
+        ys = spec_dual[infeasible]
+        z = equality_dual[:, infeasible]
+        maximum = np.maximum.reduce(
+            (
+                np.max(yc, axis=0, initial=0.0),
+                ys,
+                np.max(np.abs(z), axis=0, initial=0.0),
+            )
+        )
+        nonnegative = np.all(yc >= 0.0, axis=0) & (ys >= 0.0) & (maximum > 0.0)
+        scale = np.where(maximum > 0.0, maximum, 1.0)
+        yc, ys, z = yc / scale, ys / scale, z / scale
+        positive, negative = np.maximum(z, 0.0), np.maximum(-z, 0.0)
+        lower, upper = _outward_matmul(common.a_ub.T, yc)
+        pieces = (
+            spec_rows[infeasible].T * ys,
+            *_outward_matmul(common.a_eq.T, positive),
+            *_outward_matmul((-common.a_eq).T, negative),
+        )
+        extra, positive_lower, positive_upper, negative_lower, negative_upper = pieces
+        for addition in (np.nextafter(extra, -math.inf), positive_lower, negative_lower):
+            lower = np.nextafter(lower + addition, -math.inf)
+        for addition in (np.nextafter(extra, math.inf), positive_upper, negative_upper):
+            upper = np.nextafter(upper + addition, math.inf)
+        box_products = np.stack(
+            (
+                lower * common.lower[:, None],
+                lower * common.upper[:, None],
+                upper * common.lower[:, None],
+                upper * common.upper[:, None],
+            )
+        )
+        left_lower = _outward_column_sum_lower(
+            np.nextafter(np.min(box_products, axis=0), -math.inf)
+        )
+        _rhs_lower, rhs_upper = _outward_matmul(common.b_ub[None, :], yc)
+        rhs_upper = rhs_upper[0]
+        spec_rhs_upper = np.nextafter(spec_rhs[infeasible] * ys, math.inf)
+        rhs_upper = np.nextafter(rhs_upper + spec_rhs_upper, math.inf)
+        for row, dual in ((common.b_eq, positive), (-common.b_eq, negative)):
+            _part_lower, part_upper = _outward_matmul(row[None, :], dual)
+            rhs_upper = np.nextafter(rhs_upper + part_upper[0], math.inf)
+        accepted = nonnegative & (left_lower > rhs_upper)
+        slack = left_lower - rhs_upper
+        for index, cell in enumerate(infeasible):
+            checks[cell] = ProofCheck(
+                bool(accepted[index]),
+                ProposalKind.INFEASIBLE if accepted[index] else ProposalKind.UNKNOWN,
+                "residual-aware Farkas inequality verified"
+                if accepted[index]
+                else "ray contradiction is not strict",
+                float(slack[index]) if accepted[index] else None,
+            )
+    return tuple(checks)
 
 
 def verify_proposal(
