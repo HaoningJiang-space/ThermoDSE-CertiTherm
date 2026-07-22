@@ -943,9 +943,11 @@ def _cost_lattice(costs: np.ndarray) -> Optional[_Fraction]:
     g = fractions[0]
     for frac in fractions[1:]:
         # gcd over rationals: gcd(num)/lcm(den)
+        numerator_gcd = math.gcd(g.numerator, frac.numerator)
+        denominator_gcd = math.gcd(g.denominator, frac.denominator)
         g = _Fraction(
-            np.gcd(g.numerator, frac.numerator),
-            g.denominator * frac.denominator // np.gcd(g.denominator, frac.denominator),
+            numerator_gcd,
+            g.denominator * frac.denominator // denominator_gcd,
         )
     return g if g > 0 else None
 
