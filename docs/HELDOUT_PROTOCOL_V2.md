@@ -112,9 +112,27 @@ and three package regimes.
 The v2 held-out split must be **disjoint from both the dev set and the v1
 held-out set**. Reusing v1's held-out architectures would mean selecting v2
 endpoints with knowledge of data reserved as held-out, even though v1's
-held-out was never opened. New architecture vectors and their provenance are to
-be registered in `experiments/architectures.tsv` under `split = heldout_v2`
-before any v2 run.
+held-out was never opened. The v2 architectures are registered in `experiments/architectures.tsv` under
+`split = heldout_v2`, **before any v2 run**:
+
+| id | grid | cut | interval | mtxu | ubuf | nop_bw | dram_bw |
+|---|---|---|---|---|---|---|---|
+| arch_g | 6x4 | 3x1 | 0.0009 | 128x176 | 2097152 | 176 | 160 |
+| arch_h | 3x8 | 1x4 | 0.0021 | 176x112 | 524288 | 96 | 192 |
+| arch_i | 9x2 | 3x2 | 0.0013 | 144x160 | 2097152 | 224 | 96 |
+
+Verified disjoint from dev (7x3/1x1, 4x5/2x1, 4x4/2x2) and from v1 held-out
+(5x6/1x2, 8x1/8x1, 4x2/4x2), both by grid/cut geometry and by full parameter
+vector. They deliberately span cut orientations absent from both earlier sets:
+a 3x1 horizontal cut, a 1x4 vertical cut, and a wide 9x2 grid.
+
+**NOT verified, and a precondition for any v2 run:** that ThermoDSE actually
+produces a feasible design for each of these vectors, and that their EDYP
+ordering is non-degenerate. That requires running ThermoDSE and cannot be
+established by registration alone. If a vector turns out infeasible it must be
+replaced BEFORE any DSOS result is computed on this split, and the replacement
+recorded here — swapping it after seeing a v2 result would be exactly the
+post-hoc tuning this document exists to prevent.
 
 ## Artifact contract
 
