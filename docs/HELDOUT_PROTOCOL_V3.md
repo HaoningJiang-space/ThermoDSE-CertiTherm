@@ -42,7 +42,9 @@ The pool is created once, registry order is preserved on collection, and the
 worker count is recorded in `RUN_RECEIPT.tsv`. A frozen v3 invocation with any
 worker count other than three is rejected. This scheduling choice changes
 wall-clock throughput, not the per-query feasible set, objective, budget, or
-proof rule.
+proof rule. `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, and `MKL_NUM_THREADS`
+are each frozen to one before Python starts, preventing hidden nested
+parallelism; their values are also stored in the run receipt.
 
 The fixed, width, dual, and exact methods also run as independently budgeted
 baselines. Their values cannot be substituted into the Anytime interval.

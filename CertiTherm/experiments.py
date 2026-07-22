@@ -93,6 +93,11 @@ QUERY_WORKERS = int(os.environ.get("CERTITHERM_QUERY_WORKERS", "3"))
 if QUERY_WORKERS < 1:
     raise RuntimeError("CERTITHERM_QUERY_WORKERS must be a positive integer")
 FROZEN_V3_QUERY_WORKERS = 3
+FROZEN_NUMERIC_THREAD_VARIABLES = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+)
 _T = TypeVar("_T")
 
 
@@ -1752,6 +1757,17 @@ def _validate_run_request(
             f"heldout_v3 requires exactly {FROZEN_V3_QUERY_WORKERS} query workers; "
             f"got {QUERY_WORKERS}"
         )
+    if split == "heldout_v3":
+        invalid_threads = {
+            name: os.environ.get(name, "<unset>")
+            for name in FROZEN_NUMERIC_THREAD_VARIABLES
+            if os.environ.get(name) != "1"
+        }
+        if invalid_threads:
+            raise ValueError(
+                "heldout_v3 requires one numeric-library thread per query worker; "
+                f"got {invalid_threads}"
+            )
 
 
 def _assert_clean_revision() -> None:
@@ -1805,6 +1821,10 @@ def _run_receipt(
         for name in SUBMODULE_PATHS
     }
     query_workers = _query_worker_count(split)
+    numeric_threads = {
+        name.lower(): os.environ.get(name, "")
+        for name in FROZEN_NUMERIC_THREAD_VARIABLES
+    }
     return {
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "protocol_state": _SPLIT_PROTOCOL_STATE[split],
@@ -1816,6 +1836,7 @@ def _run_receipt(
         "query_parallelism": (
             "serial" if query_workers == 1 else "persistent-spawn-pool"
         ),
+        **numeric_threads,
         "git_sha": _git_revision(ROOT),
         **submodules,
         "hotspot_binary_sha256": hotspot_digest,

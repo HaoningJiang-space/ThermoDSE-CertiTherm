@@ -131,7 +131,26 @@ def test_v3_frozen_worker_count_is_part_of_the_protocol(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(experiments, "QUERY_WORKERS", 3)
+    for name in experiments.FROZEN_NUMERIC_THREAD_VARIABLES:
+        monkeypatch.setenv(name, "1")
     experiments._validate_run_request("heldout_v3", True, budget_s=1800.0)
+
+
+def test_v3_rejects_unpinned_numeric_threads(monkeypatch) -> None:
+    monkeypatch.setattr(
+        experiments,
+        "_FROZEN_ENABLED_SPLITS",
+        frozenset({"heldout", "heldout_v3"}),
+    )
+    monkeypatch.setattr(experiments, "QUERY_WORKERS", 3)
+    for name in experiments.FROZEN_NUMERIC_THREAD_VARIABLES:
+        monkeypatch.setenv(name, "1")
+    monkeypatch.setenv("OPENBLAS_NUM_THREADS", "8")
+
+    with pytest.raises(ValueError, match="one numeric-library thread"):
+        experiments._validate_run_request(
+            "heldout_v3", True, budget_s=1800.0
+        )
 
 
 def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
@@ -146,3 +165,5 @@ def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
 
     assert receipt["query_workers"] == experiments.QUERY_WORKERS
     assert receipt["query_parallelism"] == "persistent-spawn-pool"
+    for name in experiments.FROZEN_NUMERIC_THREAD_VARIABLES:
+        assert receipt[name.lower()] == experiments.os.environ.get(name, "")
