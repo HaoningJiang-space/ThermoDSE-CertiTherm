@@ -2,8 +2,10 @@
 from __future__ import annotations
 import time
 import numpy as np
+from types import SimpleNamespace
 from CertiTherm.core import CandidateSpace, PowerPolytope, ThermalFamily, MeasurementAction
 from CertiTherm.experiments import anytime_dsos
+from CertiTherm.policies import PolicyResult
 
 
 def _instance(n: int = 8):
@@ -36,7 +38,8 @@ def test_upper_bound_only_from_a_certified_contract() -> None:
     cands, acts = _instance()
     result = anytime_dsos(cands, acts, budget_s=6.0)
     if result.upper_bound is not None:
-        assert result.upper_source == "width"
+        assert result.upper_source in ("width", "exact")
+        assert len(result.upper_action_ids) > 0 or result.upper_bound == 0
 
 
 def test_interval_is_ordered_or_flagged() -> None:
@@ -50,23 +53,145 @@ def test_interval_is_ordered_or_flagged() -> None:
             assert result.absolute_gap >= 0.0
 
 
-def test_driver_sources_the_v21_endpoints_from_the_controller() -> None:
-    """The previous revision built U as min(width, dual, fixed) in the driver.
-
-    That violated method-freeze-v2.1 twice -- U and L from separately budgeted
-    runs, and independent baselines substituted into U -- and the other tests
-    in this file could not catch it because they call `anytime_dsos` directly
-    while the driver never did. Assert the wiring, not just the mechanism.
-    """
-    import inspect
-    from CertiTherm import experiments
-
-    source = inspect.getsource(experiments.run)
-    assert "anytime_dsos(" in source, (
-        "the experiment driver does not call anytime_dsos; the v2.1 endpoints "
-        "would again describe a post-hoc pairing rather than one algorithm"
+def test_same_run_carries_upper_plan_and_bound_metadata(monkeypatch) -> None:
+    """The artifact must replay the same contract that supplies its U."""
+    cands, acts = _instance()
+    width = PolicyResult("CERTIFIED", (acts[1].action_id,), 2.0, 3)
+    lower = SimpleNamespace(
+        status="UNRESOLVED",
+        lower_bound=1.0,
+        bound_provenance="weak_duality",
+        cost_optimality="UNKNOWN",
     )
-    # U must not be assembled from the baseline policies in the driver.
-    assert "min(certified_uppers)" not in source
-    for baseline in ("width.cost", "dual.cost", "fixed.cost"):
-        assert f"upper = {baseline}" not in source
+    monkeypatch.setattr(
+        "CertiTherm.experiments.uncertainty_width_order",
+        lambda *_args: tuple(range(len(acts))),
+    )
+    monkeypatch.setattr(
+        "CertiTherm.experiments.sequential_early_stop", lambda *_args: width
+    )
+    monkeypatch.setattr(
+        "CertiTherm.experiments.synthesize_ordered_query", lambda *_args: lower
+    )
+
+    result = anytime_dsos(cands, acts, budget_s=6.0)
+    assert result.upper_bound == 2.0
+    assert result.upper_action_ids == width.selected_action_ids
+    assert result.lower_bound == 1.0
+    assert result.bound_provenance == "weak_duality"
+    assert result.plan_validity == "CERTIFIED"
+    assert result.cost_optimality == "BOUNDED_GAP"
+    assert result.approximation_ratio == 2.0
+    assert result.relative_gap == 1.0
+
+
+def test_exact_phase_tightens_upper_bound_and_replaces_plan(monkeypatch) -> None:
+    cands, acts = _instance()
+    width = PolicyResult("CERTIFIED", (acts[3].action_id,), 4.0, 3)
+    exact = SimpleNamespace(
+        status="OPTIMAL",
+        selected_action_ids=(acts[0].action_id,),
+        exact_cost=1.0,
+        lower_bound=1.0,
+        bound_provenance="weak_duality",
+        cost_optimality="PROVEN_SELF_VERIFIABLE",
+    )
+    monkeypatch.setattr(
+        "CertiTherm.experiments.uncertainty_width_order",
+        lambda *_args: tuple(range(len(acts))),
+    )
+    monkeypatch.setattr(
+        "CertiTherm.experiments.sequential_early_stop", lambda *_args: width
+    )
+    monkeypatch.setattr(
+        "CertiTherm.experiments.synthesize_ordered_query", lambda *_args: exact
+    )
+
+    result = anytime_dsos(cands, acts, budget_s=6.0)
+    assert result.upper_source == "exact"
+    assert result.upper_bound == result.lower_bound == 1.0
+    assert result.upper_action_ids == exact.selected_action_ids
+    assert result.cost_optimality == "PROVEN_SELF_VERIFIABLE"
+
+
+def test_upper_cost_must_replay_from_archived_action_ids(monkeypatch) -> None:
+    cands, acts = _instance()
+    inconsistent = PolicyResult(
+        "CERTIFIED", (acts[0].action_id,), acts[0].cost + 1.0, 3
+    )
+    monkeypatch.setattr(
+        "CertiTherm.experiments.uncertainty_width_order",
+        lambda *_args: tuple(range(len(acts))),
+    )
+    monkeypatch.setattr(
+        "CertiTherm.experiments.sequential_early_stop",
+        lambda *_args: inconsistent,
+    )
+    import pytest
+
+    with pytest.raises(RuntimeError, match="does not match replayed action cost"):
+        anytime_dsos(cands, acts, budget_s=6.0)
+
+
+def test_unsynthesizable_result_cannot_coexist_with_an_upper_plan() -> None:
+    from CertiTherm.experiments import AnytimeResult, CertifiedContract
+
+    contradiction = AnytimeResult(
+        contract=CertifiedContract("width", ("a",), 1.0),
+        proof_search=SimpleNamespace(
+            status="UNSYNTHESIZABLE",
+            lower_bound=None,
+            bound_provenance=None,
+        ),
+        upper_seconds=1.0,
+        lower_seconds=1.0,
+    )
+    assert contradiction.interval_violation
+    assert contradiction.plan_validity == "UNRESOLVED"
+    assert contradiction.cost_optimality == "UNKNOWN"
+
+
+def test_query_bundle_serializes_only_its_anytime_evidence(monkeypatch) -> None:
+    """Independent baseline values must never leak into the U/L fields."""
+    from CertiTherm import experiments
+    from CertiTherm.experiments import (
+        AnytimeResult,
+        CertifiedContract,
+        TimedResult,
+        _anytime_result_fields,
+        _evaluate_query_methods,
+    )
+
+    cands, acts = _instance()
+    baseline_values = iter(
+        (
+            SimpleNamespace(status="UNRESOLVED", lower_bound=999.0),
+            PolicyResult("CERTIFIED", (acts[0].action_id,), 999.0, 1),
+            PolicyResult("CERTIFIED", (acts[0].action_id,), 888.0, 1),
+            PolicyResult("CERTIFIED", (acts[0].action_id,), 777.0, 1),
+        )
+    )
+    monkeypatch.setattr(
+        experiments,
+        "_timed_call",
+        lambda _function: TimedResult(next(baseline_values), 1.0, ""),
+    )
+    anytime = AnytimeResult(
+        contract=CertifiedContract("width", (acts[1].action_id,), 2.0),
+        proof_search=SimpleNamespace(
+            status="UNRESOLVED",
+            lower_bound=1.0,
+            bound_provenance="weak_duality",
+        ),
+        upper_seconds=2.0,
+        lower_seconds=3.0,
+    )
+    monkeypatch.setattr(experiments, "anytime_dsos", lambda *_args: anytime)
+
+    methods = _evaluate_query_methods(cands, acts, tuple(range(len(acts))))
+    fields = _anytime_result_fields(methods.anytime)
+    assert methods.anytime is anytime
+    assert fields["certified_upper_bound"] == 2.0
+    assert fields["certified_lower_bound"] == 1.0
+    assert fields["bound_provenance"] == "weak_duality"
+    assert 999.0 not in fields.values()

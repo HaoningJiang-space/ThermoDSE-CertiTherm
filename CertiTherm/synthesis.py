@@ -1252,19 +1252,28 @@ def synthesize_ordered_query(
                 # exclude. Caught in audit before any result depended on it.
                 partial_bound = lower_bound
                 return QueryObservationPlan(
-                    plan.status,
-                    (),
-                    None,
-                    partial_bound if partial_bound > 0 else None,
-                    partial_bound if partial_bound > 0 else None,
-                    None,
-                    iterations,
-                    witnesses,
-                    f"candidate-local decomposition: {plan.message}; "
-                    f"certified prefix={len(selected_ids)} actions, "
-                    f"failing candidate carries "
-                    f"{len(plan.candidate_action_ids)} uncertified candidate actions",
-                    tuple(selected_ids),
+                    status=plan.status,
+                    selected_action_ids=(),
+                    exact_cost=None,
+                    lower_bound=partial_bound if partial_bound > 0 else None,
+                    relaxation_bound=partial_bound if partial_bound > 0 else None,
+                    optimality_gap=None,
+                    iterations=iterations,
+                    witnesses=witnesses,
+                    message=(
+                        f"candidate-local decomposition: {plan.message}; "
+                        f"certified prefix={len(selected_ids)} actions, "
+                        f"failing candidate carries "
+                        f"{len(plan.candidate_action_ids)} uncertified candidate actions"
+                    ),
+                    certified_prefix_action_ids=tuple(selected_ids),
+                    bound_provenance=(
+                        "solver_branch_and_bound"
+                        if any(p == "solver_branch_and_bound" for p in provenances)
+                        else "weak_duality"
+                        if partial_bound > 0
+                        else None
+                    ),
                 )
         selected_set = set(selected_ids)
         exact_cost = sum(
@@ -1534,6 +1543,9 @@ def synthesize_minimum_observation(
                 ),
                 candidate_action_ids=(),
                 candidate_cost=None,
+                bound_provenance=(
+                    "weak_duality" if anytime_bound is not None else None
+                ),
             )
         # The final pass found fresh collisions. They are the newest and most
         # relevant counterexamples, so they belong in the returned evidence
@@ -1566,6 +1578,9 @@ def synthesize_minimum_observation(
             candidate_action_ids=candidate_ids,
             candidate_cost=candidate_cost,
             candidate_covered_cuts=covered_cut_count,
+            bound_provenance=(
+                "weak_duality" if anytime_bound is not None else None
+            ),
         )
     except _UNRESOLVED_FAILURES as exc:
         if isinstance(exc, TimeoutError):
@@ -1599,4 +1614,7 @@ def synthesize_minimum_observation(
             # can be fewer than len(cuts): the failure may land after a cut is
             # inserted but before the cover is rebuilt.
             candidate_covered_cuts=covered_cut_count,
+            bound_provenance=(
+                "weak_duality" if anytime_bound is not None else None
+            ),
         )

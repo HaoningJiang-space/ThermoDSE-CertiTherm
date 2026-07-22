@@ -16,11 +16,16 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Callable, Iterable, Mapping, Optional, TypeVar
+from typing import Callable, Generic, Iterable, Mapping, Optional, Sequence, TypeVar
 
 import numpy as np
 
-from .core import CandidateSpace, PowerPolytope
+from .core import (
+    CandidateSpace,
+    MeasurementAction,
+    PowerPolytope,
+    QueryObservationPlan,
+)
 from .gpu_hotspot import GpuHotSpotBackend
 from .hotspot import build_family, load_family, replay_power, save_family
 from .measurements import (
@@ -28,7 +33,12 @@ from .measurements import (
     coarse_power_space,
     content_upper_bounds,
 )
-from .policies import dual_price_greedy, sequential_early_stop, uncertainty_width_order
+from .policies import (
+    PolicyResult,
+    dual_price_greedy,
+    sequential_early_stop,
+    uncertainty_width_order,
+)
 from .spectral import (
     audit_ranks,
     certified_tail_bound_k,
@@ -457,32 +467,101 @@ def _budgeted_call(
 
 
 @dataclass(frozen=True)
-class AnytimeResult:
-    """One Anytime-DSOS run under a SINGLE end-to-end budget.
+class CertifiedContract:
+    """One oracle-certified upper bound and the actions that replay it."""
 
-    `upper_bound` comes only from an oracle-certified contract, so
-    `lower_bound <= C* <= upper_bound` is a genuine interval rather than a
-    pairing of two independently budgeted runs. That distinction is the whole
-    point of method-freeze-v2.1's budget clause: reporting a `U` from one 1800s
-    run beside an `L` from another describes no single algorithm.
+    source: str
+    action_ids: tuple[str, ...]
+    cost: float
+
+    def __post_init__(self) -> None:
+        if self.source not in ("width", "exact"):
+            raise ValueError(f"unsupported contract source {self.source}")
+        if self.cost < 0:
+            raise ValueError("certified contract cost must be nonnegative")
+
+
+@dataclass(frozen=True)
+class AnytimeResult:
+    """Proof state returned by one end-to-end Anytime-DSOS budget.
+
+    `contract` is the only source of an upper bound.  Keeping its cost, action
+    IDs and source in one object prevents a result row from combining a number
+    from one policy with a plan from another.  `proof_search` is the exact/IHS
+    phase that supplies the lower bound and, when it closes, the optimality
+    proof.
+
+    Therefore `lower_bound <= C* <= upper_bound` is a genuine interval rather
+    than a pairing of two independently budgeted runs. That distinction is the
+    whole point of method-freeze-v2.1's budget clause: reporting a `U` from one
+    1800s run beside an `L` from another describes no single algorithm.
     """
 
-    plan: Optional[object]
-    upper_bound: Optional[float]
-    lower_bound: Optional[float]
-    upper_source: str
+    contract: Optional[CertifiedContract]
+    proof_search: Optional[QueryObservationPlan]
     upper_seconds: float
     lower_seconds: float
-    error: str
+    errors: tuple[str, ...] = ()
+
+    @property
+    def upper_bound(self) -> Optional[float]:
+        return None if self.contract is None else self.contract.cost
+
+    @property
+    def upper_action_ids(self) -> tuple[str, ...]:
+        return () if self.contract is None else self.contract.action_ids
+
+    @property
+    def upper_source(self) -> str:
+        return "none" if self.contract is None else self.contract.source
+
+    @property
+    def lower_bound(self) -> Optional[float]:
+        return None if self.proof_search is None else self.proof_search.lower_bound
+
+    @property
+    def error(self) -> str:
+        return "; ".join(self.errors)
+
+    @property
+    def approximation_ratio(self) -> Optional[float]:
+        """Certified multiplicative bound U/L; one means proven optimal."""
+        if (
+            self.upper_bound is None
+            or self.lower_bound is None
+            or self.interval_violation
+        ):
+            return None
+        if self.lower_bound > 0:
+            return self.upper_bound / self.lower_bound
+        if self.upper_bound == 0:
+            return 1.0
+        return None
+
+    @property
+    def relative_gap(self) -> Optional[float]:
+        """Standard lower-bound-relative gap, equal to U/L - 1."""
+        ratio = self.approximation_ratio
+        return None if ratio is None else max(0.0, ratio - 1.0)
 
     @property
     def absolute_gap(self) -> Optional[float]:
-        if self.upper_bound is None or self.lower_bound is None:
+        if (
+            self.upper_bound is None
+            or self.lower_bound is None
+            or self.interval_violation
+        ):
             return None
         return max(0.0, self.upper_bound - self.lower_bound)
 
     @property
     def interval_violation(self) -> str:
+        if (
+            self.upper_bound is not None
+            and self.proof_search is not None
+            and self.proof_search.status == "UNSYNTHESIZABLE"
+        ):
+            return "certified upper plan conflicts with UNSYNTHESIZABLE result"
         if self.upper_bound is None or self.lower_bound is None:
             return ""
         slack = 1e-6 * max(1.0, abs(self.upper_bound))
@@ -490,18 +569,90 @@ class AnytimeResult:
             return f"L={self.lower_bound} exceeds U={self.upper_bound}"
         return ""
 
+    @property
+    def bound_provenance(self) -> str:
+        if self.lower_bound is None or self.proof_search is None:
+            return ""
+        return self.proof_search.bound_provenance or ""
+
+    @property
+    def plan_validity(self) -> str:
+        if self.interval_violation:
+            return "UNRESOLVED"
+        if self.upper_bound is not None:
+            return "CERTIFIED"
+        if (
+            self.proof_search is not None
+            and self.proof_search.status == "UNSYNTHESIZABLE"
+        ):
+            return "UNSYNTHESIZABLE"
+        return "UNRESOLVED"
+
+    @property
+    def cost_optimality(self) -> str:
+        if self.interval_violation:
+            return "UNKNOWN"
+        if (
+            self.proof_search is not None
+            and self.proof_search.status == "UNSYNTHESIZABLE"
+        ):
+            return "NOT_APPLICABLE"
+        if (
+            self.proof_search is not None
+            and self.proof_search.status == "OPTIMAL"
+            and self.upper_source == "exact"
+        ):
+            return self.proof_search.cost_optimality
+        if self.upper_bound is not None and self.lower_bound is not None:
+            return "BOUNDED_GAP"
+        return "UNKNOWN"
+
+
+def _certified_contract(
+    actions: Sequence[MeasurementAction],
+    *,
+    status: str,
+    action_ids: tuple[str, ...],
+    claimed_cost: Optional[float],
+    source: str,
+) -> CertifiedContract:
+    """Validate and bind a certified plan before it can become an upper bound."""
+
+    if status not in ("CERTIFIED", "OPTIMAL") or claimed_cost is None:
+        raise RuntimeError(f"{source} did not return a certified upper plan")
+    if len(set(action_ids)) != len(action_ids):
+        raise RuntimeError(f"{source} upper plan contains duplicate actions")
+
+    action_costs = {action.action_id: action.cost for action in actions}
+    if len(action_costs) != len(actions):
+        raise ValueError("measurement action IDs must be unique")
+    try:
+        replayed_cost = sum(action_costs[action_id] for action_id in action_ids)
+    except KeyError as exc:
+        raise RuntimeError(
+            f"{source} upper plan contains unregistered action {exc.args[0]}"
+        ) from exc
+
+    slack = 1e-9 * max(1.0, abs(claimed_cost), abs(replayed_cost))
+    if abs(replayed_cost - claimed_cost) > slack:
+        raise RuntimeError(
+            f"{source} upper cost {claimed_cost} does not match replayed "
+            f"action cost {replayed_cost}"
+        )
+    return CertifiedContract(source, tuple(action_ids), float(claimed_cost))
+
 
 def anytime_dsos(
     candidates: tuple[CandidateSpace, ...],
     actions: Sequence[MeasurementAction],
     budget_s: float,
-    upper_fraction: float = 0.2,
 ) -> AnytimeResult:
     """Anytime-DSOS under one end-to-end budget (method-freeze-v2.1).
 
-    Phase 1 spends `upper_fraction` of the budget on the width policy to obtain
-    an oracle-certified contract, giving a real upper bound. Phase 2 spends
-    everything left raising the certified lower bound.
+    Phase 1 lets the width policy use the current remaining budget to obtain an
+    oracle-certified contract, giving a real upper bound.  It normally returns
+    early; Phase 2 then receives exactly the remaining wall-clock time.  There
+    is no fixed fraction that can starve the upper-bound phase.
 
     `fixed` and `dual` are deliberately NOT consulted: they are independent
     baselines, and substituting a cheaper baseline contract into `U` would make
@@ -509,37 +660,130 @@ def anytime_dsos(
     """
 
     started = time.perf_counter()
-    upper_budget = max(1.0, budget_s * upper_fraction)
+    if budget_s <= 0:
+        raise ValueError("budget_s must be positive")
+    contract: Optional[CertifiedContract] = None
     width, upper_seconds, upper_error = _budgeted_call(
         lambda: sequential_early_stop(
             candidates, actions, uncertainty_width_order(candidates, actions)
         ),
-        upper_budget,
+        budget_s,
     )
-    upper = None
-    source = "none"
     if width is not None and width.status == "CERTIFIED":
-        upper = width.cost
-        source = "width"
+        contract = _certified_contract(
+            actions,
+            status=width.status,
+            action_ids=width.selected_action_ids,
+            claimed_cost=width.cost,
+            source="width",
+        )
 
     remaining = budget_s - (time.perf_counter() - started)
     if remaining <= 1.0:
         return AnytimeResult(
-            None, upper, None, source, upper_seconds, 0.0,
-            upper_error or "budget consumed by the upper-bound phase",
+            contract=contract,
+            proof_search=None,
+            upper_seconds=upper_seconds,
+            lower_seconds=0.0,
+            errors=(
+                upper_error or "budget consumed by the upper-bound phase",
+            ),
         )
 
-    plan, lower_seconds, lower_error = _budgeted_call(
+    proof_search, lower_seconds, lower_error = _budgeted_call(
         lambda: synthesize_ordered_query(candidates, actions), remaining
     )
-    lower = plan.lower_bound if plan is not None else None
+    if proof_search is not None and proof_search.status == "OPTIMAL":
+        exact_contract = _certified_contract(
+            actions,
+            status=proof_search.status,
+            action_ids=proof_search.selected_action_ids,
+            claimed_cost=proof_search.exact_cost,
+            source="exact",
+        )
+        if contract is None or exact_contract.cost <= contract.cost:
+            contract = exact_contract
+
     return AnytimeResult(
-        plan, upper, lower, source, upper_seconds, lower_seconds,
-        "; ".join(e for e in (upper_error, lower_error) if e),
+        contract=contract,
+        proof_search=proof_search,
+        upper_seconds=upper_seconds,
+        lower_seconds=lower_seconds,
+        errors=tuple(error for error in (upper_error, lower_error) if error),
     )
 
 
-def _timed_call(function: Callable[[], _T]) -> tuple[Optional[_T], float, str]:
+def _anytime_plan_row(query_id: str, result: AnytimeResult) -> dict[str, object]:
+    """Serialize the replayable contract without duplicating field logic."""
+
+    return {
+        "query_id": query_id,
+        "policy": "anytime_dsos",
+        "status": result.plan_validity,
+        "cost": result.upper_bound if result.upper_bound is not None else "",
+        "selected_count": len(result.upper_action_ids),
+        "selected_action_ids": ";".join(result.upper_action_ids),
+        "lower_bound": result.lower_bound if result.lower_bound is not None else "",
+        "cost_optimality": result.cost_optimality,
+    }
+
+
+def _anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
+    """Serialize every v2+ endpoint from the same Anytime-DSOS result."""
+
+    def optional(value: Optional[float]) -> object:
+        return "" if value is None else value
+
+    return {
+        "certified_upper_bound": optional(result.upper_bound),
+        "certified_lower_bound": optional(result.lower_bound),
+        "absolute_gap": optional(result.absolute_gap),
+        "relative_gap": optional(result.relative_gap),
+        "approximation_ratio": optional(result.approximation_ratio),
+        "interval_violation": result.interval_violation,
+        "anytime_upper_source": result.upper_source,
+        "anytime_upper_seconds": result.upper_seconds,
+        "anytime_lower_seconds": result.lower_seconds,
+        "anytime_error": result.error,
+        "query_budget_s": QUERY_METHOD_TIMEOUT_S,
+        "budget_is_frozen": int(_BUDGET_IS_FROZEN),
+        "bound_provenance": result.bound_provenance,
+        "plan_validity": result.plan_validity,
+        "cost_optimality": result.cost_optimality,
+    }
+
+
+@dataclass(frozen=True)
+class TimedResult(Generic[_T]):
+    """One independently budgeted method result and its execution receipt."""
+
+    value: Optional[_T]
+    seconds: float
+    error: str
+
+
+@dataclass(frozen=True)
+class QueryMethodResults:
+    """All methods evaluated for one ordered DSE query."""
+
+    exact: TimedResult[QueryObservationPlan]
+    fixed: TimedResult[PolicyResult]
+    width: TimedResult[PolicyResult]
+    dual: TimedResult[PolicyResult]
+    anytime: AnytimeResult
+
+    @property
+    def errors(self) -> dict[str, str]:
+        methods = (
+            ("exact_dsos", self.exact),
+            ("fixed_early_stop", self.fixed),
+            ("uncertainty_width", self.width),
+            ("dual_price", self.dual),
+        )
+        return {name: run.error for name, run in methods if run.error}
+
+
+def _timed_call(function: Callable[[], _T]) -> TimedResult[_T]:
     """Run one query method with a fail-closed wall-clock budget."""
 
     def expire(_signum, _frame) -> None:
@@ -549,12 +793,39 @@ def _timed_call(function: Callable[[], _T]) -> tuple[Optional[_T], float, str]:
     signal.setitimer(signal.ITIMER_REAL, QUERY_METHOD_TIMEOUT_S)
     started = time.perf_counter()
     try:
-        return function(), time.perf_counter() - started, ""
+        return TimedResult(function(), time.perf_counter() - started, "")
     except Exception as exc:
-        return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
+        return TimedResult(
+            None,
+            time.perf_counter() - started,
+            f"{type(exc).__name__}: {exc}",
+        )
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
+
+
+def _evaluate_query_methods(
+    candidates: tuple[CandidateSpace, ...],
+    actions: Sequence[MeasurementAction],
+    fixed_order: Sequence[int],
+) -> QueryMethodResults:
+    """Run exact, matched baselines, and Anytime-DSOS with explicit budgets."""
+
+    exact = _timed_call(lambda: synthesize_ordered_query(candidates, actions))
+    fixed = _timed_call(
+        lambda: sequential_early_stop(candidates, actions, fixed_order)
+    )
+    width = _timed_call(
+        lambda: sequential_early_stop(
+            candidates,
+            actions,
+            uncertainty_width_order(candidates, actions),
+        )
+    )
+    dual = _timed_call(lambda: dual_price_greedy(candidates, actions))
+    anytime = anytime_dsos(candidates, actions, QUERY_METHOD_TIMEOUT_S)
+    return QueryMethodResults(exact, fixed, width, dual, anytime)
 
 
 def _ordered_outcome(
@@ -1043,32 +1314,13 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     ),
                 )
             )
-            exact, exact_seconds, exact_error = _timed_call(
-                lambda: synthesize_ordered_query(candidates, actions)
-            )
-            fixed, fixed_seconds, fixed_error = _timed_call(
-                lambda: sequential_early_stop(candidates, actions, fixed_order)
-            )
-            width, width_seconds, width_error = _timed_call(
-                lambda: sequential_early_stop(
-                    candidates,
-                    actions,
-                    uncertainty_width_order(candidates, actions),
-                )
-            )
-            dual, dual_seconds, dual_error = _timed_call(
-                lambda: dual_price_greedy(candidates, actions)
-            )
-            method_errors = {
-                name: error
-                for name, error in (
-                    ("exact_dsos", exact_error),
-                    ("fixed_early_stop", fixed_error),
-                    ("uncertainty_width", width_error),
-                    ("dual_price", dual_error),
-                )
-                if error
-            }
+            methods = _evaluate_query_methods(candidates, actions, fixed_order)
+            exact = methods.exact.value
+            fixed = methods.fixed.value
+            width = methods.width.value
+            dual = methods.dual.value
+            anytime = methods.anytime
+            method_errors = methods.errors
             for method, error in method_errors.items():
                 failures.append(
                     {
@@ -1147,22 +1399,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                 )
             placed = _placed_evidence(candidates, placed_by_candidate)
 
-            # method-freeze-v2.1 endpoints come from ONE Anytime-DSOS run under
-            # a single end-to-end budget. An earlier revision built them here as
-            # min(width, dual, fixed) beside exact's lower bound, which violated
-            # the freeze twice over: U and L came from separately budgeted runs,
-            # and fixed/dual were substituted into U despite being independent
-            # baselines. Those remain reported below as baselines only.
-            anytime = anytime_dsos(candidates, actions, QUERY_METHOD_TIMEOUT_S)
-            upper = anytime.upper_bound
-            lower = anytime.lower_bound
-            absolute_gap = anytime.absolute_gap
-            interval_violation = anytime.interval_violation
-            relative_gap = (
-                absolute_gap / upper
-                if absolute_gap is not None and upper is not None and upper > 0
-                else None
-            )
+            plan_rows.append(_anytime_plan_row(query_id, anytime))
 
             results.append(
                 {
@@ -1181,35 +1418,19 @@ def run(split: str, output: Path, frozen: bool) -> None:
                         exact.relaxation_bound if exact else ""
                     ),
                     "optimality_gap": exact.optimality_gap if exact else "",
-                    # --- method-freeze-v2.1 primary endpoints ---
-                    "certified_upper_bound": upper if upper is not None else "",
-                    "certified_lower_bound": lower if lower is not None else "",
-                    "absolute_gap": absolute_gap if absolute_gap is not None else "",
-                    "relative_gap": relative_gap if relative_gap is not None else "",
-                    "interval_violation": interval_violation,
-                    "anytime_upper_source": anytime.upper_source,
-                    "anytime_upper_seconds": anytime.upper_seconds,
-                    "anytime_lower_seconds": anytime.lower_seconds,
-                    "anytime_error": anytime.error,
-                    "query_budget_s": QUERY_METHOD_TIMEOUT_S,
-                    # False marks a rehearsal: the row is schema evidence only
-                    # and must not be scored against a frozen pass condition.
-                    "budget_is_frozen": int(_BUDGET_IS_FROZEN),
-                    "bound_provenance": (
-                        exact.bound_provenance if exact else ""
-                    ) or "",
-                    "plan_validity": exact.plan_validity if exact else "UNRESOLVED",
-                    "cost_optimality": exact.cost_optimality if exact else "UNKNOWN",
+                    # All method-freeze-v2+ endpoints are serialized from ONE
+                    # AnytimeResult; independent baselines cannot leak into U/L.
+                    **_anytime_result_fields(anytime),
                     "fixed_status": fixed.status if fixed else "UNRESOLVED",
                     "fixed_cost": fixed.cost if fixed else "",
                     "width_status": width.status if width else "UNRESOLVED",
                     "width_cost": width.cost if width else "",
                     "dual_status": dual.status if dual else "UNRESOLVED",
                     "dual_cost": dual.cost if dual else "",
-                    "exact_seconds": exact_seconds,
-                    "fixed_seconds": fixed_seconds,
-                    "width_seconds": width_seconds,
-                    "dual_seconds": dual_seconds,
+                    "exact_seconds": methods.exact.seconds,
+                    "fixed_seconds": methods.fixed.seconds,
+                    "width_seconds": methods.width.seconds,
+                    "dual_seconds": methods.dual.seconds,
                     "full_registry_cost": sum(action.cost for action in actions),
                     "witnesses": len(exact.witnesses) if exact else 0,
                     "placed_robust_outcome": placed["robust_outcome"],
