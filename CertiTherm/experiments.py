@@ -56,7 +56,13 @@ CALIBRATION_VECTOR_IDS = (
     "bounded-uniform",
     *(f"bounded-random-{seed}" for seed in CALIBRATION_SEEDS),
 )
-QUERY_METHOD_TIMEOUT_S = 1800
+# Frozen at 1800s by method-freeze-v1 and v2.1. The override exists ONLY for
+# schema rehearsals, which verify that the artifact columns populate correctly
+# without paying the full budget. A rehearsal is not evidence: any run whose
+# budget differs from 1800 must be labelled as such and must never be reported
+# against a frozen pass condition.
+QUERY_METHOD_TIMEOUT_S = float(os.environ.get("CERTITHERM_QUERY_BUDGET_S", "1800"))
+_BUDGET_IS_FROZEN = abs(QUERY_METHOD_TIMEOUT_S - 1800.0) < 1e-9
 _T = TypeVar("_T")
 
 
@@ -1185,6 +1191,10 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "anytime_upper_seconds": anytime.upper_seconds,
                     "anytime_lower_seconds": anytime.lower_seconds,
                     "anytime_error": anytime.error,
+                    "query_budget_s": QUERY_METHOD_TIMEOUT_S,
+                    # False marks a rehearsal: the row is schema evidence only
+                    # and must not be scored against a frozen pass condition.
+                    "budget_is_frozen": int(_BUDGET_IS_FROZEN),
                     "bound_provenance": (
                         exact.bound_provenance if exact else ""
                     ) or "",
