@@ -4,6 +4,7 @@ from fractions import Fraction
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from CertiTherm import (
     MeasurementAction,
@@ -309,7 +310,7 @@ def test_lp_bound_matching_incumbent_skips_branch_and_bound(monkeypatch) -> None
     assert master.cost == master.lower_bound == 2.0
 
 
-def test_nearby_float_bound_cannot_claim_self_verifiable_optimality(
+def test_unverified_lp_objective_cannot_claim_self_verifiable_optimality(
     monkeypatch,
 ) -> None:
     cuts = (
@@ -322,13 +323,28 @@ def test_nearby_float_bound_cannot_claim_self_verifiable_optimality(
         "CertiTherm.synthesis._integer_lagrangian_bound",
         lambda *_args: None,
     )
-    monkeypatch.setattr(
-        "CertiTherm.synthesis._anytime_lower_bound",
-        lambda *_args: 2.0 - 5e-7,
-    )
     master = _solve_master(np.ones(3), cuts)
     assert master.cost == 2.0
     assert master.bound_provenance == "solver_branch_and_bound"
+
+
+def test_mip_success_without_a_closed_gap_is_unresolved(monkeypatch) -> None:
+    cuts = (
+        np.array([1.0, 1.0, 0.0]),
+        np.array([0.0, 1.0, 1.0]),
+        np.array([1.0, 0.0, 1.0]),
+    )
+    monkeypatch.setattr(
+        "CertiTherm.synthesis.milp",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            success=True,
+            x=np.ones(3),
+            fun=3.0,
+            mip_dual_bound=2.0,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="did not close"):
+        _solve_master(np.ones(3), cuts)
 
 
 def test_greedy_cut_discovery_point_covers_every_registered_cut() -> None:

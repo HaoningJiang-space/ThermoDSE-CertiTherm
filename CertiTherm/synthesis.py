@@ -786,7 +786,11 @@ def _solve_master(
     if not relaxed.success:
         raise UnresolvedComputation("observation master did not solve to optimality")
     dual = -np.asarray(relaxed.ineqlin.marginals)
-    tolerance = 1e-8 * max(1.0, abs(float(relaxed.fun)))
+    exact_dual = _integer_lagrangian_bound(costs, cuts, dual)
+    certified_relaxation = (
+        _fraction_lower_float(exact_dual) if exact_dual is not None else None
+    )
+    certified_relaxation = max(certified_relaxation or 0.0, 0.0)
 
     rounded = np.rint(relaxed.x)
     if (
@@ -795,16 +799,22 @@ def _solve_master(
     ):
         selected = tuple(columns[np.flatnonzero(rounded > 0.5)].tolist())
         exact_cost = float(np.sum(costs[list(selected)]))
-        if abs(exact_cost - float(relaxed.fun)) <= tolerance:
+        certified_cost = _self_verified_master_cost(
+            costs,
+            exact_dual,
+            selected,
+        )
+        if certified_cost is not None:
             # Self-verifiable without the MIP solver: the code above has
-            # checked that the LP solution is integral, covers every cut, and
-            # costs what the LP reports. An integral LP optimum IS the integer
-            # optimum, so weak duality certifies it directly. The bound here is
-            # the LP optimum rather than `_anytime_lower_bound`'s deflated
-            # value -- the integrality check, not the deflation, is what makes
-            # it certifiable, and deflating would leave a spurious nonzero gap.
+            # checked that the rounded solution covers every cut and that the
+            # exact weak-duality bound, after valid lattice lifting, equals its
+            # exact registered cost. No solver objective is trusted here.
             return _Master(
-                selected, exact_cost, exact_cost, float(relaxed.fun), dual,
+                selected,
+                exact_cost,
+                certified_cost,
+                certified_relaxation,
+                dual,
                 "weak_duality",
             )
 
@@ -813,15 +823,20 @@ def _solve_master(
         incumbent_vector = np.zeros(costs.size)
         incumbent_vector[list(selected)] = 1.0
         incumbent_cost = float(costs @ incumbent_vector)
+        certified_cost = _self_verified_master_cost(
+            costs,
+            exact_dual,
+            selected,
+        )
         if (
             np.all(cover @ incumbent_vector >= 1.0 - 1e-8)
-            and abs(incumbent_cost - float(relaxed.fun)) <= tolerance
+            and certified_cost is not None
         ):
             return _Master(
                 selected,
                 incumbent_cost,
-                incumbent_cost,
-                float(relaxed.fun),
+                certified_cost,
+                certified_relaxation,
                 dual,
                 "weak_duality",
             )
@@ -854,7 +869,10 @@ def _solve_master(
             "every discovered cut"
         )
     exact_cost = float(costs @ plan)
-    if abs(exact_cost - float(integer.fun)) > 1e-6 * max(1.0, abs(exact_cost)):
+    integer_objective = float(integer.fun)
+    if not np.isfinite(integer_objective):
+        raise UnresolvedComputation("observation master returned a non-finite objective")
+    if abs(exact_cost - integer_objective) > 1e-6 * max(1.0, abs(exact_cost)):
         # A reported objective that disagrees with the cost of the reported
         # selection means one of the two is not what it claims to be.
         raise UnresolvedComputation(
@@ -864,15 +882,16 @@ def _solve_master(
 
     lower_bound = float(getattr(integer, "mip_dual_bound", integer.fun))
     slack = 1e-6 * max(1.0, abs(exact_cost))
+    if not np.isfinite(lower_bound):
+        raise UnresolvedComputation("observation master returned a non-finite dual bound")
 
     # Cross-check against a bound this module can certify itself. The weak-duality
     # bound is valid regardless of solver accuracy, so a claimed MILP bound below
     # it is provably wrong and is rejected.
-    certified = _anytime_lower_bound(costs, cuts)
-    if certified is not None and lower_bound < certified - slack:
+    if lower_bound < certified_relaxation - slack:
         raise UnresolvedComputation(
             f"observation master dual bound {lower_bound} lies below the "
-            f"independently certified bound {certified}"
+            f"independently certified bound {certified_relaxation}"
         )
     if lower_bound > exact_cost + slack:
         raise UnresolvedComputation(
@@ -896,33 +915,21 @@ def _solve_master(
     # bound is not being relied on. Otherwise the gap is closed only by the
     # solver's asserted dual bound, and the result says so.
     provenance = "solver_branch_and_bound"
-    exact_selected_cost = sum(
-        (_Fraction(float(costs[index])) for index in selected),
-        _Fraction(0),
-    )
-    # LATTICE ROUNDING. Every contract cost is a multiple of the cost lattice g,
-    # so a valid fractional bound L implies C* >= ceil(L/g)*g. On the triangle
-    # instance (LP 1.5, integer costs) this lifts 1.5 to 2 and proves a cost-2
-    # plan optimal WITHOUT trusting the MIP solver -- while a fabricated cost-3
-    # plan only gets 2 <= C* <= 3 and cannot be certified. Requiring the raw LP
-    # bound to be tight would have rejected the legitimate cost-2 answer too.
-    exact_dual = _integer_lagrangian_bound(costs, cuts, dual)
-    lattice = _cost_lattice(costs)
-    if exact_dual is not None and lattice is not None and exact_dual > 0:
-        lifted = _Fraction(math.ceil(exact_dual / lattice)) * lattice
-        lifted_float = _fraction_lower_float(lifted)
-        if lifted_float is not None and lifted == exact_selected_cost:
-            lower_bound = lifted_float
-            provenance = "weak_duality"
-    if (
-        provenance != "weak_duality"
-        and certified is not None
-        and _Fraction(float(certified)) == exact_selected_cost
-    ):
-        lower_bound = certified
+    certified_cost = _self_verified_master_cost(costs, exact_dual, selected)
+    if certified_cost is not None:
+        lower_bound = certified_cost
         provenance = "weak_duality"
+    elif lower_bound < exact_cost - slack:
+        raise UnresolvedComputation(
+            "observation master did not close its integer optimality gap"
+        )
     return _Master(
-        selected, exact_cost, lower_bound, float(relaxed.fun), dual, provenance
+        selected,
+        exact_cost,
+        lower_bound,
+        certified_relaxation,
+        dual,
+        provenance,
     )
 
 
@@ -973,6 +980,26 @@ def _fraction_lower_float(value: _Fraction) -> Optional[float]:
     if _Fraction(rounded) > value:
         rounded = float(np.nextafter(rounded, -np.inf))
     return rounded
+
+
+def _self_verified_master_cost(
+    costs: np.ndarray,
+    exact_dual: Optional[_Fraction],
+    selected: Sequence[int],
+) -> Optional[float]:
+    """Return the selected cost only when weak duality proves it optimal."""
+
+    lattice = _cost_lattice(costs)
+    if exact_dual is None or lattice is None:
+        return None
+    lifted = _Fraction(math.ceil(exact_dual / lattice)) * lattice
+    selected_cost = sum(
+        (_Fraction(float(costs[index])) for index in selected),
+        _Fraction(0),
+    )
+    if lifted != selected_cost:
+        return None
+    return _fraction_lower_float(lifted)
 
 
 def _integer_lagrangian_bound(
@@ -1281,7 +1308,9 @@ def synthesize_ordered_query(
                     selected_action_ids=(),
                     exact_cost=None,
                     lower_bound=partial_bound if partial_bound > 0 else None,
-                    relaxation_bound=partial_bound if partial_bound > 0 else None,
+                    relaxation_bound=(
+                        relaxation_bound if relaxation_bound > 0 else None
+                    ),
                     optimality_gap=None,
                     iterations=iterations,
                     witnesses=witnesses,

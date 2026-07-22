@@ -744,7 +744,11 @@ class AnytimeResult:
 
     @property
     def lower_bound(self) -> Optional[float]:
-        return None if self.proof_search is None else self.proof_search.lower_bound
+        if self.proof_search is None:
+            return None
+        if self.proof_search.bound_provenance == "solver_branch_and_bound":
+            return self.proof_search.relaxation_bound
+        return self.proof_search.lower_bound
 
     @property
     def error(self) -> str:
@@ -800,7 +804,7 @@ class AnytimeResult:
     def bound_provenance(self) -> str:
         if self.lower_bound is None or self.proof_search is None:
             return ""
-        return self.proof_search.bound_provenance or ""
+        return "weak_duality"
 
     @property
     def plan_validity(self) -> str:

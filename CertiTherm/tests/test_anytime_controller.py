@@ -114,6 +114,27 @@ def test_exact_phase_tightens_upper_bound_and_replaces_plan(monkeypatch) -> None
     assert result.cost_optimality == "PROVEN_SELF_VERIFIABLE"
 
 
+def test_solver_attested_optimum_keeps_only_the_certified_interval_bound() -> None:
+    from CertiTherm.experiments import AnytimeResult, CertifiedContract
+
+    result = AnytimeResult(
+        contract=CertifiedContract("exact", ("a",), 3.0),
+        proof_search=SimpleNamespace(
+            status="OPTIMAL",
+            lower_bound=3.0,
+            relaxation_bound=2.0,
+            bound_provenance="solver_branch_and_bound",
+            cost_optimality="PROVEN_SOLVER_ATTESTED",
+        ),
+        upper_seconds=1.0,
+        lower_seconds=1.0,
+    )
+    assert result.lower_bound == 2.0
+    assert result.bound_provenance == "weak_duality"
+    assert result.absolute_gap == 1.0
+    assert result.cost_optimality == "PROVEN_SOLVER_ATTESTED"
+
+
 def test_upper_cost_must_replay_from_archived_action_ids(monkeypatch) -> None:
     cands, acts = _instance()
     inconsistent = PolicyResult(
