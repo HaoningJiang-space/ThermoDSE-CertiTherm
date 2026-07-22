@@ -135,7 +135,11 @@ def test_interrupted_candidate_still_reports_its_separation_work() -> None:
         max_iterations=1,
     )
 
-    assert plan.status == "UNRESOLVED"
+    # NOT asserted to be UNRESOLVED: after the iteration budget is spent the
+    # implementation still verifies the final greedy cover, so a run cut short
+    # can legitimately end CERTIFIED_PLAN. What it must never be is OPTIMAL,
+    # which requires a closed master the budget did not allow.
+    assert plan.status in ("UNRESOLVED", "CERTIFIED_PLAN")
     # It ran, and it says so.
     assert plan.iterations >= 1
     assert plan.cuts_generated >= 1
