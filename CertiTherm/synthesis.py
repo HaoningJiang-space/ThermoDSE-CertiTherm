@@ -1062,8 +1062,9 @@ def _anytime_lower_bound(
         L(y) = 1'y + sum_a min(0, c_a - (C'y)_a),   y >= 0
 
     which lower-bounds the optimum for ANY nonnegative y, however inaccurate.
-    Solver error can therefore only make the bound loose, never wrong. A final
-    downward deflation absorbs floating-point error in evaluating L itself.
+    Solver error can therefore only make the bound loose, never wrong. The
+    bound is evaluated in exact rational arithmetic over the registered float
+    inputs, then converted to float with directed downward rounding.
 
     Monotone in principle as cuts accumulate; the caller keeps the maximum, so
     a loose y on one call cannot lower an already-established bound.
@@ -1585,8 +1586,9 @@ def synthesize_minimum_observation(
                 # A REAL certified interval width: a feasible plan's cost minus
                 # a valid lower bound. Distinct from candidate_cost - bound,
                 # which bounds nothing because an uncertified cover need not be
-                # feasible. Includes the deliberate lower-bound deflation, so a
-                # tiny positive gap can appear where the true gap is zero.
+                # feasible. Exact rational evaluation plus downward conversion
+                # may leave only the representational slack of the output
+                # float; it can never make the reported lower endpoint larger.
                 optimality_gap=gap,
                 iterations=max_iterations,
                 witnesses=tuple(witnesses),

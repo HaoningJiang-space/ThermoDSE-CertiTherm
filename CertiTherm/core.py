@@ -201,15 +201,16 @@ class ObservationPlan:
     `selected_action_ids` is reserved for a plan the collision oracle has
     CERTIFIED collision-free. It is empty whenever no such plan was reached.
 
-    `status` separates two independent questions. `OPTIMAL` means a certified
-    plan whose minimum cost is established -- but read `bound_provenance`
-    before treating that as proved. Only `weak_duality` results are verifiable
-    from the returned numbers alone; `solver_branch_and_bound` results are
-    conditional on the MIP solver being correct, which is cross-checked for
-    consistency but not proved. Reporting both under one `OPTIMAL` status is a
-    known API weakness: peer review recommends splitting plan validity from
-    cost optimality into orthogonal fields, which is deferred rather than
-    resolved. `CERTIFIED_PLAN` means the plan is
+    `status` is retained for backward compatibility. New consumers should use
+    the orthogonal `plan_validity` and `cost_optimality` properties: the former
+    records whether replay certified a plan, while the latter distinguishes a
+    self-verifiable optimum, a solver-attested optimum, and a bounded-gap
+    result. `OPTIMAL` means a certified plan whose minimum cost is established
+    -- but read `bound_provenance` before treating that fact as self-proved.
+    Only `weak_duality` results are verifiable from the returned numbers alone;
+    `solver_branch_and_bound` results are conditional on the MIP solver being
+    correct, which is cross-checked for consistency but not proved.
+    `CERTIFIED_PLAN` means the plan is
     oracle-certified but the budget ran out before minimum cost could be
     proven -- `lower_bound` and `optimality_gap` are then both real, since the
     certified plan supplies a genuine upper bound. `UNSYNTHESIZABLE` means no
