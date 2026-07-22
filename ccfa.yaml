@@ -214,7 +214,12 @@ experiments:
     status: "defined_unopened_dev_rehearsal_pending"
     command: "frozen execution remains disabled pending dev rehearsal and audit"
     host: "moe-server"
-    note: "nonthermal precheck PASS 12/12 with zero HotSpot invocations; frozen guard still rejects all runs"
+    note: "method-freeze-v3.1 uses 15 method workers and CPU HiGHS separation; nonthermal precheck PASS 12/12; frozen guard still rejects all runs"
+  - id: "GPU-COLLISION-DEV"
+    status: "complete_negative_excluded_from_v3.1"
+    command: "python -m CertiTherm.gpu_collision_benchmark"
+    host: "moe-server"
+    note: "zero wrong synthetic admissions, but real 681-cell tail retained 53.7% fallback at 10k iterations; gate failed"
   - id: "SCALE-SYNTH"
     status: "complete"
     command: "python -m research.dr_dsc.profile_synthesis / benchmark"
@@ -239,6 +244,12 @@ reviews:
   - id: "query-pool-smoke"
     date: "2026-07-22"
     outcome: "6/6 dev rows completed in registry order through one persistent three-process pool; 5s budget marks the run non-claim"
+  - id: "gpu-collision-gate"
+    date: "2026-07-22"
+    outcome: "proof-gated FP64 PDHG passed synthetic parity and memcheck but failed the real fallback/runtime gates; claim-path wiring was removed"
+  - id: "method-pool-fresh-clone"
+    date: "2026-07-22"
+    outcome: "method-freeze-v3.1 fresh clone passed 162 tests, CPU HotSpot smoke, GPU HotSpot parity, and isolated CUDA collision regression"
 
 revision_ledger:
   - date: "2026-07-22"
@@ -281,6 +292,7 @@ reference_sources:
   - "INCIDENT 2026-07-22 — heldout_v2 was OPENED out of protocol. A --frozen run executed ~52 min from a DIRTY worktree (baseline 89318c7 + diff 6e133bc8f22c93b2), and commits 47577e3 and bc96f23 changed the algorithm AFTER it started, so no result could be attributed to one method. It produced 12 captures and 10 operators but NO results.tsv, so nothing was concluded and nothing is retracted. Artifacts are retained on moe-server under external archive ID certitherm-INVALID-heldout-v2-20260722 with INCIDENT.md and the launch-time diff. method-freeze-v2.1 is now OPENED_INVALID / PILOT_ONLY: it must not be used for tuning or paper results. Claim-grade work needs a new method-freeze-v3 split with, at minimum, entirely new architectures. Root cause: I launched a held-out run while treating preregistration completeness as the only precondition, ignoring that a clean committed revision and a frozen algorithm are equally required."
 
 open_risks:
+  - "CLOSED FOR V3.1 2026-07-22: GPU collision separation is not admitted. On the registered 227-block/681-cell negative tail, residual-aware Farkas admission accepted only 315 cells after 10,000 PDHG iterations (53.7% fallback), so the 10% fallback and 3x end-to-end gates failed. The optional synthesis/broker wiring was deleted; v3.1 retains CPU HiGHS and archives docs/GPU_COLLISION_NEGATIVE_RESULT.md."
   - "OPEN 2026-07-22: the first committed dev_v3 rehearsal at 150 seconds validated all infrastructure and physical paths (147 tests, 9 operators, 270 direct replays, max residual 0.00149192487 K, 6 complete 45-column rows, no unexpected failures) but returned U=empty and L=empty for 6/6. It is archived as a negative rehearsal, not used to open heldout. Precondition 3 now requires the unchanged controller to populate endpoints on dev under the protocol's actual 1800-second budget."
   - "A GitHub PAT has appeared repeatedly in session transcripts. Source is a user-side goal template, not a repo file or hook config. Revocation is outstanding and cannot be performed from here."
   - "RESOLVED 2026-07-22: capture/operator resume formerly trusted filenames plus calibration row counts. Cache sidecars now bind builder sources, registry inputs, submodules/binaries, and artifact/calibration SHA-256; absent or stale sidecars force reconstruction."
