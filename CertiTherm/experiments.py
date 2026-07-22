@@ -723,9 +723,17 @@ def _write_report(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+# Splits whose results are preregistered and must never be used for tuning.
+# `heldout` is method-freeze-v1's split; `heldout_v2` is method-freeze-v2's,
+# registered in experiments/architectures.tsv and disjoint from both dev and
+# v1. They are listed together so a future split cannot be added to the CLI
+# without also being recognised as frozen here.
+_HELDOUT_SPLITS = ("heldout", "heldout_v2")
+
+
 def run(split: str, output: Path, frozen: bool) -> None:
-    if frozen and split != "heldout":
-        raise ValueError("--frozen is reserved for the held-out split")
+    if frozen and split not in _HELDOUT_SPLITS:
+        raise ValueError("--frozen is reserved for a held-out split")
     if not HOTSPOT.is_file() or not THERMODSE.is_dir():
         raise RuntimeError("run make bootstrap before experiments")
     output.mkdir(parents=True, exist_ok=True)
@@ -1149,7 +1157,9 @@ def run(split: str, output: Path, frozen: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--split", choices=("dev", "heldout"), required=True)
+    parser.add_argument(
+        "--split", choices=("dev",) + _HELDOUT_SPLITS, required=True
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--frozen", action="store_true")
     args = parser.parse_args()
