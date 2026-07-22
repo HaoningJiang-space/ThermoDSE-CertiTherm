@@ -2,8 +2,45 @@
 
 Freeze ID: `method-freeze-v2.1`
 Freeze date: 2026-07-22
-State: **protocol frozen; no held-out result exists and the held-out split has
-not been opened.**
+State: **OPENED_INVALID / PILOT_ONLY — this split is burned and must not
+produce claim-grade results.**
+
+## Incident, 2026-07-22
+
+A `--split heldout_v2 --frozen` run executed for ~52 minutes and generated
+held-out physical data before being stopped. Everything below that says the
+split is unopened was true when written and is false now.
+
+It is invalid on three independent grounds, any one of which is sufficient:
+
+1. **Dirty worktree.** Run from baseline `89318c7` plus uncommitted changes
+   (diff digest `6e133bc8f22c93b2`), not a clean revision or fresh clone.
+2. **The algorithm changed after opening.** Commits `47577e3` (wire the
+   Anytime-DSOS controller into the driver) and `bc96f23` (default separation
+   to sequential) both postdate the launch. A held-out result must come from a
+   revision frozen before the split is opened; this one cannot be attributed to
+   any single method.
+3. **Known gaps were still open.** The controller did not record the width
+   action IDs behind its upper bound, so the contract is not replayable from
+   the artifact; `bound_provenance` / `plan_validity` / `cost_optimality` came
+   from a separate full-budget exact run rather than the same Anytime-DSOS
+   invocation; `relative_gap` computed `(U-L)/U` while this document specifies
+   `U/L`; and `--frozen` did not enforce the 1800 s budget, so an environment
+   variable could produce a short-budget run labelled as frozen.
+
+It produced 12 workload captures and 10 operators but **no `results.tsv`** — no
+query conclusion, contract, bound or witness. Nothing is retracted because
+nothing was concluded.
+
+The artifacts are **retained, not deleted**, at
+`/data/ziheng/experiments/certitherm-INVALID-heldout-v2-20260722` with the
+launch-time diff and an `INCIDENT.md`. Deleting them would hide the incident;
+for review integrity an honest record beats a clean-looking history.
+
+**Consequence.** `arch_g/h/i` and the v2 workloads have been touched by an
+out-of-protocol run. Claim-grade results require a new split under
+`method-freeze-v3` with, at minimum, entirely new architectures. v2.1 is
+retained below as the specification that v3 will inherit, not as a live gate.
 
 ## Why a new freeze rather than an edit to v1
 
