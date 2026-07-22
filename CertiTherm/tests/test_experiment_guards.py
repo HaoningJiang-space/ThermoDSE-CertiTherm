@@ -331,7 +331,8 @@ def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
     )
 
     assert receipt["query_workers"] == experiments.QUERY_WORKERS
-    assert receipt["query_parallelism"] == "persistent-spawn-pool"
+    assert receipt["method_workers"] == experiments.METHOD_WORKERS
+    assert receipt["query_parallelism"] == "persistent-query-spawn-pool"
     assert receipt["lp_separation_workers"] == "1"
     for name in experiments.FROZEN_NUMERIC_THREAD_VARIABLES:
         assert receipt[name.lower()] == experiments.os.environ.get(name, "")

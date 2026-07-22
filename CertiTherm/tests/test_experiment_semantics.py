@@ -2,12 +2,72 @@ from __future__ import annotations
 
 import numpy as np
 
-from CertiTherm import CandidateSpace, PowerPolytope, ThermalFamily
+from CertiTherm import (
+    CandidateSpace,
+    MeasurementAction,
+    PowerPolytope,
+    ThermalFamily,
+)
 from CertiTherm.experiments import (
+    PreparedQuery,
     _bounded_power,
+    _evaluate_query_batch,
+    _method_schedule,
     _ordered_architectures,
     _placed_evidence,
 )
+
+
+def test_method_schedule_is_upper_bound_first_and_query_stable() -> None:
+    assert _method_schedule(2, include_anytime=True) == (
+        (0, "anytime"),
+        (1, "anytime"),
+        (0, "width"),
+        (1, "width"),
+        (0, "dual"),
+        (1, "dual"),
+        (0, "fixed"),
+        (1, "fixed"),
+        (0, "exact"),
+        (1, "exact"),
+    )
+
+
+def test_method_pool_preserves_one_complete_query_result() -> None:
+    power = PowerPolytope.box_with_total(np.zeros(2), np.ones(2), 1.0)
+    candidate = CandidateSpace(
+        "candidate",
+        power,
+        ThermalFamily(
+            ("block",), np.array([[[2.0, 0.0]]]), np.zeros(1), 1.0
+        ),
+    )
+    actions = tuple(
+        MeasurementAction(
+            f"p{index}",
+            np.eye(2)[index],
+            candidate_id="candidate",
+        )
+        for index in range(2)
+    )
+    query = PreparedQuery(
+        "query",
+        "workload",
+        "package",
+        (candidate,),
+        actions,
+        (0, 1),
+        {"candidate": np.array([0.5, 0.5])},
+    )
+    result = _evaluate_query_batch(
+        (query,), include_anytime=True, workers=1, method_workers=2
+    )[0]
+    assert result.query_error == ""
+    assert result.exact.value is not None
+    assert result.fixed.value is not None
+    assert result.width.value is not None
+    assert result.dual.value is not None
+    assert result.anytime is not None
 from CertiTherm.measurements import (
     build_measurement_library,
     coarse_power_space,

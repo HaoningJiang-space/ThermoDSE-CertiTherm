@@ -95,6 +95,9 @@ _BUDGET_IS_FROZEN = abs(QUERY_METHOD_TIMEOUT_S - FROZEN_QUERY_BUDGET_S) < 1e-9
 QUERY_WORKERS = int(os.environ.get("CERTITHERM_QUERY_WORKERS", "3"))
 if QUERY_WORKERS < 1:
     raise RuntimeError("CERTITHERM_QUERY_WORKERS must be a positive integer")
+METHOD_WORKERS = int(os.environ.get("CERTITHERM_METHOD_WORKERS", "0"))
+if METHOD_WORKERS < 0:
+    raise RuntimeError("CERTITHERM_METHOD_WORKERS must be non-negative")
 FROZEN_V3_QUERY_WORKERS = 3
 FROZEN_NUMERIC_THREAD_VARIABLES = (
     "OMP_NUM_THREADS",
@@ -104,6 +107,7 @@ FROZEN_NUMERIC_THREAD_VARIABLES = (
 FROZEN_V3_ENVIRONMENT = {
     **{name: "1" for name in FROZEN_NUMERIC_THREAD_VARIABLES},
     "CERTITHERM_LP_WORKERS": "1",
+    "CERTITHERM_METHOD_WORKERS": "15",
     "CERTITHERM_GPU_HOTSPOT": "1",
     "CERTITHERM_GPU_DEVICE": "0",
     "CUDA_VISIBLE_DEVICES": "0",
@@ -1358,6 +1362,55 @@ def _evaluate_prepared_query(
     )
 
 
+_METHOD_PRIORITY = ("anytime", "width", "dual", "fixed", "exact")
+
+
+def _method_schedule(
+    query_count: int, include_anytime: bool
+) -> tuple[tuple[int, str], ...]:
+    """Flatten query methods in the frozen upper-bound-first priority order."""
+
+    methods = _METHOD_PRIORITY if include_anytime else _METHOD_PRIORITY[1:]
+    return tuple(
+        (query_index, method)
+        for method in methods
+        for query_index in range(query_count)
+    )
+
+
+def _evaluate_prepared_method(
+    job: tuple[PreparedQuery, str],
+):
+    """Process-pool entry point for one independently budgeted method."""
+
+    query, method = job
+    if method == "anytime":
+        return anytime_dsos(query.candidates, query.actions, QUERY_METHOD_TIMEOUT_S)
+    if method == "width":
+        return _timed_call(
+            lambda: sequential_early_stop(
+                query.candidates,
+                query.actions,
+                uncertainty_width_order(query.candidates, query.actions),
+            )
+        )
+    if method == "dual":
+        return _timed_call(
+            lambda: dual_price_greedy(query.candidates, query.actions)
+        )
+    if method == "fixed":
+        return _timed_call(
+            lambda: sequential_early_stop(
+                query.candidates, query.actions, query.fixed_order
+            )
+        )
+    if method == "exact":
+        return _timed_call(
+            lambda: synthesize_ordered_query(query.candidates, query.actions)
+        )
+    raise ValueError(f"unknown query method: {method}")
+
+
 def _failed_query_methods(
     error: str,
     *,
@@ -1399,6 +1452,7 @@ def _evaluate_query_batch(
     *,
     include_anytime: bool,
     workers: int = QUERY_WORKERS,
+    method_workers: int = METHOD_WORKERS,
 ) -> tuple[QueryMethodResults, ...]:
     """Evaluate independent queries in one persistent process pool.
 
@@ -1412,8 +1466,16 @@ def _evaluate_query_batch(
 
     if workers < 1:
         raise ValueError("query workers must be positive")
+    if method_workers < 0:
+        raise ValueError("method workers must be non-negative")
     if not queries:
         return ()
+    if method_workers:
+        return _evaluate_method_batch(
+            queries,
+            include_anytime=include_anytime,
+            workers=method_workers,
+        )
     jobs = tuple((query, include_anytime) for query in queries)
     if workers == 1:
         return tuple(_evaluate_prepared_query(job) for job in jobs)
@@ -1443,6 +1505,73 @@ def _evaluate_query_batch(
             _failed_query_methods(error, include_anytime=include_anytime)
             for _query in queries
         )
+
+
+def _evaluate_method_batch(
+    queries: Sequence[PreparedQuery],
+    *,
+    include_anytime: bool,
+    workers: int,
+) -> tuple[QueryMethodResults, ...]:
+    """Evaluate methods as independent tasks in one persistent spawn pool."""
+
+    if workers < 1:
+        raise ValueError("method workers must be positive")
+    schedule = _method_schedule(len(queries), include_anytime)
+    slots: list[dict[str, object]] = [dict() for _query in queries]
+    context = multiprocessing.get_context("spawn")
+    try:
+        with ProcessPoolExecutor(
+            max_workers=min(workers, len(schedule)),
+            mp_context=context,
+        ) as pool:
+            futures = [
+                pool.submit(_evaluate_prepared_method, (queries[index], method))
+                for index, method in schedule
+            ]
+            for (index, method), future in zip(schedule, futures):
+                try:
+                    slots[index][method] = future.result()
+                except Exception as exc:
+                    error = f"method worker failure: {type(exc).__name__}: {exc}"
+                    slots[index][method] = (
+                        AnytimeResult(None, None, 0.0, 0.0, errors=(error,))
+                        if method == "anytime"
+                        else TimedResult(None, 0.0, error)
+                    )
+    except Exception as exc:
+        error = f"method pool failure: {type(exc).__name__}: {exc}"
+        return tuple(
+            _failed_query_methods(error, include_anytime=include_anytime)
+            for _query in queries
+        )
+
+    results = []
+    for slot in slots:
+        missing = [
+            method
+            for method in _METHOD_PRIORITY
+            if method != "anytime" or include_anytime
+            if method not in slot
+        ]
+        if missing:
+            results.append(
+                _failed_query_methods(
+                    f"method pool omitted: {','.join(missing)}",
+                    include_anytime=include_anytime,
+                )
+            )
+            continue
+        results.append(
+            QueryMethodResults(
+                exact=slot["exact"],
+                fixed=slot["fixed"],
+                width=slot["width"],
+                dual=slot["dual"],
+                anytime=slot.get("anytime"),
+            )
+        )
+    return tuple(results)
 
 
 def _ordered_outcome(
@@ -2160,6 +2289,7 @@ def _run_receipt(
         for name in SUBMODULE_PATHS
     }
     query_workers = _query_worker_count(split)
+    method_workers = METHOD_WORKERS
     numeric_threads = {
         name.lower(): os.environ.get(name, "")
         for name in FROZEN_NUMERIC_THREAD_VARIABLES
@@ -2188,8 +2318,13 @@ def _run_receipt(
         "query_budget_s": QUERY_METHOD_TIMEOUT_S,
         "budget_is_frozen": int(_BUDGET_IS_FROZEN),
         "query_workers": query_workers,
+        "method_workers": method_workers,
         "query_parallelism": (
-            "serial" if query_workers == 1 else "persistent-spawn-pool"
+            "persistent-method-spawn-pool"
+            if method_workers
+            else "serial"
+            if query_workers == 1
+            else "persistent-query-spawn-pool"
         ),
         "lp_separation_workers": os.environ.get("CERTITHERM_LP_WORKERS", "1"),
         **numeric_threads,
