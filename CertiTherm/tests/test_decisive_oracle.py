@@ -1,11 +1,8 @@
 """Unit tests for the exact LP decision-identifiability oracle."""
 import unittest
 import numpy as np
-from scipy.optimize import linprog
 
-import sys
-sys.path.insert(0, '/home/ynwang/jhn/DSE/CertiTherm/exact')
-from decide import decide, decide_simple
+from CertiTherm.exact.decide import decide
 
 
 class TestDecideOracle(unittest.TestCase):

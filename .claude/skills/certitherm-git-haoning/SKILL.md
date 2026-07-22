@@ -53,20 +53,24 @@ test "$(git rev-parse HEAD)" = "$(git ls-remote --heads origin refs/heads/<branc
 
 ## `moe` remote — what it's actually for
 
-`moe` (`moe-server:/data/ziheng/git/ThermoDSE-CertiTherm.git`) is a credential-free SSH
-bare-repo staging target, not a test-execution target:
+`moe` is a credential-free SSH bare-repo staging target, not a
+test-execution target. Resolve the remote user from the SSH alias instead of
+embedding a personal path:
 
 ```bash
-ssh -o BatchMode=yes -o ConnectTimeout=10 moe-server 'git init --bare /data/ziheng/git/ThermoDSE-CertiTherm.git'
-git remote add moe moe-server:/data/ziheng/git/ThermoDSE-CertiTherm.git
+remote_user=$(ssh -G moe-server | awk '$1 == "user" { print $2; exit }')
+remote_repo="/data/$remote_user/git/ThermoDSE-CertiTherm.git"
+ssh -o BatchMode=yes -o ConnectTimeout=10 moe-server "git init --bare '$remote_repo'"
+git remote add moe "moe-server:$remote_repo"
 git push moe <branch>
 ```
 
 Push `moe` first as a low-friction checkpoint whenever GitHub write access is uncertain or
 in flux; push `origin` once it's resolved. Remote test/experiment execution always uses a
-**separate** working clone on moe-server that pulls from `origin` (see
-`.claude/skills/moe-server-remote/`), never from the `moe` bare mirror — don't conflate the
-two.
+**separate** working clone on moe-server (see
+`.claude/skills/moe-server-remote/`). A credential-free clone from the bare mirror is
+acceptable only after its branch SHA is checked against the intended pushed SHA; never
+execute inside the bare repository itself.
 
 ## Submodule discipline
 

@@ -17,8 +17,8 @@ Synthesis (DSOS)**. It asks whether the physical observations obtainable at an E
 stage are sufficient to certify a thermal-feasibility-driven chiplet architecture decision,
 as opposed to ThermoDSE's job of finding a good architecture in the first place.
 
-This repo is one of several sibling repos in a larger untracked workspace
-(`/home/abc/3DIC/chiplet_dse/`); see that directory's own `CLAUDE.md` for cross-repo rules
+This repo is one of several sibling repos in a larger untracked workspace;
+see the parent workspace's `CLAUDE.md` for cross-repo rules
 (remote-execution mandate, provenance rules, "never git add across repo boundaries"). Those
 rules apply here too — this file only adds detail specific to `ThermoDSE-CertiTherm`.
 
@@ -123,10 +123,8 @@ trail, not as a base to extend. `CertiTherm/tests/conftest.py` still adds `exact
 `robust_dse/` to `sys.path` because a handful of tests (`test_decisive_oracle.py`,
 `test_g2_soundness.py`, `test_g3_baselines.py`, `test_robust_target.py`,
 `test_spatial_power_injection.py`) still exercise that legacy code as regression coverage —
-this is intentional, not dead configuration to clean up. `test_decisive_oracle.py` also
-contains a stale hardcoded `sys.path.insert(0, '/home/ynwang/jhn/DSE/CertiTherm/exact')` from
-a different machine; it's harmless (a nonexistent path on `sys.path` is a no-op) because
-`conftest.py`'s relative insert already makes `decide` importable.
+this is intentional, not dead configuration to clean up. Machine-specific import paths
+from the prototype have been removed; regression imports resolve from the repository.
 
 ### Research governance — read before changing method or claims
 

@@ -14,13 +14,10 @@ Pattern modes:
   - random: seeded per-block random stress (not a worst-case guarantee)
 """
 import os
-import sys
 import math
 import re
 import numpy as np
 import argparse
-
-sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
 
 
 _COMPONENT_TYPES = (
@@ -185,8 +182,8 @@ def inject_spatial_power(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--input', default='/home/ynwang/jhn/DSE/ThermoDSE/tmp/ptrace/cores_3D.ptrace')
-    ap.add_argument('--output', default='/home/ynwang/jhn/DSE/CertiTherm/data/cores_3D_spatial.ptrace')
+    ap.add_argument('--input', required=True)
+    ap.add_argument('--output', required=True)
     ap.add_argument('--cxlen', type=int, default=4)
     ap.add_argument('--cylen', type=int, default=4)
     ap.add_argument('--mode', default='centered', choices=['centered', 'corner', 'checker', 'random'])

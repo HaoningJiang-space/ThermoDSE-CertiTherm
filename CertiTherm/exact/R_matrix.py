@@ -17,9 +17,12 @@ import os
 import sys
 import json
 import argparse
+from pathlib import Path
 import numpy as np
 
-sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
+REPO_ROOT = Path(__file__).resolve().parents[2]
+THERMODSE_ROOT = REPO_ROOT / 'ThermoDSE'
+sys.path.insert(0, str(THERMODSE_ROOT))
 
 
 def parse_steady_peak(steady_file):
@@ -140,8 +143,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--sys-info', type=int, nargs=10, required=True,
                     help='10-element chiplet config: xx yy cx cy ci hsa wsa ubf nop dram')
-    ap.add_argument('--sim-path', default='/home/ynwang/jhn/DSE/ThermoDSE/tmp')
-    ap.add_argument('--hotspot-path', default='/home/ynwang/jhn/DSE/HotSpot')
+    ap.add_argument('--sim-path', required=True)
+    ap.add_argument('--hotspot-path', default=str(REPO_ROOT / '.build' / 'hotspot'))
     ap.add_argument('--output', default=None,
                     help='Output .npy file for the R matrix')
     ap.add_argument('--max-blocks', type=int, default=None,
@@ -151,7 +154,11 @@ def main():
     run_sh = os.path.join(args.sim_path, 'run.sh')
     output = args.output
     if output is None:
-        output = f'/home/ynwang/jhn/DSE/CertiTherm/exact/R_design_{args.sys_info[0]}x{args.sys_info[1]}.npy'
+        output = str(
+            Path(__file__).with_name(
+                f'R_design_{args.sys_info[0]}x{args.sys_info[1]}.npy'
+            )
+        )
 
     print(f"Computing full R matrix for design {args.sys_info[:4]}...")
     R, T_amb, blocks, raw = compute_full_R_matrix(

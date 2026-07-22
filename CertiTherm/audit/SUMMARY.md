@@ -96,7 +96,7 @@ can flip architectural decisions.
 
 ## Files in this audit
 
-- `/home/ynwang/jhn/DSE/CertiTherm/audit/run_decision_flip_audit.py` — main script
-- `/home/ynwang/jhn/DSE/CertiTherm/audit/spatial_power_injection.py` — ptrace modifier
-- `/home/ynwang/jhn/DSE/CertiTherm/results/decision_flip_audit_v1.csv` — 12-design centered 5x
-- `/home/ynwang/jhn/DSE/CertiTherm/results/decision_flip_centered3.csv` — 8-design centered 3x
+- `spatial_power_injection.py` — retained ptrace modifier and regression fixture
+- legacy decision-flip drivers and their workstation-local CSV outputs — preserved
+  at Git tag `legacy-g1-g4-archived`, removed from the active branch because
+  they had no callers and embedded non-portable machine paths

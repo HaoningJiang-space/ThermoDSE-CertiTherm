@@ -2,7 +2,6 @@
 from __future__ import annotations
 import signal
 import numpy as np
-import pytest
 from CertiTherm.core import CandidateSpace, PowerPolytope, ThermalFamily, MeasurementAction
 from CertiTherm.synthesis import synthesize_minimum_observation, synthesize_ordered_query
 

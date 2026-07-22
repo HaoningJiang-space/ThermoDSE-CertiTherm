@@ -7,19 +7,16 @@ module is retained as a stress-test baseline for the exact identifiability
 path, and therefore fails closed whenever a sample cannot be evaluated.
 
 Usage:
-  from robust_target import make_robust_target
-  target_robust, c2_robust = make_robust_target(K=10, mode='centered')
+  from robust_target import make_robust_c2
+  c2_robust = make_robust_c2(K=10, mode='centered', sim_path=<prepared-sim>)
   # Then patch scbo_search.py to use these
 """
 import os
-import sys
 import subprocess
 import shutil
 import tempfile
+from pathlib import Path
 import numpy as np
-
-sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
-sys.path.insert(0, '/home/ynwang/jhn/DSE/CertiTherm/audit')
 
 try:
     from ..audit.spatial_power_injection import inject_spatial_power
@@ -141,13 +138,18 @@ def compute_T_robust(*args, **kwargs):
     return compute_T_sample_max(*args, **kwargs)
 
 
-def make_robust_c2(K=10, mode='centered'):
+def make_robust_c2(K=10, mode='centered', sim_path=None):
     """
     Returns a function `c2_robust(x, max_temp, chiplet_sim_dict)` that uses T_robust.
     This replaces the original c2 in scbo_search.py / sa_opt.py.
     """
-    sim_path = '/home/ynwang/jhn/DSE/ThermoDSE/tmp'
-    run_sh = sim_path + '/run.sh'
+    if sim_path is None:
+        sim_path = os.environ.get(
+            'CERTITHERM_LEGACY_SIM_PATH',
+            str(Path.cwd() / 'artifacts' / 'legacy-sim'),
+        )
+    sim_path = os.fspath(sim_path)
+    run_sh = os.path.join(sim_path, 'run.sh')
 
     def c2_robust(x, max_temp, chiplet_sim_dict):
         # Get sys_info from x (assumes param_regulator exists)
@@ -160,39 +162,3 @@ def make_robust_c2(K=10, mode='centered'):
             raise RuntimeError('sampled thermal constraint is unresolved')
         return T_r - max_temp
     return c2_robust
-
-
-# Example: verify it works
-if __name__ == "__main__":
-    from core.chiplet_eva import chiplet_evaluator
-
-    sys_info = [4, 4, 4, 4, 0.0005, 112, 128, 4194304, 64, 128]
-    sim_path = '/home/ynwang/jhn/DSE/ThermoDSE/tmp'
-    run_sh = sim_path + '/run.sh'
-
-    # Reset state
-    import shutil
-    for f in os.listdir(f'{sim_path}/ptrace/'):
-        if 'spatial' in f or 'fixed' in f:
-            os.remove(f'{sim_path}/ptrace/{f}')
-
-    # Build evaluator
-    ev = chiplet_evaluator(
-        hotspot_path='/home/ynwang/jhn/DSE/HotSpot',
-        sim_path=sim_path,
-        sys_info=sys_info,
-        thermal_map=False, baseline1=False, baseline2=False, baseline3=False,
-        wkld_idpdt=False, clock_freq=1.8e9,
-    )
-    ev.generate_hardware()
-    delay, energy, die_yield = ev.evaluate()
-    area = ev.sys_h * ev.sys_w + ev.IO_die_area_each * 8
-    print(f'area: {area*1e6:.1f} mm²')
-
-    T_r = compute_T_robust(sim_path, run_sh, sys_info, ev, K=10, mode='centered')
-    T_u = ev.evaluate_thermal()
-    print(f'T_uniform: {T_u:.1f}K')
-    print(f'T_robust:  {T_r:.1f}K')
-    print(f'delta:     {T_r-T_u:+.1f}K')
-    print(f'feas uniform: {T_u <= 348 and area <= 3e-4}')
-    print(f'feas robust:  {T_r <= 348 and area <= 3e-4}')

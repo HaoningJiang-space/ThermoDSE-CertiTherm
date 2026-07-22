@@ -6,7 +6,12 @@
 set -euo pipefail
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=20 -o ServerAliveCountMax=3)
-REMOTE_BASE="/data/ziheng/experiments"
+REMOTE_USER="${CERTITHERM_REMOTE_USER:-$(ssh -G moe-server | awk '$1 == "user" { print $2; exit }')}"
+if [[ -z "$REMOTE_USER" ]]; then
+  echo "cannot resolve remote user from ssh alias moe-server" >&2
+  exit 64
+fi
+REMOTE_BASE="${CERTITHERM_REMOTE_BASE:-/data/${REMOTE_USER}/experiments}"
 # Public HTTPS, deliberately: read-only, needs no credential on the server, and
 # cannot leak one. Do NOT use `git@github-certitherm:...` here -- that is a
 # LOCAL ~/.ssh/config alias which does not resolve on moe-server
@@ -21,7 +26,7 @@ Usage:
 
   remote_exec.sh --new-clone <label> [--branch <ref>] <cmd...>
       Fresh `git clone --recurse-submodules` into a new
-      /data/ziheng/experiments/certitherm-<label>.XXXXXX directory on moe-server,
+      $CERTITHERM_REMOTE_BASE/certitherm-<label>.XXXXXX directory on moe-server,
       then run <cmd...> with cwd = repo root.
       ALWAYS pass --branch with the branch you are actually working on. The
       default clone checks out the remote HEAD (master), which can be many

@@ -9,7 +9,7 @@ This repository contains two connected codebases:
 
 ### CertiTherm tests
 
-Run from repository root (`/home/ynwang/jhn/DSE`):
+Run from the repository root:
 
 ```bash
 python -m pytest -q CertiTherm/tests/test_g3_evidence.py

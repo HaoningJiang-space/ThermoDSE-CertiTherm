@@ -25,7 +25,8 @@ if [ "$FLP_UNIT_COUNT" -lt "$ORIG_COUNT" ]; then
     PTRACE="$FIXED_PTRACE"
 fi
 
-LD_PRELOAD=/home/ynwang/miniconda3/lib/libtcmalloc.so ../../HotSpot/hotspot \
+HOTSPOT_BIN=${CERTITHERM_HOTSPOT_BIN:?set CERTITHERM_HOTSPOT_BIN to a verified binary}
+"$HOTSPOT_BIN" \
   -c ${CONFIG} \
   -f ${FLP} \
   -p ${PTRACE} \

@@ -4,7 +4,7 @@
 
 - Mode: claim, numeric, reproducibility, and gate-consistency audit
 - Audited revision: `898df519f634d8f2a04c2773f01be27d7f20292e`
-- Local clone: `/home/abc/3DIC/chiplet_dse/ThermoDSE-CertiTherm`
+- Source: repository root at the audited commit (machine path intentionally omitted)
 - Independent execution host: `moe-server` (`hpclab03`)
 - Decision: **the committed G3 semantic matrix replays, but `G3 full gate: CLOSED` is not yet supported**
 - Recommended public state: **`G3 semantic/breadth matrix: PASS; G3 full systems/independent-physics gate: OPEN`**

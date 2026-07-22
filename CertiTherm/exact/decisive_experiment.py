@@ -5,20 +5,17 @@ never pass G2.  Claim-grade runs must use ``run_g2_query.py`` with a registered
 placed-power bundle.  The pilot remains useful for debugging candidate bounds.
 """
 import os
-import sys
 import json
 import argparse
+from pathlib import Path
 import numpy as np
-import subprocess
-import shutil
 
-sys.path.insert(0, '/home/ynwang/jhn/DSE')
-sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
-sys.path.insert(0, '/home/ynwang/jhn/DSE/CertiTherm/exact')
+from .decide import decide
+from .linear_oracle import canonical_sha256
+from .R_matrix import compute_full_R_matrix
 
-from decide import decide
-from linear_oracle import canonical_sha256
-from R_matrix import compute_full_R_matrix, parse_steady_peak
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # Test designs spanning the contract's requirements
@@ -54,7 +51,12 @@ TEST_DESIGNS = [
 ]
 
 
-def compute_pumped_observation(sim_path, sys_info, content_factor):
+def compute_pumped_observation(
+    sim_path,
+    hotspot_path,
+    sys_info,
+    content_factor,
+):
     """
     Compute observation z_d for design sys_info.
     Use the actual chiplet_evaluator to get baseline ptrace, then create
@@ -62,7 +64,7 @@ def compute_pumped_observation(sim_path, sys_info, content_factor):
     """
     from core.chiplet_eva import chiplet_evaluator
     ev = chiplet_evaluator(
-        hotspot_path='/home/ynwang/jhn/DSE/HotSpot',
+        hotspot_path=hotspot_path,
         sim_path=sim_path,
         sys_info=sys_info,
         thermal_map=False, baseline1=False, baseline2=False, baseline3=False,
@@ -117,10 +119,16 @@ def compute_R_for_design(sys_info, sim_path, hotspot_path, run_sh_path, R_dir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--output', default='/home/ynwang/jhn/DSE/CertiTherm/results/decisive_experiment.json')
-    ap.add_argument('--R-dir', default='/home/ynwang/jhn/DSE/CertiTherm/exact')
-    ap.add_argument('--sim-path', default='/home/ynwang/jhn/DSE/ThermoDSE/tmp')
-    ap.add_argument('--hotspot-path', default='/home/ynwang/jhn/DSE/HotSpot')
+    ap.add_argument(
+        '--output',
+        default=str(REPO_ROOT / 'CertiTherm' / 'results' / 'decisive_experiment.json'),
+    )
+    ap.add_argument('--R-dir', default=str(Path(__file__).resolve().parent))
+    ap.add_argument('--sim-path', required=True)
+    ap.add_argument(
+        '--hotspot-path',
+        default=str(REPO_ROOT / '.build' / 'hotspot'),
+    )
     ap.add_argument('--T-budget', type=float, default=348.0)
     ap.add_argument('--content-factors', type=float, nargs='+', default=[1.5, 2.0, 3.0])
     args = ap.parse_args()
@@ -153,7 +161,7 @@ def main():
                 print(f"  Content factor = {cf}")
                 # Get observation z_d
                 obs, header, area_mm2, values = compute_pumped_observation(
-                    args.sim_path, design['sys_info'], cf
+                    args.sim_path, args.hotspot_path, design['sys_info'], cf
                 )
 
                 # Run LP oracle

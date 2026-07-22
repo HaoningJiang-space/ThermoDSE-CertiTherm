@@ -15,8 +15,12 @@ import sys
 import subprocess
 import numpy as np
 import json
+import argparse
+from pathlib import Path
 
-sys.path.insert(0, '/home/ynwang/jhn/DSE/ThermoDSE')
+REPO_ROOT = Path(__file__).resolve().parents[2]
+THERMODSE_ROOT = REPO_ROOT / 'ThermoDSE'
+sys.path.insert(0, str(THERMODSE_ROOT))
 
 
 def parse_steady_temps(steady_file):
@@ -35,7 +39,7 @@ def parse_steady_temps(steady_file):
     return temps
 
 
-def compute_R_matrix(sys_info, sim_path, hotspot_dir, run_sh_path, blocks_to_perturb):
+def compute_R_matrix(sim_path, run_sh_path, blocks_to_perturb):
     """
     Compute R[i,j] for i,j in blocks_to_perturb.
 
@@ -58,7 +62,7 @@ def compute_R_matrix(sys_info, sim_path, hotspot_dir, run_sh_path, blocks_to_per
     # Read the header to find block names
     with open(backup_ptrace) as f:
         header = f.readline().strip().split('\t')
-        data_row = f.readline().strip().split('\t')
+        f.readline()
     n_cols = len(header)
 
     # Find indices of blocks_to_perturb
@@ -126,14 +130,26 @@ def main():
     """Compute R matrix for a representative design and analyze its spectral properties."""
     from core.chiplet_eva import chiplet_evaluator
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--sim-path', required=True)
+    parser.add_argument(
+        '--hotspot-path',
+        default=str(REPO_ROOT / '.build' / 'hotspot'),
+    )
+    parser.add_argument(
+        '--output-dir',
+        default=str(Path(__file__).resolve().parent),
+    )
+    args = parser.parse_args()
+
     sys_info = [4, 4, 4, 4, 0.0005, 112, 128, 4194304, 64, 128]  # paper's TESA SA ideal best
 
-    sim_path = '/home/ynwang/jhn/DSE/ThermoDSE/tmp'
+    sim_path = args.sim_path
     run_sh = os.path.join(sim_path, 'run.sh')
 
     # Generate the floorplan
     ev = chiplet_evaluator(
-        hotspot_path='/home/ynwang/jhn/DSE/HotSpot',
+        hotspot_path=args.hotspot_path,
         sim_path=sim_path,
         sys_info=sys_info,
         thermal_map=False,
@@ -159,8 +175,8 @@ def main():
     blocks_subset = inner_blocks[:12]
     print(f"Computing R matrix for {len(blocks_subset)} blocks (1 HotSpot run per block + 1 baseline)")
 
-    R, T_amb, block_info, raw_temps = compute_R_matrix(
-        sys_info, sim_path, '/home/ynwang/jhn/DSE/HotSpot', run_sh, blocks_subset
+    R, T_amb, block_info, _raw_temps = compute_R_matrix(
+        sim_path, run_sh, blocks_subset
     )
 
     print(f"\n=== R MATRIX (K/W) ===")
@@ -177,7 +193,8 @@ def main():
     print(f"  λ_min(R): {np.min(np.real(eigvals)):.4f}")
 
     # Save R matrix
-    out_dir = '/home/ynwang/jhn/DSE/CertiTherm/theory'
+    out_dir = args.output_dir
+    os.makedirs(out_dir, exist_ok=True)
     np.save(os.path.join(out_dir, 'R_matrix_paper_design.npy'), R)
     with open(os.path.join(out_dir, 'R_matrix_meta.json'), 'w') as f:
         json.dump({

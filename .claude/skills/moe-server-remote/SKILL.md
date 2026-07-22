@@ -18,8 +18,8 @@ evidence-excluded") — never present unexecuted work as passing.
 
 ## Connection
 
-`moe-server` is already configured in `~/.ssh/config` (`HostName 10.16.52.172`,
-`User ziheng`, `Port 10548`). Use `scripts/remote_exec.sh` in this skill rather than ad hoc
+`moe-server` is already configured in `~/.ssh/config`. Use
+`scripts/remote_exec.sh` in this skill rather than ad hoc
 `ssh` one-liners — it encodes the connection options and patterns actually used in practice
 (`ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=20
 -o ServerAliveCountMax=3 moe-server '...'`). See `scripts/remote_exec.sh --help`.
@@ -32,11 +32,14 @@ Fresh clone into a unique, disk-hygienic directory, never reusing a stale one:
 scripts/remote_exec.sh --new-clone dsos-check 'make bootstrap && make check'
 ```
 
-This clones with `git clone --recurse-submodules` from `origin` (GitHub) into
-`/data/ziheng/experiments/certitherm-<label>.XXXXXX` — **not** rsync, and **not** via the
-`moe` git remote (that remote is a push-only staging target, see the git skill; nothing is
-ever pulled from it for test runs). Everything — venv, HotSpot build, artifacts — stays
-under `/data/ziheng/...` (i.e. `/data/$USER`); the server's root disk is capacity-constrained.
+By default this clones with `git clone --recurse-submodules` from `origin`
+(GitHub) into `$CERTITHERM_REMOTE_BASE/certitherm-<label>.XXXXXX` — **not**
+rsync. A credential-free clone from the `moe` bare mirror is also acceptable
+when its branch SHA is explicitly checked against the pushed commit. Everything
+— venv, HotSpot build, artifacts — stays
+under the remote user's data root; the server's root disk is capacity-constrained.
+The wrapper derives that user from `ssh -G moe-server`; set
+`CERTITHERM_REMOTE_BASE` only when the server layout differs.
 
 Commands always run with cwd = repo root (`cd "$run_dir/repo" && ...`). Running pytest from
 outside the repo root fails with `ModuleNotFoundError: No module named 'CertiTherm'` — this
@@ -53,21 +56,23 @@ closing, then poll sparsely — do not hold the SSH connection open and do not p
 seconds:
 
 ```bash
-scripts/remote_exec.sh --background /data/ziheng/experiments/certitherm-dsos-final.XXXXXX/repo dev-run 'make reproduce-dev'
-scripts/remote_exec.sh --status   /data/ziheng/experiments/certitherm-dsos-final.XXXXXX/repo dev-run
+scripts/remote_exec.sh --background <remote-clone>/repo dev-run 'make reproduce-dev'
+scripts/remote_exec.sh --status   <remote-clone>/repo dev-run
 ```
 
 **HotSpot forks worker subprocesses under the tracked PID.** Killing only the parent PID
 leaves orphaned HotSpot children burning CPU. Always kill children first:
 
 ```bash
-scripts/remote_exec.sh --kill /data/ziheng/experiments/certitherm-dsos-final.XXXXXX/repo dev-run
+scripts/remote_exec.sh --kill <remote-clone>/repo dev-run
 ```
 
 (This finds children via `pgrep -P $pid`, kills them, then the parent, escalating to
 `kill -KILL` if still alive after a couple seconds.)
 
-Tuning: `CERTITHERM_LP_WORKERS` (Makefile default 8) controls separation-LP parallelism;
+Tuning: `CERTITHERM_LP_WORKERS` defaults to 1 because per-iteration process
+creation was measured as a severe pessimization. Independent v3 queries use
+one persistent pool controlled by `CERTITHERM_QUERY_WORKERS` (frozen at 3);
 GPU runs additionally want `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1` (let
 CUDA/the outer job scheduler own parallelism, not BLAS) plus `CERTITHERM_GPU_HOTSPOT=1`,
 `CUDA_NVCC=/usr/local/cuda-12.8/bin/nvcc`, `CUDA_ARCH=sm_80`. moe-server has 52 CPU cores
@@ -84,10 +89,10 @@ pattern if you ever hit an analogous failure: keep partial evidence, label it, d
 
 ## Disk hygiene
 
-Check headroom before a big job: `ssh moe-server 'df -h /data /'`. Monitor growth:
-`ssh moe-server 'du -x -d 2 /data/ziheng | sort -n | tail -20'`. Clean up stale experiment
+Check headroom before a big job: `ssh moe-server 'df -h /data /'`. Monitor the
+configured remote data root rather than a hard-coded user directory. Clean up stale experiment
 directories **by exact name**, after their evidence has been archived/re-verified — never a
-blind `rm -rf /data/ziheng/experiments/*`.
+blind recursive deletion of the experiment root.
 
 ## Getting results back
 
