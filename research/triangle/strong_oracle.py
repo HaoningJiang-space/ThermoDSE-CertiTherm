@@ -168,10 +168,19 @@ def strong_collision_spec(base, spec, action_vectors, weights):
     return None
 
 
-def _cut_from_pair(pair, actions):
+def _cut_from_pair(pair, actions, selected=()):
+    """Cut = true separators (|v.delta| > tolerance) minus already-selected
+    actions, matching the PRODUCTION rule (synthesis.py). The old `> tolerance +
+    SEP_TOL` was a subset of the true separators (dropped genuine borderline
+    separators) and could inflate the hitting-set bound; a selected action
+    cannot separate the collision it defined, so it is excluded by index."""
     delta = pair.safe_power_w - pair.unsafe_power_w
+    selected_set = set(selected)
     return np.asarray(
-        [abs(float(a.vector @ delta)) > a.tolerance + SEP_TOL for a in actions],
+        [
+            i not in selected_set and abs(float(a.vector @ delta)) > a.tolerance
+            for i, a in enumerate(actions)
+        ],
         dtype=float,
     )
 
@@ -241,7 +250,7 @@ def run_strong_loop(cand, actions, budget_s, weight_mode):
             return False
         for pair in batch:
             ledger.generated += 1
-            cut = _cut_from_pair(pair, actions)
+            cut = _cut_from_pair(pair, actions, selected)
             if not cut.any():
                 # NOT a soundness failure of the derivation: an all-zero cut is
                 # the UNSYNTHESIZABLE witness -- a pair no registered action
