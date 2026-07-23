@@ -1107,8 +1107,12 @@ class AnytimeResult:
 
     contract: Optional[CertifiedContract]
     proof_search: Optional[QueryObservationPlan]
-    upper_seconds: float
-    lower_seconds: float
+    # None, not 0.0, when a phase never ran or the worker died before reporting.
+    # Serialized blank (see `_anytime_result_fields`): a hardcoded 0.0 on a
+    # worker-death or pool-failure path reads as "ran instantly", the same
+    # fabricated-timing defect `TimedResult` was fixed to avoid.
+    upper_seconds: Optional[float]
+    lower_seconds: Optional[float]
     errors: tuple[str, ...] = ()
 
     @property
@@ -1393,8 +1397,8 @@ def _anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
         "approximation_ratio": optional(result.approximation_ratio),
         "interval_violation": result.interval_violation,
         "anytime_upper_source": result.upper_source,
-        "anytime_upper_seconds": result.upper_seconds,
-        "anytime_lower_seconds": result.lower_seconds,
+        "anytime_upper_seconds": optional(result.upper_seconds),
+        "anytime_lower_seconds": optional(result.lower_seconds),
         "anytime_error": result.error,
         "query_budget_s": QUERY_METHOD_TIMEOUT_S,
         "budget_is_frozen": int(_BUDGET_IS_FROZEN),
@@ -1548,7 +1552,7 @@ def _evaluate_prepared_method(
         elapsed = time.perf_counter() - started
         error = f"method containment failure: {type(exc).__name__}: {exc}"
         if method == "anytime":
-            return AnytimeResult(None, None, elapsed, 0.0, errors=(error,))
+            return AnytimeResult(None, None, None, None, errors=(error,))
         return TimedResult(None, elapsed, error)
 
 
@@ -1594,7 +1598,7 @@ def _failed_query_methods(
     failed_exact: TimedResult[QueryObservationPlan] = TimedResult(None, None, "")
     failed_policy: TimedResult[PolicyResult] = TimedResult(None, None, "")
     anytime = (
-        AnytimeResult(None, None, 0.0, 0.0, errors=(error,))
+        AnytimeResult(None, None, None, None, errors=(error,))
         if include_anytime
         else None
     )
@@ -1714,7 +1718,7 @@ def _evaluate_method_batch(
                     # include queueing and waiting on earlier futures.
                     error = f"method worker failure: {type(exc).__name__}: {exc}"
                     slots[index][method] = (
-                        AnytimeResult(None, None, 0.0, 0.0, errors=(error,))
+                        AnytimeResult(None, None, None, None, errors=(error,))
                         if method == "anytime"
                         else TimedResult(None, None, error)
                     )
