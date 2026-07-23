@@ -253,3 +253,46 @@ that review is what produced the withdrawals recorded above. The fixes were
 self-reviewed against an explicit risk list, which is how the residual
 `except`-body escape window was found, but that is not equivalent and these
 commits should be re-reviewed when the reviewer is available.
+
+## D3 — primal–dual–integer triangle: the bound is faithful but climbs slowly
+
+Non-claim diagnostic on **candidate 0 (`arch_b`) of `resnet50`**, the SAFE/REJECT
+subproblem every dev query stalls on. Reconstructed from cached D2 operators;
+scripts and detail in `research/triangle/`. Producer branch
+`round/v3-separation-diagnostics`.
+
+At 300 s / 3442 discovered cuts:
+
+| quantity | value | conclusion |
+|---|---:|---|
+| primal LP | 20.10 | |
+| `_anytime_lower_bound` | 20.10 | LP = anytime → **bound code faithful, not a bug** |
+| restricted-master MILP | 21.00 | ≈ LP → **no integrality gap** |
+| MILP cover feasibility | 638 collisions survive | cheapest cover of discovered cuts is not feasible → **`C* > 21`** |
+| full-library separation | collision-free | candidate 0 is **synthesizable**, `C* ≤ 1846` |
+| reported `lower_bound` | 5.00 | 4× below the 20.1 the cuts already justify |
+
+`C*(arch_b) ∈ [21, 1846]`.
+
+LP over random nested subsets: 100→5.0, 250→12.5, 500→13, 1000→14, 2000→14,
+3000→14, 3442→20.1. Random subsets plateau near 14; only the full set reaches
+20.1, so the bound is pushed up by rare high-value cuts, not bulk volume.
+
+**This closes the "why is the bound tiny?" question and confirms the three
+withdrawals above were correct.** It is not saturation at 2 (the bound climbs to
+20 by 300 s), not a 700× integrality gap (MILP ≈ LP), and not a bound bug (LP =
+anytime). The real obstacle is slow, sublinear growth of a *faithful* LP lower
+bound on a synthesizable-but-hard candidate, with the cheapest covers far from
+feasible. Proving minimality at these budgets is not close — the interval is
+~88× wide.
+
+Two consequences:
+
+1. **Reporting defect (cheap fix).** The power-of-two refresh cadence made a
+   300 s run report 5.0 while its cuts justified 20.1. Every emitted interval
+   understates its own lower bound. Refreshing on exit (or on a fixed cadence)
+   is a one-line change independent of any method work.
+2. **The only lever (freeze-v4).** Faster LB growth needs the separation oracle
+   to target high-value / minimal-support cuts instead of arbitrary feasible
+   collisions (the LP objective is `np.zeros`, `synthesis.py:598`). MILP
+   closure, faster LP, GPU, and round-robin are all ruled out by the numbers.
