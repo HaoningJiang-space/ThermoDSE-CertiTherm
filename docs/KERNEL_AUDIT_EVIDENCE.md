@@ -244,3 +244,31 @@ REJECT kernels there); tolerance sensitivity; thermal-row degeneracy clustering.
   study** — baseline / kernel-only / cooperative-IHS-only / kernel+cooperative, in
   repeated-query and one-shot regimes — measuring preprocessing + oracle wall time +
   solver iterations + total IHS time.
+
+## End-to-end break-even (arch_c) — amortization gate CLEARED
+
+`kernel_timing.py` times an actual exhaustive collision scan (full-registry,
+collision-free = the worst case the deletion/MaxHS loop pays), full vs kernel,
+sequential replica (parallel oracle keeps the ratio):
+
+| metric | value |
+|---|---:|
+| L_f (full scan, 543 cells × 543 SAFE) | 21,296 ms |
+| L_k (kernel scan, 48 × 48) | 455 ms |
+| per-query wall-time speedup L_f/L_k | **46.8×** |
+| audit cost A (single greedy order, one-time) | 17 s |
+| break-even Q* = A/(L_f − L_k) | **1 scan** |
+
+The kernel pays for itself after ONE exhaustive scan; a MaxHS+deletion run does
+O(300) scans/candidate, so it amortizes ~300×. 46.8× is below the 128× work proxy
+(LP time is sublinear in row count) but far above the ≥5× end-to-end goal. Even the
+modest candidates (proxy 2.8–6.4× → per-scan est. ~2–4×) clear the gate trivially,
+since `A` is paid once and savings accrue over ~300 scans.
+
+**Item-3 conclusion (arch_c fully, generalisation measured):** the thermal-frontier
+kernel is a sound, well-amortized collision-oracle speedup (46.8× per scan on
+arch_c; candidate-dependent, always ≥ the audit's ~2.8× proxy floor). Per the
+synthesis review, the decision is: **integrate as an optional cached preprocessor
+behind the (now-cleared) amortization gate; defer exact-Farkas; keep cooperative
+IHS as the main line.** Remaining for a *certified* kernel: exact-rational/Farkas
+witnesses; a focused literature search to fix the novelty framing.
