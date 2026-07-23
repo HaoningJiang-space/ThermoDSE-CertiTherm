@@ -1615,11 +1615,34 @@ def synthesize_minimum_observation(
                 # the separation work actually done.
                 ledger.generated += 1
                 delta = witness.safe_power_w - witness.unsafe_power_w
+                # Theorem 1: action a separates the pair iff |v_a.delta| >
+                # tolerance -- the cut is the set of such actions and must be a
+                # SUPERSET of the true separators for the hitting-set lower bound
+                # to be valid. The old `> tolerance + separation_tolerance`
+                # EXCLUDED genuine separators with gap in (tolerance,
+                # tolerance+sep], making the cut a subset -- a too-strong
+                # constraint that can push the master optimum ABOVE C* and
+                # inflate the certified lower bound (found in peer review).
+                #
+                # The `+ sep` guard was doing double duty: excluding already
+                # SELECTED actions (whose agreement gap sits at ~tolerance) and
+                # leaving a slack margin. That double duty is what forced the
+                # unsound direction -- shrinking the margin instead counts a
+                # selected action pinned at the agreement boundary as a
+                # separator, and a cut containing an already-bought action fails
+                # to eliminate the current selection (UNRESOLVED).
+                #
+                # Separate the two concerns: a SELECTED action provably cannot
+                # separate the collision it helped define (or the pair would not
+                # be a collision under that selection), so exclude it by INDEX,
+                # not by a numerical guard. For the rest use the exact Theorem-1
+                # threshold `> tolerance`, which admits every genuine separator.
+                selected_set = set(selected)
                 cut = np.asarray(
                     [
-                        abs(float(action.vector @ delta))
-                        > action.tolerance + separation_tolerance
-                        for action in actions
+                        index not in selected_set
+                        and abs(float(action.vector @ delta)) > action.tolerance
+                        for index, action in enumerate(actions)
                     ],
                     dtype=float,
                 )
