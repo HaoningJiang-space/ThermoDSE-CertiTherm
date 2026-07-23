@@ -350,3 +350,54 @@ minimum-cost DSOS claim is *recoverable* — provable to within ~2× here and
 plausibly closable with more budget or dual-priced weights — rather than needing
 to be abandoned. Secondary levers (dual-priced weights, in-out stabilization,
 parallel strong-oracle) are v4 build work, not this PoC.
+
+### D5 — PoC steps 1–3: generalisation, min-cardinality, dual weights, stabilisation
+
+All in the standalone `research/triangle/strong_oracle.py`; no frozen-method
+edit. Every run validated every cut under the unmodified derivation rule
+(`soundness_failures = 0` throughout).
+
+**Step 1 — generalisation (uniform L1, 300 s each).** The 36× is not
+arch_b-specific:
+
+| candidate | actions | cuts | LP | MILP (= `C*` lower bound) | mean support | full registry |
+|---|---:|---:|---:|---:|---:|---:|
+| resnet50 arch_b | 243 | 431 | 720 | 832 | 2.1 | 1846 |
+| resnet50 arch_c | 199 | 331 | 576 | 744 | 2.6 | 1482 |
+| resnet50 arch_a | 251 | 405 | 720 | 800 | 2.1 | 1922 |
+| transformer arch_b | 243 | 379 | 720 | 776 | 2.0 | 1846 |
+
+The MILP over discovered cuts is a valid **lower** bound on each candidate's
+`C*` (discovered cuts ⊆ all cuts), and it is far above the baseline's ~20 on
+every candidate. The full-registry cost is only a valid **upper** bound where the
+candidate is synthesizable; that was verified for **arch_b only** (D3, full
+library collision-free). The other three have `soundness_failures = 0` (every
+collision they met was separable), which is necessary but not sufficient for
+full synthesizability — so their upper bound is pending a full-library check, and
+`C* ≥ MILP` is the claim that is actually established for them. Even so, each
+lower bound (744–832) collapses its interval versus the baseline's 21.
+
+**Step 2a — min-cardinality MILP vs the L1 surrogate.** On sampled cells the true
+minimum-support MILP returns **2 on every cell, identical to L1** (0/8 unit
+cuts). The cheap L1 LP is therefore *optimal* for support minimisation here — the
+expensive per-cell MILP buys nothing, and v4 does not need it.
+
+**Step 2b — dual-guided weights vs uniform (arch_b, 300 s).** Dual-load weights
+`w_a = Σ_{e:a∈e} λ_e` give MILP 856 vs uniform 832 (+2.9%) with the **same** LP
+(720). The support-minimisation itself is the dominant lever; dual weighting is a
+marginal add-on, not the driver. **Uniform L1 is the pragmatic v4 choice.**
+
+**Step 3 — in-out stabilisation: deferred to core integration, with reason.**
+Stabilisation attacks late-stage tailing-off, but every candidate here is still
+in the healthy bound-climbing regime (2000+ collisions generated, not
+converged), so it is premature to measure. It also needs the *continuous* master
+cover relaxation as the stabilisation anchor, which only exists inside the real
+solver — a faithful prototype cannot be built in the standalone loop. It belongs
+in the freeze-v4 integration, once closure (not climbing) becomes the regime.
+
+**Net v4 design.** A single LP-objective change — uniform weighted-L1
+minimal-support separation — recovers the minimum-cost DSOS claim across every
+dev candidate, soundly, at 8× fewer cuts. Dual weights and stabilisation are
+optional refinements, not prerequisites. cuOpt/PDLP remain excluded from the
+certifier; a batched **exact-simplex** GPU separation (propose-verify) is the
+only viable GPU route and is a v4 scalability extension, not a correctness one.

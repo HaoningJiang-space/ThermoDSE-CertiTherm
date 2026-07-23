@@ -51,11 +51,17 @@ from CertiTherm.measurements import build_measurement_library
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "artifacts" / "diag150b"
 BUDGET_S = float(sys.argv[2]) if len(sys.argv) > 2 else 300.0
 WEIGHT_MODE = sys.argv[3] if len(sys.argv) > 3 else "uniform"
-WORKLOAD = "resnet50"
+WORKLOAD = sys.argv[4] if len(sys.argv) > 4 else "resnet50"
+CAND_INDEX = int(sys.argv[5]) if len(sys.argv) > 5 else 0
 MARGIN_K, FEAS_TOL, SEP_TOL = 1e-4, 1e-10, 1e-9
 
 
 def candidate_zero():
+    """Reconstruct the CAND_INDEX-th candidate (in EDYP order) of WORKLOAD.
+
+    Named candidate_zero for continuity with the triangle scripts; the index is
+    now parameterised so the PoC can be replicated across candidates.
+    """
     reg = _registry_split("dev_v3")
     arches = sorted((r for r in _rows(ROOT / "experiments" / "architectures.tsv")
                      if r["split"] == reg), key=lambda r: int(r["rank"]))
@@ -66,7 +72,7 @@ def candidate_zero():
     costs = _measurement_costs()
     caps = {(WORKLOAD, a["architecture_id"]): _capture(a, workload, default_pkg, OUTPUT)
             for a in arches}
-    arch0 = _ordered_architectures(WORKLOAD, arches, caps)[0]
+    arch0 = _ordered_architectures(WORKLOAD, arches, caps)[CAND_INDEX]
     power, blocks, placed, floor = _power_space(caps[(WORKLOAD, arch0["architecture_id"])])
     family, ob = load_family(OUTPUT / "operators" / f"{arch0['architecture_id']}--default.npz")
     assert blocks == ob
@@ -170,6 +176,27 @@ def _cut_from_pair(pair, actions):
     )
 
 
+def _master_dual_weights(cuts, costs):
+    """Per-action dual load  w_a = Σ_{e: a separates e} λ_e  from the master LP.
+
+    An action already carrying much dual weight is near its packing constraint
+    Σ_{e sep a} y_e ≤ c_a and cannot absorb more, so EXCLUDING it from new cuts
+    (a high L1 weight → its gap driven to zero) frees new cuts to load
+    unsaturated actions, which is what raises the weak-duality bound. This is the
+    dual-guided ("clever objective") cut selection of Codato–Fischetti /
+    Magnanti–Wong, expressed as the InfoCertGain numerator (policies.py:272).
+    """
+    if not cuts:
+        return None
+    C = np.asarray(cuts, dtype=float)
+    r = linprog(costs, A_ub=-C, b_ub=-np.ones(C.shape[0]),
+                bounds=[(0.0, 1.0)] * costs.shape[0], method="highs")
+    if not r.success or r.ineqlin is None:
+        return None
+    dual = np.maximum(-np.asarray(r.ineqlin.marginals, dtype=float), 0.0)
+    return C.T @ dual                                    # length = n actions
+
+
 def run_strong_loop(cand, actions, budget_s, weight_mode):
     costs = np.array([a.cost for a in actions], dtype=float)
     action_vectors = np.asarray([a.vector for a in actions], dtype=float)
@@ -178,11 +205,21 @@ def run_strong_loop(cand, actions, budget_s, weight_mode):
     latest = {"cuts": []}
     soundness_failures = [0]
 
+    def current_weights():
+        # uniform = min-cardinality proxy; dual = dual-guided (falls back to
+        # uniform until the first cuts define a master dual).
+        if weight_mode == "dual":
+            load = _master_dual_weights(cuts, costs)
+            if load is not None and load.max() > 0:
+                # 1 + normalised dual load: unsaturated actions keep weight ~1
+                # (freely included), saturated actions get pushed toward
+                # exclusion. The +1 floor keeps every action expressible.
+                return 1.0 + load / load.max()
+        return np.ones(len(actions))
+
     def one_pass():
         base = _base_problem(cand.power, cand.thermal, actions, selected, MARGIN_K)
-        # Uniform weights = min-cardinality proxy. Dual weights would come from
-        # the master; uniform is the first, simplest test.
-        weights = np.ones(len(actions))
+        weights = current_weights()
         batch = []
         for spec in _specs(base):
             pair = strong_collision_spec(base, spec, action_vectors, weights)
@@ -250,11 +287,15 @@ def main():
     print(f"\n--- bound over {len(cuts)} strong cuts ---")
     print(f"  LP   = {lp:.3f}")
     print(f"  MILP = {mp:.3f}")
-    print(f"\n--- BASELINE reference (D3, zero-objective, 300s/3442 cuts) ---")
-    print(f"  LP = 20.1, MILP = 21.0, s_min = 14")
-    if lp is not None:
-        print(f"\n  strong/baseline LP ratio = {lp/20.1:.2f}x  "
-              f"(gate: >= 5x -> green-light freeze-v4)")
+    if WORKLOAD == "resnet50" and CAND_INDEX == 0:
+        print(f"\n--- BASELINE reference (D3, arch_b, zero-objective, 300s/3442 cuts) ---")
+        print(f"  LP = 20.1, MILP = 21.0, s_min = 14")
+        if lp is not None:
+            print(f"\n  strong/baseline LP ratio = {lp/20.1:.2f}x  "
+                  f"(gate: >= 5x -> green-light freeze-v4)")
+    else:
+        print(f"\n  (no baseline for {WORKLOAD} cand{CAND_INDEX}; generalization check: "
+              f"support ~2 and large LP replicate arch_b's behaviour)")
 
 
 if __name__ == "__main__":
