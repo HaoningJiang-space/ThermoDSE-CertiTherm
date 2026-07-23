@@ -54,6 +54,11 @@ WEIGHT_MODE = sys.argv[3] if len(sys.argv) > 3 else "uniform"
 WORKLOAD = sys.argv[4] if len(sys.argv) > 4 else "resnet50"
 CAND_INDEX = int(sys.argv[5]) if len(sys.argv) > 5 else 0
 MARGIN_K, FEAS_TOL, SEP_TOL = 1e-4, 1e-10, 1e-9
+# Feasibility slack the verifier allows when re-checking witnesses (review F6): a
+# conservative multiple of the LP feasibility tolerance, still << MARGIN_K so the
+# SAFE/REJECT sides stay robustly separated. Tunable; the ledger replay reports how
+# many cuts are UNRESOLVED at this slack, which is how it gets calibrated.
+LP_SLACK = 1e-6
 
 
 def candidate_zero():
@@ -213,6 +218,12 @@ def run_strong_loop(cand, actions, budget_s, weight_mode):
     masks, selected = [], ()
     latest = {"cuts": []}
     soundness_failures = [0]
+    # Witness-carrying ledger (verifier-first): for every cut that survives into
+    # the antichain, remember the SAFE/REJECT world-pair, its reject cell, and the
+    # selection under which it was a collision -- keyed by the cut's support set so
+    # the FINAL antichain can be re-associated with a witness even after
+    # domination replacements. Any one valid witness certifies the cut.
+    witness_map = {}
 
     def current_weights():
         # zero = the ORIGINAL feasibility oracle (no support penalty) run through
@@ -262,12 +273,23 @@ def run_strong_loop(cand, actions, budget_s, weight_mode):
                 continue
             if _insert_minimal_cut(cuts, cut, masks, ledger):
                 latest["cuts"] = [c.copy() for c in cuts]
+                # Witness-carrying ledger: remember one valid witness for this cut,
+                # keyed by its support set so the FINAL antichain can be
+                # re-associated even after domination replacements.
+                key = frozenset(int(i) for i in np.flatnonzero(cut))
+                witness_map[key] = {
+                    "safe": pair.safe_power_w.copy(),
+                    "unsafe": pair.unsafe_power_w.copy(),
+                    "model": cand.thermal.model_ids.index(pair.unsafe_model_id),
+                    "point": int(pair.unsafe_point),
+                    "selected": tuple(selected),
+                }
         selected = _greedy_cover(costs, cuts)
         return True
 
     plan, secs, err = _call_under_budget(
         lambda: [step() for _ in range(10_000)], budget_s, f"{budget_s}s budget")
-    return latest["cuts"], costs, secs, err, ledger, unseparable[0]
+    return latest["cuts"], costs, secs, err, ledger, unseparable[0], witness_map
 
 
 def _lp_bound(C, cost):
@@ -310,13 +332,73 @@ def _milp_lower_bound(C, cost):
     return dual, getattr(m, "mip_gap", None)
 
 
+def _per_cut_master_dual(C, cost):
+    """Non-negative per-cut dual of the LP relaxation min c'x s.t. Cx>=1, 0<=x<=1.
+    Recorded so the verifier can recompute L from a FIXED y (review F2): captured
+    post-negation and projected onto y>=0, bound to cut rows by position. The exact
+    Lagrangian is valid for ANY y>=0, so this capture affects only tightness."""
+    r = linprog(cost, A_ub=-C, b_ub=-np.ones(C.shape[0]),
+                bounds=[(0.0, 1.0)] * cost.shape[0], method="highs")
+    if not r.success or r.ineqlin is None:
+        return np.zeros(C.shape[0])
+    return np.maximum(-np.asarray(r.ineqlin.marginals, dtype=float), 0.0)
+
+
+def _persist_witness_ledger(cand, actions, cid, C, cost, witness_map):
+    """Emit a WitnessLedger for the final antichain, bound to the InstanceReceipt.
+    A cut whose witness was lost to antichain replacement is dropped from the
+    ledger with a warning (it cannot be certified without a witness)."""
+    from CertiTherm.instance_receipt import InstanceReceipt
+    from CertiTherm.ledger import WitnessLedger
+
+    operator_path = OUTPUT / "operators" / f"{cid}--default.npz"
+    receipt = InstanceReceipt.build(
+        candidate_id=cid, workload=WORKLOAD, cand_index=CAND_INDEX,
+        actions=actions, power=cand.power, thermal=cand.thermal,
+        operator_path=operator_path, margin_k=MARGIN_K, feas_tol=FEAS_TOL,
+        repo_root=ROOT)
+    n = len(actions)
+    rows, safe, unsafe, rmodel, rpoint, sel = [], [], [], [], [], []
+    dropped = 0
+    for row in C:
+        key = frozenset(int(i) for i in np.flatnonzero(row))
+        w = witness_map.get(key)
+        if w is None:
+            dropped += 1
+            continue
+        rows.append(row)
+        safe.append(w["safe"]); unsafe.append(w["unsafe"])
+        rmodel.append(w["model"]); rpoint.append(w["point"])
+        smask = np.zeros(n); smask[list(w["selected"])] = 1.0
+        sel.append(smask)
+    if not rows:
+        print("  no cut retained a witness -> no ledger emitted"); return
+    C_led = np.asarray(rows, float)
+    dual = _per_cut_master_dual(C_led, np.asarray(cost, float))
+    led = WitnessLedger(
+        receipt_digest=receipt.digest,
+        action_ids=tuple(a.action_id for a in actions),
+        costs=np.asarray(cost, float), cut_masks=C_led,
+        safe_w=np.asarray(safe, float), unsafe_w=np.asarray(unsafe, float),
+        reject_model=np.asarray(rmodel, np.int64),
+        reject_point=np.asarray(rpoint, np.int64),
+        selected_masks=np.asarray(sel, float), dual=dual, lp_slack=LP_SLACK)
+    ledger_path = OUTPUT / f"strong_ledger_{WEIGHT_MODE}_{WORKLOAD}_c{CAND_INDEX}.npz"
+    led.to_npz(ledger_path)
+    receipt_path = OUTPUT / f"instance_receipt_{WORKLOAD}_c{CAND_INDEX}.json"
+    import json
+    receipt_path.write_text(json.dumps(receipt.to_dict(), indent=2))
+    print(f"  witness ledger -> {ledger_path} ({len(rows)} cuts, {dropped} dropped "
+          f"without witness); receipt -> {receipt_path}")
+
+
 def main():
     cand, actions, cid = candidate_zero()
     cost = np.array([a.cost for a in actions], dtype=float)
     print(f"candidate 0 = {cid}: {len(actions)} actions, C_total={cost.sum():.0f}, "
           f"weight_mode={WEIGHT_MODE}, budget={BUDGET_S}s")
 
-    cuts, cost, secs, err, ledger, unseparable = run_strong_loop(
+    cuts, cost, secs, err, ledger, unseparable, witness_map = run_strong_loop(
         cand, actions, BUDGET_S, WEIGHT_MODE)
     print(f"ran {secs:.1f}s  antichain={len(cuts)}  generated={ledger.generated}  "
           f"unseparable_witnesses={unseparable}  err={err[:60]!r}")
@@ -329,6 +411,7 @@ def main():
     # Persist BEFORE computing bounds, so a bound-side bug never wastes the run.
     np.savez_compressed(OUTPUT / f"strong_antichain_{WEIGHT_MODE}_{WORKLOAD}_c{CAND_INDEX}.npz",
                         cuts=C, costs=np.asarray(cost, float))
+    _persist_witness_ledger(cand, actions, cid, C, cost, witness_map)
     support = C.sum(axis=1)
     print("\n--- support |S_e| ---")
     print(f"  min={support.min():.0f}  mean={support.mean():.1f}  "
