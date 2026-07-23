@@ -22,6 +22,11 @@ from typing import Callable, Dict, Iterator, Mapping, Optional
 class _BudgetState:
     deadline_s: float
     return_reserve_s: float
+    # When True, `_current_budget` ignores a still-armed ITIMER_REAL and uses
+    # this state outright. Set only by `override_budget`: the one caller that
+    # legitimately needs a FRESH deadline after the method budget is spent, when
+    # the method's signal timer is still armed and would otherwise clamp it.
+    ignore_signal: bool = False
 
 
 _ACTIVE_BUDGET: ContextVar[Optional[_BudgetState]] = ContextVar(
@@ -79,6 +84,12 @@ def override_budget(seconds: float) -> Iterator[None]:
     This replaces the active deadline outright rather than tightening toward it,
     so the refresh gets a small, independent, still-fail-closed budget. Use it
     only for bounded, deterministic cleanup work after a deadline has passed.
+
+    `ignore_signal=True` is essential: the method's ITIMER_REAL is typically
+    STILL ARMED here (the native budget raised at `deadline - reserve`, before
+    the signal fires at `deadline`), so without it `_current_budget` would take
+    min(override, ~reserve) and clamp this budget back to ~reserve seconds --
+    reintroducing the exact starvation the override exists to remove.
     """
 
     if not math.isfinite(seconds) or seconds <= 0:
@@ -86,6 +97,7 @@ def override_budget(seconds: float) -> Iterator[None]:
     state = _BudgetState(
         deadline_s=time.monotonic() + seconds,
         return_reserve_s=_return_reserve(seconds),
+        ignore_signal=True,
     )
     token = _ACTIVE_BUDGET.set(state)
     try:
@@ -111,6 +123,13 @@ def _signal_budget() -> Optional[_BudgetState]:
 
 def _current_budget() -> Optional[_BudgetState]:
     contextual = _ACTIVE_BUDGET.get()
+    if contextual is not None and contextual.ignore_signal:
+        # An override deadline deliberately outlives the method's signal timer,
+        # which fires at `deadline` while the native budget already raised at
+        # `deadline - reserve`. Without this, min(override, still-armed-signal)
+        # would clamp the override back to ~reserve seconds and the final
+        # bound-refresh LP would be starved exactly as before the override fix.
+        return contextual
     signalled = _signal_budget()
     if contextual is None:
         return signalled

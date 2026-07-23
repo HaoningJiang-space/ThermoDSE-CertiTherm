@@ -88,3 +88,34 @@ def test_override_budget_is_still_fail_closed() -> None:
     with pytest.raises(ValueError):
         with override_budget(0.0):
             pass
+
+
+def test_override_survives_a_still_armed_method_signal_timer() -> None:
+    """The production configuration the other tests missed.
+
+    In production the final refresh runs while the METHOD's ITIMER_REAL is still
+    armed: the native budget raises at `deadline - reserve`, before the signal
+    fires. `_current_budget` takes min(contextual, signalled), so a plain
+    override would be clamped back to ~reserve seconds. `ignore_signal` must make
+    the override win regardless of the armed timer.
+    """
+
+    import signal
+
+    from CertiTherm.solver_budget import highs_options
+
+    # Arm a short method timer, as _call_under_budget does, WITHOUT a matching
+    # budget_scope -- the signal is the only ambient deadline.
+    signal.setitimer(signal.ITIMER_REAL, 0.5)
+    try:
+        with override_budget(30.0):
+            opts = highs_options(label="refresh LP")
+        # The override's ~30 s must reach HiGHS, not the ~0.5 s method timer.
+        assert opts["time_limit"] > 5.0, (
+            f"override clamped to the armed signal timer: {opts['time_limit']:.3f}s"
+        )
+        # And the bound refresh itself completes rather than starving.
+        with override_budget(30.0):
+            assert _anytime_lower_bound(*_tiny_instance()) == pytest.approx(2.0)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
