@@ -114,8 +114,23 @@ def main():
         base = so._base_problem(cand.power, cand.thermal, actions, tuple(cover), so.MARGIN_K)
         added = 0
         collisions = 0
+        unknown = 0
+        zero_w = np.zeros(len(actions))
         for spec in so._specs(base):
-            pair = so.strong_collision_spec(base, spec, av, w)
+            # The L1 objective makes the strong LP numerically fragile on some
+            # cells (HiGHS status 15). Fall back to the zero-objective solve --
+            # SAME feasible set, no boundary-seeking degeneracy -- so a solver
+            # hiccup on one cell degrades that cut to max-support, never crashes
+            # the run. A cell is UNKNOWN only if both fail; convergence then
+            # cannot be proved (tri-state, Codex F4).
+            try:
+                pair = so.strong_collision_spec(base, spec, av, w)
+            except RuntimeError:
+                try:
+                    pair = so.strong_collision_spec(base, spec, av, zero_w)
+                except RuntimeError:
+                    unknown += 1
+                    continue
             if pair is None:
                 continue
             collisions += 1
@@ -126,6 +141,11 @@ def main():
             if _insert_minimal_cut(cuts, cut, masks):
                 added += 1
 
+        if collisions == 0 and unknown > 0:
+            print(f"round {round_i}: cover collision-free on solved cells but {unknown} "
+                  f"cells UNRESOLVED (solver status) -> cannot PROVE feasibility. "
+                  f"L(dual)={L}, not closing.")
+            return
         if collisions == 0:
             # Feasible cover. EXACT only if the restricted-MILP optimum is proved
             # equal to this cover's cost (gap 0), else it is only an upper bound.
@@ -141,7 +161,8 @@ def main():
                       f"[{L}, {cover_cost:.0f}], not exact.")
             return
         print(f"round {round_i}: cover_cost={cover_cost:.0f} L(dual)={L} gap={gap} "
-              f"collisions={collisions} new_cuts={added} total={len(cuts)}", flush=True)
+              f"collisions={collisions} unknown={unknown} new_cuts={added} "
+              f"total={len(cuts)}", flush=True)
         if added == 0:
             print("colliding cover but no new cut (cut hit by cover / dominated / "
                   "semantics disagree) -> UNRESOLVED")
