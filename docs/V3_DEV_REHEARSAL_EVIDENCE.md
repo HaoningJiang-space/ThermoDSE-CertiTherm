@@ -508,17 +508,22 @@ gain. Every cover left ~540–600 collisions.
 
 **Upper bound — top-down deletion** (`research/triangle/upper_bound.py`). From
 the full registry (verified collision-free), verified-feasible deletions brought
-U to **1582** (snapshot; still improving when read).
+U to **1502** (200-action cover). The sweep was budget-truncated at position
+178/243 (`completed_sweep=False`), so U is a valid feasible upper bound but NOT
+inclusion-minimal — more budget would lower it further. (The script printed
+`[832, 1502]` against its hardcoded old L; the operative lower bound is MaxHS's
+1256.)
 
-**Certified interval.** `C*(arch_b) ∈ [1256, 1582]` — multiplicative width
-`1582/1256 = 1.260×`, additive width `326`, `(U−L)/L = 26.0%`.
+**Certified interval.** `C*(arch_b) ∈ [1256, 1502]` — multiplicative width
+`1502/1256 = 1.196×`, additive width `246`, `(U−L)/L = 19.6%`, and U still
+improvable.
 
 Corrections applied after review:
 
 - **`C* ≥ 1256`, closed lower endpoint — NOT `C* > 1256`.** The MILP proves every
   cover hitting the *discovered* cuts costs ≥ 1256. That the particular 1256-cost
   covers MaxHS visited are infeasible does not rule out an unvisited feasible
-  cost-1256 cover, so strictness is unproven. Interval is `[1256, 1582]`.
+  cost-1256 cover, so strictness is unproven. Interval is `[1256, 1502]`.
 - **1256 rests on cut validity, not just MILP optimality.** Gap 0 only proves the
   restricted master was solved exactly; the bound is valid because each cut is a
   *superset* of the true separators (the threshold fix, `83cbecc`). That is the
@@ -533,16 +538,16 @@ Corrections applied after review:
   many alternative optima), not simply "re-hittable at the current cover".
 - **Physical reading is over WEIGHTED COST, not action count** (costs are
   1/2/4/8): any valid contract retains ≥ 68.0% of the full-registry weighted
-  cost; a contract retaining 85.7% is verified. The certified optimal saving over
-  "measure everything" is between **14.3% and 32.0%**.
+  cost; a contract retaining 81.4% is verified. The certified optimal saving over
+  "measure everything" is between **18.6% (demonstrated) and 32.0%**.
 - **Improvement framing:** lower bound lifted from the baseline's saturated ~2 to
   1256 (≈ 628×, "certificate strength", not runtime or solution quality); the
-  arch_b interval tightened from ≈ 923× (`1846/2`, full-registry UB) to 1.260×.
+  arch_b interval tightened from ≈ 923× (`1846/2`, full-registry UB) to 1.196×.
   The earlier "~2000×" was a conflation with the whole-query width cover (4174)
   and is withdrawn.
 
 **Result for freeze-v4.** A certified **bounded-gap** observation contract for
-arch_b, not an exact minimum: `C* ∈ [1256, 1582]` under the frozen instance,
+arch_b, not an exact minimum: `C* ∈ [1256, 1502]` under the frozen instance,
 oracle semantics, and tolerances. The strong-cut oracle is what makes the gap
 small (baseline was vacuous). Exact minimality was not reached in budget.
 
