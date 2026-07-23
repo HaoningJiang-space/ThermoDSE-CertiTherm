@@ -78,3 +78,35 @@ pass every LP-level check above (same `P`). The decisive test is a four-variant
 oracle exactly, on revealing selections (collision/no-collision transition,
 leave-one-out of a minimal separating set, full-minus-one). Only after that passes
 does the kernel earn integration behind the goal-item-3 gate.
+
+## Production-oracle equivalence — arch_c (PASS)
+
+`research/triangle/kernel_verify.py`: a faithful pair-collision LP replica (built
+from the oracle's own `_pair_rows`, SAFE rows and REJECT floor) is parameterised by
+a SAFE-row subset and a REJECT-cell subset, and compared to the production
+`_collisions` oracle on 20 selections (full, empty, 14 full-minus-one, 6 random).
+
+- **Anchor (replica full/full == oracle): 0/20 mismatches.** The replica reproduces
+  production collision existence exactly — so the audit's `P`/floor reconstruction
+  equals the oracle's (the review's "largest unclosed boundary", now closed).
+- **Four variants (SAFE×REJECT, each full or kernel): 0/20 mismatches.** No SAFE-drop
+  false collision (collision-free selections stay collision-free), no REJECT-drop
+  hidden collision (colliding selections stay colliding).
+
+Verdict: **PASS — the 543→48 / 543→48 kernel preserves collision existence.**
+
+Honest limitation: the battery was 15 collision-free + 7 many-collision selections;
+it did not stress the *single-cell* hidden-collision margin (a selection whose only
+collision is at a dropped cell). That case is covered by the *proven* invariant —
+an unreachable cell can never host a collision, and a dominated cell's collision
+always coincides with a survivor's — and the exact anchor confirms the `P`/floor the
+proof rests on. A first bug (a `TAU=n_partial` argv collision made the kernel empty
+=> a vacuous PASS) was caught by the `543->543` header and fixed before this run.
+
+## Status
+
+Soundness at the float level is now closed on arch_c: proven design (reviewed) +
+LP-level final-set re-audit + margins >> TAU + exact production-oracle equivalence.
+Remaining before a *certified* kernel: exact-rational/Farkas witnesses per removal,
+and generalisation beyond arch_c. The 128x structural-work reduction is a real
+(float-verified) opportunity, cleared for the integration path behind goal item 3.
