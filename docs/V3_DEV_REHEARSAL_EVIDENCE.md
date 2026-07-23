@@ -557,3 +557,45 @@ small (baseline was vacuous). Exact minimality was not reached in budget.
 (no-good/lexicographic constraints, diverse covers, an oracle-backed feasibility
 search under `cost ≤ 1256`) to eliminate *all* cost-1256 covers at once. Stronger
 provably-valid cut families are the other route.
+
+## D8 — generalisation of the bounded-gap interval across dev candidates (NON-CLAIM diagnostic)
+
+Confirms the D7 arch_b result is not architecture-specific by producing a
+two-sided `[L, U]` interval for the other three dev candidates, reusing the
+parameterised PoC (`224c7d6`) and the parallel oracle. **Diagnostic only** — the
+same non-claim caveats as D7 apply, plus the two below.
+
+| Candidate | MaxHS L (1800 s budget) | deletion U (inclusion-minimal) | interval | U/L |
+|---|---:|---:|---:|---:|
+| resnet50 c0 `arch_b` (D7 reference, 2 h) | 1256 | 1502 | `[1256, 1502]` | 1.196× |
+| resnet50 c1 `arch_c` | 928 | 1091 | `[928, 1091]` | 1.176× |
+| resnet50 c2 `arch_a` | 1256 | 1457 | `[1256, 1457]` | 1.160× |
+| transformer c0 `arch_b` | 1168 | 1383 | `[1168, 1383]` | 1.184× |
+
+Full-registry costs: arch_c 1482, arch_a 1922, transformer-arch_b 1846. Deletion
+sweeps all **completed** (inclusion-minimal, not budget-truncated): arch_c
+143 actions / 226 oracle calls, arch_a 188 / 285, transformer 179 / 278. MaxHS
+`gap = 0`, `unknown = 0` on every round for all three; cut derivation uses the
+fixed `> tolerance` threshold (`83cbecc`).
+
+**Reading.** The gap clusters tightly at **1.16–1.20×** across three distinct
+architectures and two workloads; no candidate closes (`L = U`) and none blows
+out. The bounded-gap contract is architecture-general on the dev split.
+
+**Two caveats specific to D8 (why this is diagnostic, not a claim):**
+
+1. **Every `L` is budget-truncated, not plateaued.** These MaxHS runs stopped at
+   an arbitrary 1800 s (arch_b needed 76 rounds / ~2 h to reach 1256). A longer
+   run would only *raise* each `L`, so the **true** gaps are `≤` those tabulated —
+   the numbers understate how tight the contract is, they do not overstate it.
+2. **Each interval is still hand-stitched from two programs** (`maxhs.py` → `L`,
+   `upper_bound.py` → `U`) whose `L` is a HiGHS solver-asserted restricted-master
+   dual, not the exact-`Fraction` weak-duality certificate, and neither program
+   binds the instance it ran on. Turning this into one provenance-bound,
+   self-verifying `[L, U]` artifact with an exact-arithmetic `L` is exactly the
+   scope of the **v4-driver round** (`docs/V4_DRIVER_ROUND_START.md`); D8 is the
+   diagnostic signal that motivates building it, not the certificate itself.
+
+Provenance: runs on the `diag150b` operator cache at commit `224c7d6`
+(clone `certitherm-diag-test.g8bh1x`), `CERTITHERM_LP_WORKERS` parallel oracle
+verified identical to sequential (workers 1 vs 32, same collision set, ~4.5×).
