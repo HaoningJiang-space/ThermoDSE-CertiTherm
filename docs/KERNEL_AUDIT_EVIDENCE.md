@@ -53,3 +53,28 @@ certificate. Before the kernel touches the default path (goal item 3), two gates
 
 Until both pass, the kernel is a measured opportunity, not a certified reduction,
 and the 128× is a *potential* speedup, not a claimed one.
+
+## Verification (adversarial review follow-up) — arch_c, commit pending
+
+After an adversarial code review (no sign/bookkeeping/phase-I bug found; result
+judged plausible), the audit was hardened and re-run. All three requested checks
+pass:
+
+- **Survivor SETS identical across all 5 greedy orders** (not just counts):
+  `|intersection| = |union| = 48` for both SAFE and REJECT.
+- **Slack margins >> TAU (1e-6 K):** SAFE removal margin `min 0.20 K` (median
+  2.23 K); dominated-cell phase-I `t*` `min 0.26 K` (median 2.12 K); unreachable
+  margin `min 4.8e-3 K` (median 2.94 K). Every removal is ≥ ~4800× above the
+  boundary, so the result is stable for any `TAU` up to ~5e-3 K — a `TAU` sweep is
+  moot.
+- **Final-set counterexample search: PASS** — 0 SAFE rows and 0 REJECT cells
+  refuted when re-checked against the FINAL 48-survivor set.
+
+**Remaining gate (next step): production-oracle equivalence.** The audit uses its
+own reconstruction of `P` and the REJECT floor. A wrong-`P` / wrong-floor bug would
+pass every LP-level check above (same `P`). The decisive test is a four-variant
+(SAFE × REJECT, each full or kernel) collision comparison against the *production*
+`_collisions` oracle, anchored by confirming the full/full variant reproduces the
+oracle exactly, on revealing selections (collision/no-collision transition,
+leave-one-out of a minimal separating set, full-minus-one). Only after that passes
+does the kernel earn integration behind the goal-item-3 gate.
