@@ -272,3 +272,56 @@ synthesis review, the decision is: **integrate as an optional cached preprocesso
 behind the (now-cleared) amortization gate; defer exact-Farkas; keep cooperative
 IHS as the main line.** Remaining for a *certified* kernel: exact-rational/Farkas
 witnesses; a focused literature search to fix the novelty framing.
+
+## Universal-validity theorem (integration review) — the crux
+
+The integration review flagged the critical gap: the audit builds the frontier over
+the action-free polytope `P`, but the collision LP intersects `P` with
+indistinguishability rows `|v_a·(p_safe−p_unsafe)| ≤ tol_a` for the `selected` set.
+Is the frontier still valid once actions are selected?
+
+**Theorem (monotonicity).** If a SAFE row is redundant, or a REJECT cell is
+unreachable/dominated, over `P`, it remains so over `P ∩ A` for any set `A` of
+selected-action constraints.
+
+*Proof.* Each condition is universally quantified over the feasible region or is a
+`max` over it: unreachable = `max_{p∈P} r_j·p < floor_j`; dominated = `∀ p∈P
+rejecting at j, ∃ retained k rejecting`; SAFE-redundant = `∀ p∈{P, other rows},
+r_j·p ≤ rhs_j`. Intersecting with `A` yields a SUBSET of the region. A `max` over a
+subset is ≤ the `max` over the superset (so `< floor_j` is preserved); a `∀`-property
+over a set holds over any subset. Hence all three are preserved. ∎
+
+So the frontier is valid for **every** admissible `selected` set — not merely the
+sampled selections. This is the universal certificate the review required, and it
+justifies a **one-time** per-instance gate rather than per-scan revalidation.
+
+## Revised integration contract (review: request changes → adopted)
+
+- **Typed artifact `VerifiedThermalKernel(safe_row_indices, reject_specs, binding)`**
+  with INDEPENDENT SAFE-row and REJECT-cell subsets — do NOT require SAFE==REJECT
+  (empirical, not a sound interface invariant); keep the two proofs separate. Preserve
+  the lexicographic order of retained reject specs (the probe/first-witness depends on
+  order).
+- **Sibling oracle, frozen function untouched.** Add `_collision_search_kernelized(...,
+  kernel)` that reuses `_solve_collision_spec` and `_CollisionProblem`; the authoritative
+  `_collision_search` is byte-for-byte unchanged and is the fallback. No implicit
+  cache/global lookup inside the frozen path. (A reduced-`ThermalFamily` wrapper is
+  impossible — survivors are not a rectangular sub-grid.)
+- **Scope to non-exhaustive existence** (deletion tests). `exhaustive=True` returns the
+  witness set, and restricting specs changes which/how many witnesses return, which can
+  change MaxHS cuts / deletion order / `U`; disable the kernel there unless exact
+  collision-SET equivalence is proven. Existence (Boolean) is what deletion needs and
+  what preserves `C*`.
+- **Per-scan (cheap) even with the one-time gate:** recompute the binding from live
+  inputs (never trust a supplied digest), confirm the artifact matches, and validate any
+  returned kernel witness against the ORIGINAL full SAFE + action + reject constraints at
+  the frozen tolerances; on any failure, run the authoritative baseline. If the baseline
+  itself cannot complete, propagate `UnresolvedComputation` — never convert to "no
+  collision". "Degrade to baseline", not "fail-open".
+- **Binding** covers polytope + thermal arrays/shapes/model-IDs, exact float bits of
+  `margin_k`/`feas_tol`, the audit/kernel schema and oracle solver-semantic version.
+  Explicit checks + fallback, never `assert` (can be disabled). Atomic-publish only a
+  fully verified artifact; quarantine on any mismatch.
+- **Amortization** `Q* = ceil(build+validation_cost / (L_f − L_k))` from candidate- and
+  mode-specific measurements; cached kernel → build cost 0. Treat "MaxHS exceeds
+  break-even" as a prediction to enforce, not an invariant.
