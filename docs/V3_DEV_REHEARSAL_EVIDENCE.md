@@ -317,3 +317,36 @@ strong support **min 2 / mean 2.1** — a ~12× reduction.
 result, not retried into a pass. If `s_min` stays near the baseline 14, the
 ceiling `C_total/14 ≈ 132` is physical and `C*(arch_b) ≤ ~132`, which tightens
 the `[21, 1846]` interval on its own and argues for reframing rather than v4.
+
+### D4 result — gate PASSED by 7×; the interval collapses from 88× to 2.2×
+
+Head-to-head on candidate 0 (arch_b), same 300 s budget, uniform-L1 weights:
+
+| | cuts | LP | MILP | s_min | mean support |
+|---|---:|---:|---:|---:|---:|
+| baseline (zero objective) | 3442 | 20.1 | 21.0 | 14 | 23.5 |
+| **strong (weighted-L1)** | **431** | **720.0** | **832.0** | **2** | **2.1** |
+
+`soundness_failures = 0` — every strong cut is a genuine necessary constraint
+under the unmodified derivation rule. LP ratio **35.8×** against a pre-registered
+5× gate: **PASS.**
+
+**Consequences.**
+
+- With **8× fewer cuts** the strong oracle reaches a **36× higher** bound. Cut
+  quality, not quantity, was the entire story — confirming D3 and the
+  Codato–Fischetti / MaxHS literature.
+- MILP = 832 over the discovered cuts is a valid lower bound on `C*`, so
+  `C*(arch_b) ∈ [832, 1846]`: the interval collapses from **88× to 2.2×**, and
+  the bound was still climbing at timeout (2526 collisions generated, not
+  converged).
+- This **falsifies the earlier "maybe `C*` is small" branch**: `C*(arch_b) ≥ 832`
+  is genuinely large, so the width/dual whole-query contracts (~4174 over three
+  candidates) are in the right ballpark, not wildly loose.
+
+**Decision: green-light method-freeze-v4** built on the strong-cut oracle
+(weighted-L1 minimal-support separation), per the pre-registered gate. The
+minimum-cost DSOS claim is *recoverable* — provable to within ~2× here and
+plausibly closable with more budget or dual-priced weights — rather than needing
+to be abandoned. Secondary levers (dual-priced weights, in-out stabilization,
+parallel strong-oracle) are v4 build work, not this PoC.
