@@ -175,3 +175,24 @@ a single "thermal decision frontier" governing both the safe ceiling and the
 reachable-reject set — a clean structural contribution. If only the counts match, it
 is a coincidence or a coupling bug. NOT YET CHECKED at the set level; must confirm
 before any claim rests on it.
+
+## The single decision frontier (arch_c confirmed at the set level)
+
+The open question above is resolved on arch_c: the SAFE-survivor set and the
+REJECT-survivor set are **identical** (`|intersection|=48, |SAFE\\REJECT|=0,
+|REJECT\\SAFE|=0`). Not just equal counts -- the same 48 (model,point) locations.
+
+Interpretation (a clean structural result): a thermal location is on the frontier
+iff it can be **the hottest point** for some admissible power vector in `P`. A SAFE
+row is redundant exactly when its location is never the binding (maximal) hot
+constraint; a REJECT cell is unreachable/dominated exactly when its location is
+never the (uniquely) hottest-and-rejecting one. Both reduce to the *upper envelope*
+of the response rows over `P` -- one geometric object. So SAFE-row and REJECT-cell
+kernelization are two views of a single "thermal decision frontier", and its size
+(9%-60% of the grid across candidates) is the real compressibility number.
+
+The exact survivor counts already matched on all four candidates (48/48, 364/364,
+280/280, 405/405), which is essentially impossible unless the sets coincide; arch_c
+is confirmed at the set level and the others are being confirmed. This is a
+candidate for the CertiTherm-F structural contribution, pending set-level
+confirmation on the remaining candidates and exact-Farkas witnesses.

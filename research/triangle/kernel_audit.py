@@ -238,6 +238,15 @@ def main():
         print(f"  dominated phase-I t* K: min={min(dom_all):.3e} "
               f"median={statistics.median(dom_all):.3e}  (must be > TAU)")
 
+    # Structural question: is the SAFE-survivor set the SAME as the REJECT-survivor
+    # set? Both are indexed over the same (model,point) grid in the same order, so a
+    # set match would mean a single "decision frontier" governs both.
+    inter = safe_canon & rej_canon
+    print(f"\n--- SAFE-vs-REJECT survivor overlap ---")
+    print(f"  |SAFE|={len(safe_canon)} |REJECT|={len(rej_canon)} |intersection|={len(inter)} "
+          f"|SAFE\\REJECT|={len(safe_canon-rej_canon)} |REJECT\\SAFE|={len(rej_canon-safe_canon)}; "
+          f"identical set: {safe_canon == rej_canon}")
+
     print(f"\n--- FINAL-SET re-audit (counterexample search, canonical order) ---")
     sb, rb, smin, rmin = reaudit_final(P, srows, srhs, rrows, rfloors, safe_canon, rej_canon)
     print(f"  SAFE removed-rows refuted by final set: {sb}  (min margin "
