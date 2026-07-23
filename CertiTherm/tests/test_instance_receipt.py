@@ -233,6 +233,33 @@ def test_signed_zero_hashes_equal(tmp_path):
     assert pos.digest == neg.digest
 
 
+def test_delimiter_ambiguous_action_ids_differ(tmp_path):
+    """F10: length-prefixed hashing must not let a delimiter char forge a
+    different registry with the same digest."""
+    op = _operator(tmp_path)
+    a = (MeasurementAction("a|b", np.array([1.0, 0.0, 0.0]), cost=1.0),
+         MeasurementAction("c", np.array([0.0, 1.0, 0.0]), cost=1.0))
+    b = (MeasurementAction("a", np.array([1.0, 0.0, 0.0]), cost=1.0),
+         MeasurementAction("b|c", np.array([0.0, 1.0, 0.0]), cost=1.0))
+    ra = _build(tmp_path, actions=a, operator=op)
+    rb = _build(tmp_path, actions=b, operator=op)
+    assert ra.registry_digest != rb.registry_digest
+    assert ra.digest != rb.digest
+
+
+def test_delimiter_ambiguous_model_ids_differ(tmp_path):
+    """F10: same for thermal model_ids ('a|b','c') vs ('a','b|c')."""
+    op = _operator(tmp_path)
+    resp = np.stack([np.eye(3), 2.0 * np.eye(3)])
+    amb = np.array([300.0, 300.0])
+    t1 = ThermalFamily(model_ids=("a|b", "c"), response_k_per_w=resp,
+                       ambient_k=amb, limit_k=330.0)
+    t2 = ThermalFamily(model_ids=("a", "b|c"), response_k_per_w=resp,
+                       ambient_k=amb, limit_k=330.0)
+    assert (_build(tmp_path, thermal=t1, operator=op).thermal_digest
+            != _build(tmp_path, thermal=t2, operator=op).thermal_digest)
+
+
 def test_missing_operator_fails_build(tmp_path):
     with pytest.raises(InstanceReceiptError, match="operator export not found"):
         _build(tmp_path, operator=tmp_path / "does-not-exist.npz")

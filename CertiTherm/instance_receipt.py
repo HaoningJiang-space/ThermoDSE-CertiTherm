@@ -59,27 +59,43 @@ def _hash_array(digest: "hashlib._Hash", name: str, array: np.ndarray) -> None:
     hashed alongside the bytes (so a reshape is never a silent no-op). Two review
     hardenings (F7): signed zero is normalised (`-0.0 -> +0.0`, semantically equal
     for power/response arrays) and the shape is encoded as fixed-width binary
-    rather than `repr`, so no textual ambiguity can collide two shapes."""
+    rather than `repr`. Every component is length-prefixed via `_feed` so no
+    delimiter ambiguity can collide two arrays (F10)."""
     arr = np.ascontiguousarray(array, dtype="<f8")
     if not np.all(np.isfinite(arr)):
         raise InstanceReceiptError(f"{name} contains non-finite values")
     arr = arr + 0.0  # -0.0 -> +0.0; finite non-zero and (excluded) inf unchanged
-    digest.update(name.encode("utf-8"))
-    digest.update(np.asarray(arr.shape, dtype="<i8").tobytes())
-    digest.update(arr.tobytes())
+    _feed(digest, name)
+    _feed(digest, np.asarray(arr.shape, dtype="<i8").tobytes())
+    _feed(digest, arr.tobytes())
+
+
+def _feed(digest: "hashlib._Hash", field) -> None:
+    """Fold one field into `digest` unambiguously: an 8-byte little-endian length
+    prefix followed by the field bytes (F10). Length-prefixing makes the encoding
+    injective, so no choice of delimiter can make two distinct field sequences —
+    e.g. model_ids `("a|b","c")` vs `("a","b|c")` — serialise to the same bytes.
+    A collision would otherwise be independent of SHA-256's strength."""
+    b = field if isinstance(field, (bytes, bytearray)) else str(field).encode("utf-8")
+    digest.update(len(b).to_bytes(8, "little"))
+    digest.update(b)
 
 
 def _registry_digest(actions: Sequence["MeasurementAction"]) -> str:
     """SHA-256 over the ordered registry: id, cost, tolerance, and vector of every
     action, in list order. Reordering the registry changes the digest, because the
-    action-ID ordering is itself part of the instance identity (audit §1)."""
+    action-ID ordering is itself part of the instance identity (audit §1). Every
+    field is length-prefixed (F10), so an action_id containing a delimiter cannot
+    forge a different registry with the same digest."""
     digest = hashlib.sha256()
-    digest.update(f"n={len(actions)}".encode("utf-8"))
+    _feed(digest, "registry")
+    _feed(digest, str(len(actions)))
     for index, action in enumerate(actions):
-        digest.update(f"|{index}:{action.action_id}".encode("utf-8"))
+        _feed(digest, str(index))
+        _feed(digest, action.action_id)
         # exact float encoding, not JSON's lossy decimal, for cost/tolerance
-        digest.update(f":cost={float(action.cost).hex()}".encode("utf-8"))
-        digest.update(f":tol={float(action.tolerance).hex()}".encode("utf-8"))
+        _feed(digest, float(action.cost).hex())
+        _feed(digest, float(action.tolerance).hex())
         _hash_array(digest, "vec", np.asarray(action.vector, dtype=float))
     return digest.hexdigest()
 
@@ -89,6 +105,7 @@ def _power_digest(power: "PowerPolytope") -> str:
     instances with the same registry but different power sets are different
     problems and must not share a digest."""
     digest = hashlib.sha256()
+    _feed(digest, "power")
     for name in ("lower_w", "upper_w", "a_eq", "b_eq", "a_ub", "b_ub"):
         _hash_array(digest, name, np.asarray(getattr(power, name), dtype=float))
     return digest.hexdigest()
@@ -99,20 +116,28 @@ def _thermal_digest(thermal: "ThermalFamily") -> str:
     just the operator file (audit F4): the operator NPZ SHA binds the *source*, but
     a loader change or an in-memory transform could feed the oracle a different
     family with identical file bytes. Hash ordered model_ids, response, ambient,
-    limit, per-model error, and per-model provenance."""
+    limit, per-model error, and per-model provenance — each length-prefixed (F10)."""
     digest = hashlib.sha256()
-    digest.update(("|".join(thermal.model_ids)).encode("utf-8"))
+    _feed(digest, "thermal")
+    _feed(digest, str(len(thermal.model_ids)))
+    for model_id in thermal.model_ids:
+        _feed(digest, model_id)
     _hash_array(digest, "response", np.asarray(thermal.response_k_per_w, dtype=float))
     _hash_array(digest, "ambient", np.asarray(thermal.ambient_k, dtype=float))
-    digest.update(f"limit={float(thermal.limit_k).hex()}".encode("utf-8"))
+    _feed(digest, float(thermal.limit_k).hex())
     _hash_array(digest, "error", np.asarray(thermal.error_k, dtype=float))
-    digest.update(("prov|" + "|".join(thermal.provenance_sha256)).encode("utf-8"))
+    _feed(digest, str(len(thermal.provenance_sha256)))
+    for prov in thermal.provenance_sha256:
+        _feed(digest, prov)
     return digest.hexdigest()
 
 
 def _git_revision(root: Path) -> Optional[str]:
-    """Repo HEAD, or None if `root` is not a git worktree (the receipt still binds
-    the instance content; git SHA is provenance, not the integrity anchor)."""
+    """Repo HEAD as a validated full commit hash, or None if `root` is not a git
+    worktree or the output is not a full SHA-1/SHA-256 object name (F9). The receipt
+    still binds the instance content regardless; git SHA is provenance, not the
+    integrity anchor. Claim-grade cleanliness (clean + committed) is enforced by the
+    driver, not here (round-start gate 7)."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -120,7 +145,10 @@ def _git_revision(root: Path) -> Optional[str]:
         )
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return None
-    return out.stdout.strip() or None
+    sha = out.stdout.strip().lower()
+    if len(sha) not in (40, 64) or any(c not in "0123456789abcdef" for c in sha):
+        return None  # not a full commit object name -> do not record a partial ref
+    return sha
 
 
 @dataclass(frozen=True)

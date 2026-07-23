@@ -292,16 +292,22 @@ def _certified_lp_bound(cuts, cost):
 
 
 def _milp_lower_bound(C, cost):
-    """Return (certified integer lower bound, gap). Uses the branch-and-bound
-    DUAL bound, not the incumbent: only mip_dual_bound is a guaranteed lower
-    bound on C*; the incumbent (m.fun) can sit above the true optimum by the
-    solver's residual gap."""
+    """Return (solver_asserted_milp_dual, gap) -- the HiGHS branch-and-bound DUAL
+    bound. This is a SOLVER-ASSERTED diagnostic, NOT a certificate (review F3): the
+    v4 certified lower bound comes from the exact-Fraction Lagrangian path
+    (`_integer_lagrangian_bound` lattice-lifted), never from this scalar. Uses the
+    dual, never the incumbent (`m.fun` can sit ABOVE the true optimum), and returns
+    None if the solver did not expose a dual bound -- the incumbent must NOT be
+    substituted for a lower bound."""
     n = cost.shape[0]
     m = milp(c=cost, constraints=LinearConstraint(C, lb=np.ones(C.shape[0]), ub=np.inf),
              integrality=np.ones(n), bounds=Bounds(0, 1))
     if not m.success:
         return None, None
-    return getattr(m, "mip_dual_bound", m.fun), getattr(m, "mip_gap", None)
+    dual = getattr(m, "mip_dual_bound", None)
+    if dual is None:
+        return None, None            # no dual exposed -> no lower bound (never m.fun)
+    return dual, getattr(m, "mip_gap", None)
 
 
 def main():
@@ -333,7 +339,7 @@ def main():
     raw_lp = _lp_bound(C, cost)          # uncertified primal, for reference only
     print(f"\n--- certified bounds over {len(cuts)} cuts (mode={WEIGHT_MODE}) ---")
     print(f"  certified LP lower bound (weak duality) = {lp}")
-    print(f"  MILP lower bound (dual, gap={gap})       = {milp_lb}")
+    print(f"  solver-asserted MILP dual (diagnostic, gap={gap}) = {milp_lb}")
     print(f"  [raw primal linprog.fun, NOT a bound]    = {raw_lp:.3f}")
 
 
