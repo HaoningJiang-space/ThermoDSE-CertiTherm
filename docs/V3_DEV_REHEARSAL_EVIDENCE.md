@@ -490,3 +490,65 @@ So `C*(arch_b) ≥ 832` is now sound with respect to (1) and rests on a
 **solver-asserted** MILP dual bound (2) — strong for these integer-cost
 instances at `gap = 0`, to be upgraded to an exact certificate in the build. The
 green-light for freeze-v4 stands.
+
+## D7 — arch_b certified interval: strong oracle + MaxHS + deletion (peer-reviewed)
+
+Freeze-v4 experiments on candidate arch_b (243 actions, full-registry cost
+1846), all non-claim, `CERTITHERM_LP_WORKERS=1`. Conclusion reviewed by Codex
+plus an independent pass; the corrections below are folded in.
+
+**Lower bound — MaxHS closure loop** (`research/triangle/maxhs.py`,
+`round/v4-upper-bound`). Warm-started from a strong antichain (fixed-threshold
+cuts), each round solves the min-cost hitting-set MILP over discovered cuts
+(`mip_rel_gap=0`, gap 0 every round) → candidate cover, verifies with the strong
+oracle, adds minimal-support cuts. 76 rounds, 6020 cuts, 2 h budget. L climbed as
+a decelerating staircase `824 → 1152 (r9) → 1216 (r29) → 1256 (r70)` then flat at
+**1256** through r76 — the final ~10 rounds added ~1000 cuts for **zero** bound
+gain. Every cover left ~540–600 collisions.
+
+**Upper bound — top-down deletion** (`research/triangle/upper_bound.py`). From
+the full registry (verified collision-free), verified-feasible deletions brought
+U to **1582** (snapshot; still improving when read).
+
+**Certified interval.** `C*(arch_b) ∈ [1256, 1582]` — multiplicative width
+`1582/1256 = 1.260×`, additive width `326`, `(U−L)/L = 26.0%`.
+
+Corrections applied after review:
+
+- **`C* ≥ 1256`, closed lower endpoint — NOT `C* > 1256`.** The MILP proves every
+  cover hitting the *discovered* cuts costs ≥ 1256. That the particular 1256-cost
+  covers MaxHS visited are infeasible does not rule out an unvisited feasible
+  cost-1256 cover, so strictness is unproven. Interval is `[1256, 1582]`.
+- **1256 rests on cut validity, not just MILP optimality.** Gap 0 only proves the
+  restricted master was solved exactly; the bound is valid because each cut is a
+  *superset* of the true separators (the threshold fix, `83cbecc`). That is the
+  load-bearing soundness argument.
+- **The lower bound did not improve in the final rounds; it is NOT proven to be
+  the relaxation ceiling.** The earlier staircase shows added cuts have raised it
+  before. Honest wording: "did not close within the 2 h / 76-round budget",
+  never "cannot close" or "converged to 1256".
+- **Plateau mechanism (sharpened):** the MILP bound stays at 1256 whenever, after
+  adding cuts, *at least one* master-feasible cover of cost 1256 remains — severe
+  degeneracy on the 1256-optimal face (dominated cuts, cost-neutral action swaps,
+  many alternative optima), not simply "re-hittable at the current cover".
+- **Physical reading is over WEIGHTED COST, not action count** (costs are
+  1/2/4/8): any valid contract retains ≥ 68.0% of the full-registry weighted
+  cost; a contract retaining 85.7% is verified. The certified optimal saving over
+  "measure everything" is between **14.3% and 32.0%**.
+- **Improvement framing:** lower bound lifted from the baseline's saturated ~2 to
+  1256 (≈ 628×, "certificate strength", not runtime or solution quality); the
+  arch_b interval tightened from ≈ 923× (`1846/2`, full-registry UB) to 1.260×.
+  The earlier "~2000×" was a conflation with the whole-query width cover (4174)
+  and is withdrawn.
+
+**Result for freeze-v4.** A certified **bounded-gap** observation contract for
+arch_b, not an exact minimum: `C* ∈ [1256, 1582]` under the frozen instance,
+oracle semantics, and tolerances. The strong-cut oracle is what makes the gap
+small (baseline was vacuous). Exact minimality was not reached in budget.
+
+**Open lever (revised after review).** Not primarily in-out/ACCPM stabilization
+(a continuous-Benders tool, weaker for this discrete degenerate face) but
+**objective-level diversification**: search the cost-1256 optimal face directly
+(no-good/lexicographic constraints, diverse covers, an oracle-backed feasibility
+search under `cost ≤ 1256`) to eliminate *all* cost-1256 covers at once. Stronger
+provably-valid cut families are the other route.
