@@ -314,9 +314,14 @@ strong support **min 2 / mean 2.1** — a ~12× reduction.
 **Pre-registered decision gate.** Green-light method-freeze-v4 iff, at the same
 300 s budget on candidate 0 (arch_b), the strong oracle's LP lower bound is
 **≥ 5× the baseline** (baseline D3: LP 20.1). A miss is recorded as a negative
-result, not retried into a pass. If `s_min` stays near the baseline 14, the
-ceiling `C_total/14 ≈ 132` is physical and `C*(arch_b) ≤ ~132`, which tightens
-the `[21, 1846]` interval on its own and argues for reframing rather than v4.
+result, not retried into a pass.
+
+> **Correction (D6 peer review).** An earlier version of this paragraph said "if
+> `s_min` stays near 14, the ceiling `C_total/14 ≈ 132` is physical and
+> `C*(arch_b) ≤ ~132`." **That is wrong.** `C_total/s_min` is an upper bound on
+> the *LP relaxation* (the fractional point `x_a = 1/s_min` is feasible), **not**
+> on `C*`; the integer optimum can far exceed its LP relaxation. D4 below in fact
+> measured `C*(arch_b) ≥ 832`, which directly contradicts the withdrawn "≤ 132".
 
 ### D4 result — gate PASSED by 7×; the interval collapses from 88× to 2.2×
 
@@ -346,10 +351,11 @@ under the unmodified derivation rule. LP ratio **35.8×** against a pre-register
 
 **Decision: green-light method-freeze-v4** built on the strong-cut oracle
 (weighted-L1 minimal-support separation), per the pre-registered gate. The
-minimum-cost DSOS claim is *recoverable* — provable to within ~2× here and
-plausibly closable with more budget or dual-priced weights — rather than needing
-to be abandoned. Secondary levers (dual-priced weights, in-out stabilization,
-parallel strong-oracle) are v4 build work, not this PoC.
+interval `[832, 1846]` and the "2.2×" / "recoverable within ~2×" figures in this
+section are **conditional on the cut-threshold blocker in D6** (a subset cut can
+inflate the lower bound); read D6 before citing `≥ 832` as certified. Secondary
+levers (dual-priced weights, in-out stabilization, parallel strong-oracle) are
+v4 build work, not this PoC.
 
 ### D5 — PoC steps 1–3: generalisation, min-cardinality, dual weights, stabilisation
 
@@ -396,11 +402,14 @@ solver — a faithful prototype cannot be built in the standalone loop. It belon
 in the freeze-v4 integration, once closure (not climbing) becomes the regime.
 
 **Net v4 design.** A single LP-objective change — uniform weighted-L1
-minimal-support separation — recovers the minimum-cost DSOS claim across every
-dev candidate, soundly, at 8× fewer cuts. Dual weights and stabilisation are
-optional refinements, not prerequisites. cuOpt/PDLP remain excluded from the
-certifier; a batched **exact-simplex** GPU separation (propose-verify) is the
-only viable GPU route and is a v4 scalability extension, not a correctness one.
+minimal-support separation — recovers a **strong certified lower bound** (a
+bounded interval), not exact minimum-cost, across every dev candidate at 8×
+fewer cuts. It does **not** by itself establish exact minimality: closing the
+interval to `L = U` is separate work (see D6 → the upper-bound deletion pass).
+Dual weights and stabilisation are optional refinements, not prerequisites.
+cuOpt/PDLP remain excluded from the certifier; a batched **exact-simplex** GPU
+separation (propose-verify) is the only viable GPU route and is a v4 scalability
+extension, not a correctness one.
 
 ### D6 — internal adversarial review, fixes, and a paired certified re-run
 
@@ -443,15 +452,38 @@ bound (gap 0):
 Isolating the objective change alone (same harness): **LP 80×, MILP 92×**.
 Against the original production baseline (D3, LP 20.1): 36×. Both clear the
 pre-registered 5× gate by a wide margin, and the certified bounds *equal* the raw
-figures reported earlier (gap 0), so D4's 720/832 were correct and
-`C*(arch_b) ≥ 832` is now rigorously certified, not incumbent-based.
+figures reported earlier (gap 0), so D4's 720/832 were correct.
 
 **Claims softened after review.** The D5 "generalisation" rows are correlated,
 not four independent points: `resnet50 arch_b` and `transformer arch_b` share
 architecture `arch_b` (same 243-action library), so it is three architectures,
 and three rows report LP = 720 because the LP floor is set by a shared cost
 structure. The MILP lower bounds do differ (832/800/776/744), so per-candidate
-`C* ≥ MILP` holds, but "the 36× generalises" rests on correlated evidence, not
-four independent confirmations. The "L1 is optimal for support" claim rests on
-n = 8 sampled cells and is directional, not settled. The green-light for
-freeze-v4 stands; its breadth is narrower than first stated.
+`C* ≥ MILP` holds *conditionally* (see the blocker below), but "the 36×
+generalises" rests on correlated evidence. The "L1 is optimal for support" claim
+rests on n = 8 sampled cells and is directional, not settled.
+
+**Blocker found by external (Codex) review — `C*(arch_b) ≥ 832` is not yet
+rigorous.** Two defects, both verified against code:
+
+1. **Cut-threshold mismatch (soundness).** The cut is derived with
+   `|v_a·Δ| > tolerance + separation_tolerance` (`synthesis.py:1621`) while the
+   collision LP forces selected-action agreement with `|v_a·Δ| ≤ tolerance`
+   (`synthesis.py:278`). These are not complements: an action with gap in
+   `(tolerance, tolerance + 1e-9]` genuinely separates the pair but is **excluded**
+   from the cut, making the emitted cut a *subset* of the true necessary
+   separator set. A subset cut is *too strong* and can push the hitting-set
+   optimum **above** `C*`, so it can inflate both the LP and MILP bounds. This is
+   in the frozen production derivation, and the strong oracle *amplifies* it by
+   driving gaps toward the tolerance boundary. Reconciling the threshold and
+   re-validating every discovered cut is a **freeze-v4 blocker**.
+2. **MILP bound is solver-asserted, not self-contained.** `mip_dual_bound` at
+   `gap = 0` is optimal within HiGHS tolerances, not an exact checkable
+   certificate like `_anytime_lower_bound` (exact Fractions). It must be labelled
+   `solver_asserted`, and the code must never fall back to the incumbent `m.fun`
+   (an upper, not lower, bound on the restricted-master optimum).
+
+So `C*(arch_b) ≥ 832` is **strong evidence conditional on valid cuts**, not a
+rigorous zero-error certificate, until (1) is resolved. The green-light for
+freeze-v4 stands; the `≥ 832` figure is downgraded accordingly and (1) is the
+first task of the build.
