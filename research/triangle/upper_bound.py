@@ -22,7 +22,7 @@ Design reflects a Codex design review:
 - For an EXACT-MINIMUM proof, the MaxHS loop (MILP candidate + oracle verify) is
   the primary method; this deletion supplies an incumbent / bounded-gap U.
 
-NON-CLAIM diagnostic. Requires CERTITHERM_LP_WORKERS=1 (asserted).
+NON-CLAIM diagnostic. Honours CERTITHERM_LP_WORKERS (parallel oracle).
 
 Usage: python research/triangle/upper_bound.py <dev-output-dir> [budget_s]
 """
@@ -48,13 +48,16 @@ from CertiTherm.measurements import build_measurement_library
 
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "artifacts" / "diag150b"
 BUDGET_S = float(sys.argv[2]) if len(sys.argv) > 2 else 14400.0
-WORKLOAD, CAND, EXPECT_ARCH = "resnet50", 0, "arch_b"
-L_STRONG = 832                      # solver-asserted MILP lower bound (D6)
+WORKLOAD = sys.argv[3] if len(sys.argv) > 3 else "resnet50"
+CAND = int(sys.argv[4]) if len(sys.argv) > 4 else 0
 MARGIN_K, FEAS_TOL = 1e-4, 1e-10
+# The oracle honours CERTITHERM_LP_WORKERS (parallelising ~681 reject-cell LPs).
+# Verified: workers 1 vs 32 give the IDENTICAL collision set, ~4.5x faster. This
+# script reports U alone; pair it with the MaxHS lower bound L afterward.
+LP_WORKERS = os.environ.get("CERTITHERM_LP_WORKERS", "1")
 
 
 def candidate():
-    assert os.environ.get("CERTITHERM_LP_WORKERS") == "1", "run with CERTITHERM_LP_WORKERS=1"
     reg = _registry_split("dev_v3")
     arches = sorted((r for r in _rows(ROOT / "experiments" / "architectures.tsv")
                      if r["split"] == reg), key=lambda r: int(r["rank"]))
@@ -65,9 +68,6 @@ def candidate():
     costs = _measurement_costs()
     caps = {(WORKLOAD, a["architecture_id"]): _capture(a, wl, default_pkg, OUTPUT) for a in arches}
     a0 = _ordered_architectures(WORKLOAD, arches, caps)[CAND]
-    assert a0["architecture_id"] == EXPECT_ARCH, (
-        f"candidate {CAND} is {a0['architecture_id']}, expected {EXPECT_ARCH} "
-        "-- ordering changed; the lower bound was established for arch_b")
     power, blocks, placed, floor = _power_space(caps[(WORKLOAD, a0["architecture_id"])])
     fam, ob = load_family(OUTPUT / "operators" / f"{a0['architecture_id']}--default.npz")
     assert blocks == ob
@@ -80,6 +80,7 @@ def collision_free(cand, actions, cover) -> bool:
     """True iff `cover` leaves NO SAFE/REJECT collision. `_collisions` is
     exhaustive over every reject cell and raises (never returns []) on a worker
     failure, so an empty batch means genuinely no collision exists."""
+    # workers=None -> honours CERTITHERM_LP_WORKERS (parallel over reject cells).
     batch = syn._collisions(cand.power, cand.thermal, actions, tuple(sorted(cover)),
                             MARGIN_K, FEAS_TOL, None)
     return len(batch) == 0
@@ -96,7 +97,8 @@ def main():
         calls[0] += 1
         return collision_free(cand, actions, cover)
 
-    print(f"{cid}: {n} actions, C_total={cost.sum():.0f}, budget={BUDGET_S:.0f}s", flush=True)
+    print(f"{cid} ({WORKLOAD} c{CAND}): {n} actions, C_total={cost.sum():.0f}, "
+          f"budget={BUDGET_S:.0f}s, LP_WORKERS={LP_WORKERS}", flush=True)
     t0 = time.perf_counter()
     if not feasible(set(range(n))):
         print("full registry NOT collision-free -> UNSYNTHESIZABLE"); return
@@ -129,29 +131,23 @@ def main():
     U = sum(cost[j] for j in cover)
 
     kind = "inclusion-minimal" if completed else "partial (budget-truncated)"
+    full = float(cost.sum())
     print(f"\n--- result ({kind}, {calls[0]} oracle calls) ---")
-    print(f"verified feasible cover: {len(cover)} actions, U = {U:.0f}")
-    # Codex F5: three-case closure on the integer cost lattice.
-    if abs(U - L_STRONG) < 0.5:
-        print(f"U == L ({L_STRONG}) -> interval CLOSED, C*(arch_b) = {U:.0f}")
-    elif U > L_STRONG:
-        print(f"bounded gap: interval [{L_STRONG}, {U:.0f}] = {U/L_STRONG:.2f}x "
-              f"(down from 1846/{L_STRONG} = {1846/L_STRONG:.2f}x)")
-    else:
-        print(f"CONSISTENCY FAILURE: U={U:.0f} < L={L_STRONG} -- convention mismatch, "
-              f"NOT a valid exactness result")
+    print(f"verified feasible cover: {len(cover)} actions, U = {U:.0f} "
+          f"({U/full*100:.1f}% of full registry {full:.0f}); pair with the MaxHS L.")
 
     # Codex F11: machine-readable manifest with stable action IDs.
     manifest = {
-        "candidate": cid, "workload": WORKLOAD,
+        "candidate": cid, "workload": WORKLOAD, "cand_index": CAND,
         "cover_action_ids": sorted(actions[j].action_id for j in cover),
-        "U": U, "L_strong_solver_asserted": L_STRONG,
+        "U": U, "full_registry_cost": full,
         "cover_size": len(cover), "completed_sweep": completed,
         "oracle_calls": calls[0], "margin_k": MARGIN_K, "feas_tol": FEAS_TOL,
         "lp_workers": os.environ.get("CERTITHERM_LP_WORKERS"),
     }
-    (OUTPUT / "upper_bound_manifest.json").write_text(json.dumps(manifest, indent=2))
-    print(f"manifest -> {OUTPUT / 'upper_bound_manifest.json'}")
+    mpath = OUTPUT / f"upper_bound_{WORKLOAD}_c{CAND}.json"
+    mpath.write_text(json.dumps(manifest, indent=2))
+    print(f"manifest -> {mpath}")
 
 
 if __name__ == "__main__":

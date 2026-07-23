@@ -33,14 +33,15 @@ from CertiTherm.synthesis import _insert_minimal_cut
 
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/diag150b")
 BUDGET_S = float(sys.argv[2]) if len(sys.argv) > 2 else 7200.0
-L_FULL_REGISTRY_UB = 1846
+WORKLOAD = sys.argv[3] if len(sys.argv) > 3 else "resnet50"
+CAND = int(sys.argv[4]) if len(sys.argv) > 4 else 0
 
 
 def _load_strong_oracle():
     """Import strong_oracle.py without letting its module-level argv parsing
     consume ours; then point its OUTPUT at ours."""
     saved = sys.argv
-    sys.argv = ["strong_oracle", str(OUTPUT)]
+    sys.argv = ["strong_oracle", str(OUTPUT), "0", "uniform", WORKLOAD, str(CAND)]
     try:
         spec = importlib.util.spec_from_file_location(
             "strong_oracle", "research/triangle/strong_oracle.py")
@@ -48,7 +49,7 @@ def _load_strong_oracle():
         spec.loader.exec_module(so)
     finally:
         sys.argv = saved
-    so.OUTPUT = OUTPUT
+    so.OUTPUT, so.WORKLOAD, so.CAND_INDEX = OUTPUT, WORKLOAD, CAND
     return so
 
 
@@ -74,21 +75,26 @@ def _milp_cover(C, cost):
 
 
 def main():
-    assert os.environ.get("CERTITHERM_LP_WORKERS") == "1", "run with CERTITHERM_LP_WORKERS=1"
+    # The verify loop uses run_highs directly (not the worker pool), so it is
+    # unaffected by CERTITHERM_LP_WORKERS; no value is asserted.
     so = _load_strong_oracle()
     cand, actions, cid = so.candidate_zero()
     cost = np.array([a.cost for a in actions], dtype=float)
     av = np.asarray([a.vector for a in actions], dtype=float)
     w = np.ones(len(actions))                       # uniform L1 (strong cuts)
+    full_registry = float(cost.sum())               # a valid feasible UB
 
-    npz = OUTPUT / "strong_antichain_uniform_resnet50_c0.npz"
+    npz = OUTPUT / f"strong_antichain_uniform_{WORKLOAD}_c{CAND}.npz"
     cuts, masks = [], []
     if npz.exists():
         with np.load(npz, allow_pickle=False) as d:
             for row in d["cuts"]:
                 _insert_minimal_cut(cuts, np.asarray(row, float), masks)
-    print(f"{cid}: {len(actions)} actions, warm-start cuts={len(cuts)}, budget={BUDGET_S:.0f}s",
+    print(f"{cid} ({WORKLOAD} c{CAND}): {len(actions)} actions, full-registry UB "
+          f"{full_registry:.0f}, warm-start cuts={len(cuts)}, budget={BUDGET_S:.0f}s",
           flush=True)
+    if not cuts:
+        print("no warm-start antichain found -> regenerate with strong_oracle first"); return
 
     deadline = time.perf_counter() + BUDGET_S
     round_i = 0
@@ -170,9 +176,10 @@ def main():
 
     print(f"\nbudget hit: not converged after {round_i} rounds.")
     print(f"  last restricted-MILP dual bound L = {L} (valid lower bound on C*)")
-    print(f"  U = 1846 (full-registry cover, verified collision-free in triangle3/upper_bound)")
+    print(f"  full-registry UB = {full_registry:.0f}; pair L with the deletion U.")
     if L:
-        print(f"  interval [{L}, {L_FULL_REGISTRY_UB}] = {L_FULL_REGISTRY_UB / L:.2f}x")
+        print(f"  interval [{L}, {full_registry:.0f}] = {full_registry / L:.2f}x "
+              f"(tighten U with upper_bound.py)")
 
 
 if __name__ == "__main__":
