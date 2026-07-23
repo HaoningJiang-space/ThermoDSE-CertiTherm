@@ -296,3 +296,24 @@ Two consequences:
    to target high-value / minimal-support cuts instead of arbitrary feasible
    collisions (the LP objective is `np.zeros`, `synthesis.py:598`). MILP
    closure, faster LP, GPU, and round-robin are all ruled out by the numbers.
+
+## D4 (pre-registration) — strong-cut oracle proof-of-concept
+
+Registered **before** the head-to-head run. D3 pinned the slow bound growth to
+cut *quality*: the zero-objective oracle takes the maximal separating set
+(support ~24 on arch_b), and dual feasibility caps the LP bound at
+`L ≤ C_total/s_min`. The PoC replaces the zero objective with a weighted-L1
+penalty on projected action gaps, driving the collision toward the SAFE/REJECT
+boundary where fewer actions separate. Standalone in `research/triangle/
+strong_oracle.py`; no change to `CertiTherm/` core; every strong cut is checked
+valid under the unmodified derivation rule.
+
+Preliminary (20 cells, uniform weights): baseline support min 23 / mean 25.9 vs
+strong support **min 2 / mean 2.1** — a ~12× reduction.
+
+**Pre-registered decision gate.** Green-light method-freeze-v4 iff, at the same
+300 s budget on candidate 0 (arch_b), the strong oracle's LP lower bound is
+**≥ 5× the baseline** (baseline D3: LP 20.1). A miss is recorded as a negative
+result, not retried into a pass. If `s_min` stays near the baseline 14, the
+ceiling `C_total/14 ≈ 132` is physical and `C*(arch_b) ≤ ~132`, which tightens
+the `[21, 1846]` interval on its own and argues for reframing rather than v4.
