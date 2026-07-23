@@ -140,3 +140,38 @@ integration behind goal item 3: (a) generalise the audit across the dev candidat
 (b) exact-Farkas witnesses; (c) ideally have production expose one canonical
 constraint/floor builder so `structural_check` becomes a drift-proof regression
 test rather than a reconstruction.
+
+## Generalisation across dev candidates (all final-set re-audit PASS)
+
+| candidate | P dim | SAFE rows | SAFE surv | SAFE removable | REJECT cells | REJECT surv | cell comp | work proxy |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| arch_c (resnet50 c1) | 181 | 543 | 48 | 91.2% | 543 | 48 | 11.31× | 128× |
+| arch_a (resnet50 c2) | 237 | 711 | 280 | 60.6% | 711 | 280 | 2.54× | 6.4× |
+| arch_b (resnet50 c0) | 227 | 681 | 364 | 46.5% | 681 | 364 | 1.87× | 3.5× |
+| arch_b (transformer c0) | 227 | 681 | 405 | 40.5% | 681 | 405 | 1.68× | 2.8× |
+
+All candidates: survivor sets identical across 5 greedy orders, all removal margins
+> TAU, final-set counterexample re-audit PASS.
+
+### Honest reading
+
+- **arch_c (128×) is an outlier, not the headline.** The typical work-proxy
+  reduction is ~3–6× (median ~5×). Kernelization is always sound and always helps,
+  but the magnitude is candidate-dependent; the claim must be the *sound* reduction
+  and its range, never the arch_c cherry.
+- Against the aggressive gate (SAFE ≥50%, cells ≥3–4×): only arch_c clears both;
+  arch_a clears SAFE (60.6%) but not cells (2.54×); the two arch_b's clear neither.
+  So the strict gate is **not uniformly met** — but the reduction is real and sound
+  on every candidate (≥2.8× fewer constraint-solves), so kernelization never hurts.
+- **work proxy != wall-time.** The proxy counts constraint-solves; the real oracle
+  speedup (fewer cells → fewer LPs, smaller SAFE blocks → smaller LPs) must be
+  measured directly before claiming any factor against the ≥5× end-to-end gate.
+
+### Open structural question (verify before claiming)
+
+SAFE survivors == REJECT survivors **exactly** on all four candidates (48/48,
+364/364, 280/280, 405/405). If the survivor SETS (not just counts) coincide, this is
+a single "thermal decision frontier" governing both the safe ceiling and the
+reachable-reject set — a clean structural contribution. If only the counts match, it
+is a coincidence or a coupling bug. NOT YET CHECKED at the set level; must confirm
+before any claim rests on it.
