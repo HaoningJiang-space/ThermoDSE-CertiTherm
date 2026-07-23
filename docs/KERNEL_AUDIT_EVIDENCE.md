@@ -196,3 +196,51 @@ The exact survivor counts already matched on all four candidates (48/48, 364/364
 is confirmed at the set level and the others are being confirmed. This is a
 candidate for the CertiTherm-F structural contribution, pending set-level
 confirmation on the remaining candidates and exact-Farkas witnesses.
+
+## CORRECTION (synthesis review) — the frontier is threshold-specific, not one upper envelope
+
+The "single upper-envelope" interpretation above is **wrong as a theorem** and is
+retracted. SAFE and REJECT pruning are **threshold-dependent** objects, not the
+global upper envelope, and the two survivor sets need NOT coincide:
+
+- SAFE row `i` nonredundant: ∃ p∈P with `f_i(p) > rhs_i` and `f_k(p) ≤ rhs_k ∀k≠i`.
+- REJECT cell `i` indispensable: ∃ p∈P with `f_i(p) ≥ floor_i` and `f_k(p) < floor_k ∀k≠i`.
+
+Counterexamples (reviewer): on `P=[1,2]`, `f_1=2p`, `f_2=p`, `T=1`, location 1 is
+globally hottest and SAFE-essential yet REJECT-removable; on `P=[0,1]`, `f_1=p`,
+`f_2=0`, `T=1`, row 1 is SAFE-redundant yet its REJECT cell is indispensable at
+`p=1`. So equal survivor counts — even identical sets on all four candidates —
+establish an **empirical regularity, not necessity**.
+
+**Leading explanation for the observed coincidence:** the SAFE ceiling
+(`limit − margin − err − amb`) and REJECT floor (`limit + margin − err − amb`)
+differ by only `2·margin = 2e-4 K`, negligible against the K-scale response, so the
+two thresholded frontiers nearly coincide. This is a *threshold-proximity* effect,
+not a global-envelope identity — to be confirmed by a threshold-perturbation probe
+(large margin should make SAFE and REJECT survivors diverge; a genuine envelope
+identity would be insensitive). The audit's REJECT dominance IS collective (union
+coverage, via the phase-I `min_p max_k g_k`), which the review flagged as a
+prerequisite — so that concern does not apply.
+
+**Falsification checklist still owed** (before any claim rests on the coincidence):
+set-level identity on the other 3 candidates (semantic (model,point), not indices);
+threshold perturbation; audit-mask independence (rule out shared arrays); the two
+synthetic counterexamples as tests (the implementation MUST yield different SAFE and
+REJECT kernels there); tolerance sensitivity; thermal-row degeneracy clustering.
+
+## Contribution framing (corrected) and go/no-go
+
+- **Novelty is the composition, not the geometry.** "Rows that can be pointwise-max
+  over a polytope" / LP redundancy elimination / multiparametric-LP active sets are
+  standard. The defensible claim: *a certificate-bearing, threshold-specific
+  collision-frontier kernel for the DSOS oracle that preserves every collision query
+  and the optimal observation cost C*, integrated with decision-identifiability/IHS.*
+  Novelty remains provisional pending a focused literature search.
+- **Go/no-go (reviewer):** per-instance integration **GO**, behind an **amortization
+  gate** `A < Q·(L_f − L_k)` (audit time `A`, query count `Q`, per-query cost `L`) —
+  NOT a percentage-removal gate; full exact-Farkas **DEFER**; replacing cooperative
+  IHS with kernelization **NO**. The work proxy (2.8–128×, median ~5×) is not
+  wall-time; the highest-value next experiment is an **end-to-end break-even timing
+  study** — baseline / kernel-only / cooperative-IHS-only / kernel+cooperative, in
+  repeated-query and one-shot regimes — measuring preprocessing + oracle wall time +
+  solver iterations + total IHS time.
