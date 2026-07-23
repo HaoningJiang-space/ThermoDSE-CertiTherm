@@ -55,6 +55,13 @@ MARGIN_K, FEAS_TOL = 1e-4, 1e-10
 # Verified: workers 1 vs 32 give the IDENTICAL collision set, ~4.5x faster. This
 # script reports U alone; pair it with the MaxHS lower bound L afterward.
 LP_WORKERS = os.environ.get("CERTITHERM_LP_WORKERS", "1")
+# Deletion-test mode (perf gate): "exhaustive" scans every reject cell each test
+# (the original behaviour); "first" stops at the FIRST collision, so a FAILED
+# deletion (the common case in top-down deletion) costs a few LPs instead of ~681.
+# Mathematically identical -- collision-free iff no collision exists, and a None
+# result from _collision is itself a certified exhaustive absence. The final cover
+# re-verify is ALWAYS exhaustive regardless of this flag.
+DELETION_MODE = os.environ.get("CERTITHERM_DELETION_MODE", "exhaustive")
 
 
 def candidate():
@@ -76,14 +83,22 @@ def candidate():
     return cand, actions, a0["architecture_id"]
 
 
-def collision_free(cand, actions, cover) -> bool:
-    """True iff `cover` leaves NO SAFE/REJECT collision. `_collisions` is
-    exhaustive over every reject cell and raises (never returns []) on a worker
-    failure, so an empty batch means genuinely no collision exists."""
-    # workers=None -> honours CERTITHERM_LP_WORKERS (parallel over reject cells).
-    batch = syn._collisions(cand.power, cand.thermal, actions, tuple(sorted(cover)),
-                            MARGIN_K, FEAS_TOL, None)
-    return len(batch) == 0
+def collision_free(cand, actions, cover, *, exhaustive: bool) -> bool:
+    """True iff `cover` leaves NO SAFE/REJECT collision.
+
+    `exhaustive=True` scans every reject cell (`_collisions`, raises on worker
+    failure so an empty batch is a genuine certified absence). `exhaustive=False`
+    uses `_collision`, which returns the FIRST collision and stops -- a failed
+    deletion is rejected after a few LPs -- while a `None` return still triggers the
+    full parallel scan under the hood, so a negative result is equally certified.
+    Both honour CERTITHERM_LP_WORKERS."""
+    cov = tuple(sorted(cover))
+    if exhaustive:
+        batch = syn._collisions(cand.power, cand.thermal, actions, cov,
+                                MARGIN_K, FEAS_TOL, None)
+        return len(batch) == 0
+    return syn._collision(cand.power, cand.thermal, actions, cov,
+                          MARGIN_K, FEAS_TOL, None) is None
 
 
 def main():
@@ -93,14 +108,19 @@ def main():
     deadline = time.perf_counter() + BUDGET_S
     calls = [0]
 
+    deletion_exhaustive = DELETION_MODE == "exhaustive"
+
     def feasible(cover) -> bool:
+        # deletion TESTS use the configured mode (first-collision => fast rejects)
         calls[0] += 1
-        return collision_free(cand, actions, cover)
+        return collision_free(cand, actions, cover, exhaustive=deletion_exhaustive)
 
     print(f"{cid} ({WORKLOAD} c{CAND}): {n} actions, C_total={cost.sum():.0f}, "
-          f"budget={BUDGET_S:.0f}s, LP_WORKERS={LP_WORKERS}", flush=True)
+          f"budget={BUDGET_S:.0f}s, LP_WORKERS={LP_WORKERS}, "
+          f"DELETION_MODE={DELETION_MODE}", flush=True)
     t0 = time.perf_counter()
-    if not feasible(set(range(n))):
+    # the initial full-registry certification is a genuine absence -> exhaustive
+    if not collision_free(cand, actions, set(range(n)), exhaustive=True):
         print("full registry NOT collision-free -> UNSYNTHESIZABLE"); return
     print(f"full registry collision-free ({time.perf_counter()-t0:.0f}s), U0={cost.sum():.0f}",
           flush=True)
@@ -125,8 +145,9 @@ def main():
         else:
             chunk = max(1, chunk // 2)                       # shrink, retry position
 
-    # Codex F4: publish only an EXPLICITLY re-verified cover.
-    if not feasible(cover):
+    # Codex F4: publish only an EXPLICITLY re-verified cover -- ALWAYS exhaustive,
+    # regardless of the deletion-test mode, so U is certified over every cell.
+    if not collision_free(cand, actions, cover, exhaustive=True):
         print("FINAL RE-VERIFY FAILED -- not publishing"); return
     U = sum(cost[j] for j in cover)
 
@@ -144,6 +165,7 @@ def main():
         "cover_size": len(cover), "completed_sweep": completed,
         "oracle_calls": calls[0], "margin_k": MARGIN_K, "feas_tol": FEAS_TOL,
         "lp_workers": os.environ.get("CERTITHERM_LP_WORKERS"),
+        "deletion_mode": DELETION_MODE,
     }
     mpath = OUTPUT / f"upper_bound_{WORKLOAD}_c{CAND}.json"
     mpath.write_text(json.dumps(manifest, indent=2))
