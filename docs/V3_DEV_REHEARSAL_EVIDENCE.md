@@ -466,24 +466,27 @@ rests on n = 8 sampled cells and is directional, not settled.
 **Blocker found by external (Codex) review — `C*(arch_b) ≥ 832` is not yet
 rigorous.** Two defects, both verified against code:
 
-1. **Cut-threshold mismatch (soundness).** The cut is derived with
-   `|v_a·Δ| > tolerance + separation_tolerance` (`synthesis.py:1621`) while the
-   collision LP forces selected-action agreement with `|v_a·Δ| ≤ tolerance`
-   (`synthesis.py:278`). These are not complements: an action with gap in
-   `(tolerance, tolerance + 1e-9]` genuinely separates the pair but is **excluded**
-   from the cut, making the emitted cut a *subset* of the true necessary
-   separator set. A subset cut is *too strong* and can push the hitting-set
-   optimum **above** `C*`, so it can inflate both the LP and MILP bounds. This is
-   in the frozen production derivation, and the strong oracle *amplifies* it by
-   driving gaps toward the tolerance boundary. Reconciling the threshold and
-   re-validating every discovered cut is a **freeze-v4 blocker**.
-2. **MILP bound is solver-asserted, not self-contained.** `mip_dual_bound` at
-   `gap = 0` is optimal within HiGHS tolerances, not an exact checkable
-   certificate like `_anytime_lower_bound` (exact Fractions). It must be labelled
-   `solver_asserted`, and the code must never fall back to the incumbent `m.fun`
-   (an upper, not lower, bound on the restricted-master optimum).
+1. **Cut-threshold mismatch (soundness) — FIXED, `83cbecc`.** The cut was
+   derived with `|v_a·Δ| > tolerance + separation_tolerance` while the collision
+   LP forces selected-action agreement with `|v_a·Δ| ≤ tolerance`. An action with
+   gap in `(tolerance, tolerance + 1e-9]` genuinely separates the pair but was
+   **excluded** from the cut, making it a *subset* of the true separator set — a
+   too-strong constraint that can push the hitting-set optimum **above** `C*` and
+   inflate the bound. Fixed by excluding already-selected actions by index (a
+   selected action provably cannot separate the collision it defined) and using
+   the exact Theorem-1 threshold `> tolerance` for the rest, in both the exact
+   synthesizer and the dual-price policy. **A probe on arch_b found zero actions
+   in the danger zone** (smallest separating gap `3.7e-5`, ~37000× the guard), so
+   the fix is behaviourally identical there and `832` is unchanged — the hole was
+   latent, not exploited.
+2. **MILP bound is solver-asserted, not self-contained (open).**
+   `mip_dual_bound` at `gap = 0` is optimal within HiGHS tolerances, not an exact
+   checkable certificate like `_anytime_lower_bound` (exact Fractions). It must be
+   labelled `solver_asserted`, and the code must never fall back to the incumbent
+   `m.fun`. Deferred to the freeze-v4 build (the PoC's `_milp_lower_bound` already
+   reads `mip_dual_bound`; production must add the label and lattice rounding).
 
-So `C*(arch_b) ≥ 832` is **strong evidence conditional on valid cuts**, not a
-rigorous zero-error certificate, until (1) is resolved. The green-light for
-freeze-v4 stands; the `≥ 832` figure is downgraded accordingly and (1) is the
-first task of the build.
+So `C*(arch_b) ≥ 832` is now sound with respect to (1) and rests on a
+**solver-asserted** MILP dual bound (2) — strong for these integer-cost
+instances at `gap = 0`, to be upgraded to an exact certificate in the build. The
+green-light for freeze-v4 stands.
