@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple
 import numpy as np
 
 if TYPE_CHECKING:  # avoid import cost / cycles at runtime
-    from CertiTherm.core import MeasurementAction, PowerPolytope
+    from CertiTherm.core import MeasurementAction, PowerPolytope, ThermalFamily
 
 RECEIPT_SCHEMA_VERSION = 1
 
@@ -56,12 +56,16 @@ def _hash_array(digest: "hashlib._Hash", name: str, array: np.ndarray) -> None:
 
     Endianness matters (dissent #1): the same float bytes must hash identically on
     any host, so the array is normalised to little-endian float64 and its shape is
-    hashed alongside the bytes (so a reshape is never a silent no-op)."""
+    hashed alongside the bytes (so a reshape is never a silent no-op). Two review
+    hardenings (F7): signed zero is normalised (`-0.0 -> +0.0`, semantically equal
+    for power/response arrays) and the shape is encoded as fixed-width binary
+    rather than `repr`, so no textual ambiguity can collide two shapes."""
     arr = np.ascontiguousarray(array, dtype="<f8")
     if not np.all(np.isfinite(arr)):
         raise InstanceReceiptError(f"{name} contains non-finite values")
+    arr = arr + 0.0  # -0.0 -> +0.0; finite non-zero and (excluded) inf unchanged
     digest.update(name.encode("utf-8"))
-    digest.update(repr(arr.shape).encode("utf-8"))
+    digest.update(np.asarray(arr.shape, dtype="<i8").tobytes())
     digest.update(arr.tobytes())
 
 
@@ -87,6 +91,22 @@ def _power_digest(power: "PowerPolytope") -> str:
     digest = hashlib.sha256()
     for name in ("lower_w", "upper_w", "a_eq", "b_eq", "a_ub", "b_ub"):
         _hash_array(digest, name, np.asarray(getattr(power, name), dtype=float))
+    return digest.hexdigest()
+
+
+def _thermal_digest(thermal: "ThermalFamily") -> str:
+    """SHA-256 over the SEMANTIC thermal family the oracle actually consumes, not
+    just the operator file (audit F4): the operator NPZ SHA binds the *source*, but
+    a loader change or an in-memory transform could feed the oracle a different
+    family with identical file bytes. Hash ordered model_ids, response, ambient,
+    limit, per-model error, and per-model provenance."""
+    digest = hashlib.sha256()
+    digest.update(("|".join(thermal.model_ids)).encode("utf-8"))
+    _hash_array(digest, "response", np.asarray(thermal.response_k_per_w, dtype=float))
+    _hash_array(digest, "ambient", np.asarray(thermal.ambient_k, dtype=float))
+    digest.update(f"limit={float(thermal.limit_k).hex()}".encode("utf-8"))
+    _hash_array(digest, "error", np.asarray(thermal.error_k, dtype=float))
+    digest.update(("prov|" + "|".join(thermal.provenance_sha256)).encode("utf-8"))
     return digest.hexdigest()
 
 
@@ -119,6 +139,7 @@ class InstanceReceipt:
     action_ids: Tuple[str, ...]
     registry_digest: str
     power_digest: str
+    thermal_digest: str
     operator_sha256: str
     margin_k: float
     feas_tol: float
@@ -153,6 +174,7 @@ class InstanceReceipt:
         cand_index: int,
         actions: Sequence["MeasurementAction"],
         power: "PowerPolytope",
+        thermal: "ThermalFamily",
         operator_path: Path,
         margin_k: float,
         feas_tol: float,
@@ -172,6 +194,7 @@ class InstanceReceipt:
             action_ids=tuple(a.action_id for a in actions),
             registry_digest=_registry_digest(actions),
             power_digest=_power_digest(power),
+            thermal_digest=_thermal_digest(thermal),
             operator_sha256=_sha256_file(operator_path),
             margin_k=float(margin_k),
             feas_tol=float(feas_tol),
@@ -197,6 +220,7 @@ class InstanceReceipt:
             "action_ids": list(self.action_ids),
             "registry_digest": self.registry_digest,
             "power_digest": self.power_digest,
+            "thermal_digest": self.thermal_digest,
             "operator_sha256": self.operator_sha256,
             "margin_k": float(self.margin_k).hex(),
             "feas_tol": float(self.feas_tol).hex(),
@@ -213,20 +237,39 @@ class InstanceReceipt:
         *,
         actions: Sequence["MeasurementAction"],
         power: "PowerPolytope",
+        thermal: "ThermalFamily",
         operator_path: Path,
+        margin_k: float,
+        feas_tol: float,
     ) -> None:
-        """Fail closed if a freshly rebuilt instance does not reproduce this
-        receipt. Raises `InstanceReceiptError` on the FIRST mismatch, naming it, so
-        a foreign or drifted instance cannot masquerade as this one. The caller
-        must treat any raise as UNRESOLVED, never continue."""
+        """Fail closed if the LIVE instance does not reproduce this receipt. Raises
+        `InstanceReceiptError` on the FIRST mismatch, naming it, so a foreign or
+        drifted instance cannot masquerade as this one. The caller must treat any
+        raise as UNRESOLVED, never continue.
+
+        Checks every semantic field that can move `[L, U]` (audit F3/F4): the
+        registry, the power polytope, the *semantic* thermal family (not merely the
+        operator file), the operator source SHA, AND the run tolerances `margin_k`
+        / `feas_tol` — a changed margin or feasibility tolerance alters collisions
+        and the interval while leaving the instance math untouched, so it must be
+        checked against the live values here, not just stored."""
         _require(tuple(a.action_id for a in actions) == self.action_ids,
                  "action-ID ordering does not match the receipt")
         _require(_registry_digest(actions) == self.registry_digest,
                  "registry digest mismatch (vectors/costs/tolerances differ)")
         _require(_power_digest(power) == self.power_digest,
                  "power-polytope digest mismatch")
-        _require(_sha256_file(Path(operator_path)) == self.operator_sha256,
+        _require(_thermal_digest(thermal) == self.thermal_digest,
+                 "thermal-family digest mismatch (loader or transform drift)")
+        operator_path = Path(operator_path)
+        _require(operator_path.is_file(),
+                 f"operator export not found on reload: {operator_path}")
+        _require(_sha256_file(operator_path) == self.operator_sha256,
                  "operator export SHA-256 mismatch")
+        _require(float(margin_k).hex() == float(self.margin_k).hex(),
+                 "margin_k mismatch: live run uses a different margin than the receipt")
+        _require(float(feas_tol).hex() == float(self.feas_tol).hex(),
+                 "feas_tol mismatch: live run uses a different tolerance than the receipt")
 
     # -- serialisation ----------------------------------------------------
 
@@ -242,6 +285,7 @@ class InstanceReceipt:
             "action_ids": list(self.action_ids),
             "registry_digest": self.registry_digest,
             "power_digest": self.power_digest,
+            "thermal_digest": self.thermal_digest,
             "operator_sha256": self.operator_sha256,
             "margin_k": self.margin_k,
             "feas_tol": self.feas_tol,
@@ -252,8 +296,13 @@ class InstanceReceipt:
 
     @classmethod
     def from_dict(cls, data: Mapping) -> "InstanceReceipt":
-        """Rebuild from `to_dict()` output and fail closed if the embedded `digest`
-        does not match the reconstructed fields (detects a hand-edited artifact)."""
+        """Rebuild from `to_dict()` output and fail closed unless the embedded
+        `digest` is present, well-formed, and matches the reconstructed fields.
+
+        The digest is MANDATORY (audit F2): an earlier version skipped the check
+        when `digest` was absent or `None`, so simply deleting the key bypassed
+        tamper detection. Now a missing / non-hex / mismatched digest all raise, so
+        neither a stripped nor a hand-edited artifact can be reloaded."""
         receipt = cls(
             schema_version=int(data["schema_version"]),
             candidate_id=str(data["candidate_id"]),
@@ -263,6 +312,7 @@ class InstanceReceipt:
             action_ids=tuple(str(a) for a in data["action_ids"]),
             registry_digest=str(data["registry_digest"]),
             power_digest=str(data["power_digest"]),
+            thermal_digest=str(data["thermal_digest"]),
             operator_sha256=str(data["operator_sha256"]),
             margin_k=float(data["margin_k"]),
             feas_tol=float(data["feas_tol"]),
@@ -270,7 +320,10 @@ class InstanceReceipt:
             git_sha=(str(data["git_sha"]) if data.get("git_sha") is not None else None),
         )
         embedded = data.get("digest")
-        if embedded is not None:
-            _require(embedded == receipt.digest,
-                     "embedded digest does not match reconstructed receipt fields")
+        _require(
+            isinstance(embedded, str) and len(embedded) == 64
+            and all(c in "0123456789abcdef" for c in embedded),
+            "artifact is missing a valid 64-char hex digest")
+        _require(embedded == receipt.digest,
+                 "embedded digest does not match reconstructed receipt fields")
         return receipt
