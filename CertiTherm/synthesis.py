@@ -1305,6 +1305,12 @@ def synthesize_ordered_query(
         # bound grows slowly". Recording the schedule is what separates those.
         candidates_required = len(required)
         for position, candidate_index in enumerate(required):
+            # Record where we are BEFORE doing this candidate's work, so a
+            # TimeoutError raised in this function itself (not converted inside
+            # synthesize_minimum_observation) reaches the handler with the
+            # position it stopped at rather than a stale None. The OPTIMAL and
+            # mid-schedule returns override this explicitly.
+            candidate_at_stop = position
             candidate = candidates[candidate_index]
             plan = synthesize_minimum_observation(
                 candidate.power,
