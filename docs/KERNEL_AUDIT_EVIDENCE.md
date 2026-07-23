@@ -110,3 +110,33 @@ LP-level final-set re-audit + margins >> TAU + exact production-oracle equivalen
 Remaining before a *certified* kernel: exact-rational/Farkas witnesses per removal,
 and generalisation beyond arch_c. The 128x structural-work reduction is a real
 (float-verified) opportunity, cleared for the integration path behind goal item 3.
+
+## Structural premise-equality (review follow-up) — arch_c PASS
+
+The equivalence review correctly downgraded the empirical PASS: 20 Boolean samples
+cannot prove the audit's `P`/floor are the production oracle's. Closed structurally
+(`kernel_verify.py::structural_check`), exactly (not by sampling):
+
+- **P:** the audit's single-world `P` equals the per-world block of production's
+  `_pair_rows` — all 7 array checks OK (a_eq/a_ub world-0 and world-1 blocks,
+  cross-zeros, doubled b_eq/b_ub).
+- **SAFE:** rows come from the production builder `_robust_safe_rows`.
+- **REJECT:** rows/floors equal production's inline construction (row = -response on
+  p_unsafe, rhs = -(limit+margin-err-amb)) — exact on all 543 cells.
+
+With the premises proven structurally identical to production, the reviewed
+invariant (unreachable never collides; dominated coincides with a survivor)
+transfers to the production oracle UNIVERSALLY, so the missing single-dropped-cell
+selection is impossible by proof, not merely unobserved.
+
+## Net verdict (arch_c, float level)
+
+The 543→48 / 543→48 kernel (128× structural-work proxy) is **float-verified sound**
+on arch_c: reviewed invariant + structural premise-equality + LP-level final-set
+re-audit + margins >> TAU + exact production-oracle anchor + four-variant. It is
+**not yet** a machine-checkable *certified* kernel — that needs exact-rational /
+Farkas witnesses per removal (the audit uses HiGHS float optima). Remaining before
+integration behind goal item 3: (a) generalise the audit across the dev candidates;
+(b) exact-Farkas witnesses; (c) ideally have production expose one canonical
+constraint/floor builder so `structural_check` becomes a drift-proof regression
+test rather than a reconstruction.

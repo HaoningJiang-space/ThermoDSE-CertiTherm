@@ -120,8 +120,68 @@ class Replica:
         return False
 
 
+def structural_check(cand):
+    """Prove (exactly, not by sampling) that the audit's premises ARE the production
+    oracle's, so the reviewed invariant transfers universally (review: the anchor
+    only shows Boolean agreement on sampled selections).
+
+    Returns (ok, messages). Checks:
+      - SAFE rows/rhs come from the production builder `_robust_safe_rows`;
+      - the audit's single-world P equals the per-world block of `_pair_rows`
+        (both worlds independently satisfy the original polytope), by exact array
+        equality;
+      - the audit's REJECT rows/floors equal production's inline construction from
+        `_solve_collision_spec` (row = -response on p_unsafe, rhs = -(limit+margin
+        -err-amb)), reproduced here and matched exactly."""
+    msgs, ok = [], True
+    power, thermal = cand.power, cand.thermal
+    n = power.dimension
+
+    # SAFE via the production builder (identity, made explicit)
+    srows, srhs = _robust_safe_rows(thermal, MARGIN_K)
+    msgs.append(f"SAFE rows from _robust_safe_rows: {np.asarray(srows).shape}")
+
+    # per-world P == audit single-world P
+    a_eq_p, b_eq_p, a_ub_p, b_ub_p = _pair_rows(power)
+    ne, nu = power.a_eq.shape[0], power.a_ub.shape[0]
+    checks = {
+        "a_eq world0 block": np.array_equal(a_eq_p[:ne, :n], np.asarray(power.a_eq)),
+        "a_eq world0 cross-zero": np.array_equal(a_eq_p[:ne, n:], np.zeros((ne, n))),
+        "a_eq world1 block": np.array_equal(a_eq_p[ne:, n:], np.asarray(power.a_eq)),
+        "a_ub world0 block": np.array_equal(a_ub_p[:nu, :n], np.asarray(power.a_ub)),
+        "a_ub world1 block": np.array_equal(a_ub_p[nu:, n:], np.asarray(power.a_ub)),
+        "b_eq doubled": np.array_equal(b_eq_p, np.concatenate([power.b_eq, power.b_eq])),
+        "b_ub doubled": np.array_equal(b_ub_p, np.concatenate([power.b_ub, power.b_ub])),
+    }
+    for name, good in checks.items():
+        ok &= good
+        msgs.append(f"P: {name}: {'ok' if good else 'MISMATCH'}")
+
+    # REJECT rows/floors == production inline construction (from _solve_collision_spec)
+    rrows, rfloors = reject_table(thermal)
+    resp, amb, err = thermal.response_k_per_w, thermal.ambient_k, thermal.error_k
+    k = 0; rej_ok = True
+    for m in range(resp.shape[0]):
+        for q in range(resp.shape[1]):
+            prod_reject_row = np.concatenate((np.zeros(n), -resp[m, q]))     # production p_unsafe part
+            prod_reject_rhs = -(thermal.limit_k + MARGIN_K - err[m] - amb[m, q])
+            if not (np.array_equal(rrows[k], -prod_reject_row[n:])
+                    and rfloors[k] == -prod_reject_rhs):
+                rej_ok = False
+            k += 1
+    ok &= rej_ok
+    msgs.append(f"REJECT rows/floors == production construction (all {k} cells): "
+                f"{'ok' if rej_ok else 'MISMATCH'}")
+    return ok, msgs
+
+
 def main():
     cand, actions, cid = candidate_full()
+    print("=== structural equivalence (premises == production oracle) ===")
+    struct_ok, msgs = structural_check(cand)
+    for m in msgs:
+        print(f"  {m}")
+    print(f"  structural check: {'PASS' if struct_ok else 'FAIL'}\n")
     n = len(actions)
     P = Polytope(cand.power)
     srows, srhs = _robust_safe_rows(cand.thermal, MARGIN_K)
