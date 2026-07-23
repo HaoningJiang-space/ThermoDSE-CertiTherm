@@ -57,15 +57,21 @@ def _cut(
     candidate_id: str,
     witness: WorldPair,
     actions: Sequence[MeasurementAction],
-    separation_tolerance: float,
+    selected: Sequence[int],
 ) -> np.ndarray:
     delta = witness.safe_power_w - witness.unsafe_power_w
+    # Same rule as the exact synthesizer (see the long note in synthesis.py):
+    # a SELECTED action cannot separate the collision it helped define, so
+    # exclude it by index; for the rest use the exact Theorem-1 threshold
+    # `> tolerance`. The old `> tolerance + separation_tolerance` dropped genuine
+    # borderline separators (a subset cut).
+    selected_set = set(selected)
     return np.asarray(
         [
-            action.candidate_id == candidate_id
-            and abs(float(action.vector @ delta))
-            > action.tolerance + separation_tolerance
-            for action in actions
+            index not in selected_set
+            and action.candidate_id == candidate_id
+            and abs(float(action.vector @ delta)) > action.tolerance
+            for index, action in enumerate(actions)
         ],
         dtype=float,
     )
@@ -241,7 +247,7 @@ def dual_price_greedy(
                 sum(actions[index].cost for index in selected),
                 calls + 1,
             )
-        cut = _cut(witness[0], witness[1], actions, separation_tolerance)
+        cut = _cut(witness[0], witness[1], actions, selected)
         if not np.any(cut):
             return PolicyResult(
                 "UNSYNTHESIZABLE",

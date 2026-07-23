@@ -33,7 +33,12 @@ from .core import (
     ThermalFamily,
     WorldPair,
 )
-from .solver_budget import run_highs
+from .solver_budget import override_budget, run_highs
+
+# A small, independent budget for the one bounded LP a timed-out run still owes:
+# the final anytime-lower-bound refresh over the cuts already in hand. Generous
+# for a single relaxation over a few thousand cuts, and still fail-closed.
+_FINAL_REFRESH_BUDGET_S = 30.0
 
 
 class UnresolvedComputation(RuntimeError):
@@ -1172,19 +1177,64 @@ def _cut_mask(cut: np.ndarray) -> int:
     return mask
 
 
+@dataclass
+class CutLedger:
+    """Mutable tally of antichain activity for one candidate-local run.
+
+    Deliberately NOT frozen: it is an accumulator threaded through the
+    constraint-generation loop, and it must survive the exception handler so a
+    timed-out run still reports how much separation work it actually did.
+
+    See `ObservationPlan` for the semantics of each field and the two
+    invariants they satisfy.
+    """
+
+    generated: int = 0
+    accepted: int = 0
+    dominated: int = 0
+    evicted: int = 0
+
+    @property
+    def active(self) -> int:
+        return self.accepted - self.evicted
+
+    def fields(self) -> dict:
+        """Keyword arguments for an `ObservationPlan`/`QueryObservationPlan`."""
+        return {
+            "cuts_generated": self.generated,
+            "cuts_accepted": self.accepted,
+            "cuts_dominated": self.dominated,
+            "cuts_evicted": self.evicted,
+            "cuts_active": self.active,
+        }
+
+
 def _insert_minimal_cut(
     cuts: List[np.ndarray],
     cut: np.ndarray,
     masks: Optional[List[int]] = None,
+    ledger: Optional[CutLedger] = None,
 ) -> bool:
-    """Maintain the inclusion-minimal antichain of hitting-set constraints."""
+    """Maintain the inclusion-minimal antichain of hitting-set constraints.
+
+    `ledger`, when supplied, records why the antichain changed: a rejection
+    because an existing cut already dominates (`dominated`), and how many
+    existing supersets this cut displaced (`evicted`). Passing None keeps the
+    original behaviour exactly, so callers that only need the accept/reject
+    answer are unaffected.
+    """
 
     if masks is None:
         masks = [_cut_mask(existing) for existing in cuts]
     mask = _cut_mask(cut)
     if any(existing & mask == existing for existing in masks):
+        if ledger is not None:
+            ledger.dominated += 1
         return False
     keep = [index for index, existing in enumerate(masks) if existing & mask != mask]
+    if ledger is not None:
+        ledger.evicted += len(masks) - len(keep)
+        ledger.accepted += 1
     cuts[:] = [cuts[index] for index in keep]
     masks[:] = [masks[index] for index in keep]
     cuts.append(np.asarray(cut, dtype=float))
@@ -1210,6 +1260,18 @@ def synthesize_ordered_query(
     can distinguish them.  Candidate-local action libraries therefore make
     the global optimum the sum of the required local SAFE/REJECT optima.
     """
+
+    # Hoisted above the try for the same reason as the candidate-local ledger:
+    # a query that dies during validation or mid-schedule must still report how
+    # far the schedule got, otherwise an early failure is indistinguishable from
+    # a slow one in the emitted evidence.
+    query_ledger = CutLedger()
+    candidates_required = 0
+    candidates_completed = 0
+    candidate_at_stop: Optional[int] = None
+    iterations = 0
+    lower_bound = relaxation_bound = 0.0
+    provenances: List[str] = []
 
     try:
         if not candidates or not actions:
@@ -1237,10 +1299,18 @@ def synthesize_ordered_query(
             candidates, margin_k, feasibility_tolerance
         )
         selected_ids: List[str] = []
-        lower_bound = relaxation_bound = 0.0
-        iterations = 0
-        provenances: List[str] = []
-        for candidate_index in required:
+        # Candidate-schedule progress. Required candidates are walked in order
+        # and the loop RETURNS on the first non-OPTIMAL one, so a small
+        # `lower_bound` may mean "we only ever reached candidate 0", not "the
+        # bound grows slowly". Recording the schedule is what separates those.
+        candidates_required = len(required)
+        for position, candidate_index in enumerate(required):
+            # Record where we are BEFORE doing this candidate's work, so a
+            # TimeoutError raised in this function itself (not converted inside
+            # synthesize_minimum_observation) reaches the handler with the
+            # position it stopped at rather than a stale None. The OPTIMAL and
+            # mid-schedule returns override this explicitly.
+            candidate_at_stop = position
             candidate = candidates[candidate_index]
             plan = synthesize_minimum_observation(
                 candidate.power,
@@ -1256,9 +1326,14 @@ def synthesize_ordered_query(
             iterations += plan.iterations
             lower_bound += plan.lower_bound or 0.0
             relaxation_bound += plan.relaxation_bound or 0.0
+            query_ledger.generated += plan.cuts_generated
+            query_ledger.accepted += plan.cuts_accepted
+            query_ledger.dominated += plan.cuts_dominated
+            query_ledger.evicted += plan.cuts_evicted
             if plan.bound_provenance:
                 provenances.append(plan.bound_provenance)
             if plan.status != "OPTIMAL":
+                candidate_at_stop = position
                 witnesses: Tuple[QueryWorldPair, ...] = ()
                 if plan.status == "UNSYNTHESIZABLE":
                     witness = _query_collision(
@@ -1328,7 +1403,12 @@ def synthesize_ordered_query(
                         if partial_bound > 0
                         else None
                     ),
+                    **query_ledger.fields(),
+                    candidates_required=candidates_required,
+                    candidates_completed=candidates_completed,
+                    candidate_at_stop=candidate_at_stop,
                 )
+            candidates_completed += 1
         selected_set = set(selected_ids)
         exact_cost = sum(
             action.cost for action in actions if action.action_id in selected_set
@@ -1348,10 +1428,45 @@ def synthesize_ordered_query(
             "weak_duality"
             if provenances and all(p == "weak_duality" for p in provenances)
             else "solver_branch_and_bound",
+            **query_ledger.fields(),
+            candidates_required=candidates_required,
+            candidates_completed=candidates_completed,
+            candidate_at_stop=None,
         )
     except _UNRESOLVED_FAILURES as exc:
+        # This handler used to return `iterations=0` with no bound and no
+        # schedule state, discarding every candidate-local result already
+        # accumulated -- the same evidence-destroying failure mode that was
+        # fixed inside `synthesize_minimum_observation` but never here. A
+        # wall-clock interrupt landing between candidates is exactly the case
+        # the anytime path exists to report, so the partial bound and the
+        # schedule position are preserved.
+        #
+        # Only bounds from candidates that COMPLETED are summed, and each is a
+        # valid lower bound on its own subproblem, so their sum stays a valid
+        # (merely weaker) bound on the query by Theorem 2. Nothing here can
+        # raise the reported bound above the true optimum.
         return QueryObservationPlan(
-            "UNRESOLVED", (), None, None, None, None, 0, (), str(exc)
+            status="UNRESOLVED",
+            selected_action_ids=(),
+            exact_cost=None,
+            lower_bound=lower_bound if lower_bound > 0 else None,
+            relaxation_bound=relaxation_bound if relaxation_bound > 0 else None,
+            optimality_gap=None,
+            iterations=iterations,
+            witnesses=(),
+            message=str(exc),
+            bound_provenance=(
+                "solver_branch_and_bound"
+                if any(p == "solver_branch_and_bound" for p in provenances)
+                else "weak_duality"
+                if lower_bound > 0
+                else None
+            ),
+            **query_ledger.fields(),
+            candidates_required=candidates_required,
+            candidates_completed=candidates_completed,
+            candidate_at_stop=candidate_at_stop,
         )
 
 
@@ -1392,6 +1507,10 @@ def synthesize_minimum_observation(
     reached = 0
     anytime_bound: Optional[float] = None
     bound_cut_count = 0
+    # Hoisted for the same reason as `cuts`: a run that dies at iteration N must
+    # still report the separation work it did, otherwise a timeout is
+    # indistinguishable from never having started.
+    ledger = CutLedger()
 
     def _refresh_bound() -> None:
         """Keep the best certified bound seen; never lower it.
@@ -1486,15 +1605,44 @@ def synthesize_minimum_observation(
                         )
                     ),
                     bound_provenance=master.bound_provenance,
+                    **ledger.fields(),
                 )
             added = 0
             for witness in batch:
+                # Counted here, per witness, rather than as `len(batch)` up
+                # front: the UNSYNTHESIZABLE path below returns mid-batch, and
+                # crediting the untouched remainder as "generated" would inflate
+                # the separation work actually done.
+                ledger.generated += 1
                 delta = witness.safe_power_w - witness.unsafe_power_w
+                # Theorem 1: action a separates the pair iff |v_a.delta| >
+                # tolerance -- the cut is the set of such actions and must be a
+                # SUPERSET of the true separators for the hitting-set lower bound
+                # to be valid. The old `> tolerance + separation_tolerance`
+                # EXCLUDED genuine separators with gap in (tolerance,
+                # tolerance+sep], making the cut a subset -- a too-strong
+                # constraint that can push the master optimum ABOVE C* and
+                # inflate the certified lower bound (found in peer review).
+                #
+                # The `+ sep` guard was doing double duty: excluding already
+                # SELECTED actions (whose agreement gap sits at ~tolerance) and
+                # leaving a slack margin. That double duty is what forced the
+                # unsound direction -- shrinking the margin instead counts a
+                # selected action pinned at the agreement boundary as a
+                # separator, and a cut containing an already-bought action fails
+                # to eliminate the current selection (UNRESOLVED).
+                #
+                # Separate the two concerns: a SELECTED action provably cannot
+                # separate the collision it helped define (or the pair would not
+                # be a collision under that selection), so exclude it by INDEX,
+                # not by a numerical guard. For the rest use the exact Theorem-1
+                # threshold `> tolerance`, which admits every genuine separator.
+                selected_set = set(selected)
                 cut = np.asarray(
                     [
-                        abs(float(action.vector @ delta))
-                        > action.tolerance + separation_tolerance
-                        for action in actions
+                        index not in selected_set
+                        and abs(float(action.vector @ delta)) > action.tolerance
+                        for index, action in enumerate(actions)
                     ],
                     dtype=float,
                 )
@@ -1517,8 +1665,9 @@ def synthesize_minimum_observation(
                         message=f"full action library cannot separate {witness.cause}",
                         candidate_action_ids=candidate_ids,
                         candidate_cost=candidate_cost,
+                        **ledger.fields(),
                     )
-                if _insert_minimal_cut(cuts, cut, cut_masks):
+                if _insert_minimal_cut(cuts, cut, cut_masks, ledger):
                     witnesses.append(witness)
                     added += 1
             if not added:
@@ -1607,6 +1756,7 @@ def synthesize_minimum_observation(
                 bound_provenance=(
                     "weak_duality" if anytime_bound is not None else None
                 ),
+                **ledger.fields(),
             )
         # The final pass found fresh collisions. They are the newest and most
         # relevant counterexamples, so they belong in the returned evidence
@@ -1642,6 +1792,7 @@ def synthesize_minimum_observation(
             bound_provenance=(
                 "weak_duality" if anytime_bound is not None else None
             ),
+            **ledger.fields(),
         )
     except _UNRESOLVED_FAILURES as exc:
         if isinstance(exc, TimeoutError):
@@ -1651,8 +1802,15 @@ def synthesize_minimum_observation(
             # an actual interval instead of an empty bound column -- the whole
             # value of the anytime path. Guarded so a failure here cannot mask
             # the timeout itself.
+            #
+            # override_budget, NOT the ambient one: the method budget is already
+            # spent, so the refresh LP would otherwise raise "exhausted before
+            # solver launch" and the reported bound would stay at its last
+            # power-of-two value. That starvation made a 300 s run report 5.0
+            # while its accumulated cuts justified 20.1 (see research/triangle).
             try:
-                _refresh_bound()
+                with override_budget(_FINAL_REFRESH_BUDGET_S):
+                    _refresh_bound()
             except _UNRESOLVED_FAILURES:
                 pass
         candidate_ids, candidate_cost = _candidate_fields()
@@ -1678,4 +1836,5 @@ def synthesize_minimum_observation(
             bound_provenance=(
                 "weak_duality" if anytime_bound is not None else None
             ),
+            **ledger.fields(),
         )

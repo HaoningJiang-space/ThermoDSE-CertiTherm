@@ -874,7 +874,16 @@ def _write_tsv(
         writer.writerows(rows)
 
 
+# Bumped whenever the result-table contract changes shape. Explicit, because
+# adding or removing a column silently changes what a downstream reader can
+# assume -- and one column here (`milp_lower_bound`) already carries a name
+# that misdescribes its contents for compatibility reasons.
+#   1 -> pre-diagnostics (method-freeze-v1 through v3.1 rehearsals)
+#   2 -> adds separation diagnostics and explicit bound provenance
+RESULT_SCHEMA_VERSION = 2
+
 _BASE_RESULT_FIELDS = (
+    "result_schema_version",
     "freeze_id",
     "split",
     "registry_split",
@@ -905,6 +914,33 @@ _ANYTIME_RESULT_FIELDS = (
     "plan_validity",
     "cost_optimality",
 )
+# Separation diagnostics. These answer "why is the lower bound small?", which
+# the endpoint columns alone cannot: a small `certified_lower_bound` is
+# ambiguous between few expensive rounds, a saturating dual, and a candidate
+# schedule that never reached most of its subproblems. They are observational
+# only -- no status, bound, or gate condition reads them.
+_DIAGNOSTIC_RESULT_FIELDS = (
+    # Which algorithm actually produced `milp_lower_bound` for this row.
+    # `milp_lower_bound` is a LEGACY NAME and is frequently NOT a MILP bound:
+    # `_solve_master` runs only on the collision-free branch, so on every other
+    # path the value comes from `_anytime_lower_bound`, an LP weak-duality
+    # Lagrangian. The two differ by orders of magnitude in practice, so no
+    # downstream reader may infer the algorithm from the column name.
+    #   weak_duality           -> restricted-master LP Lagrangian
+    #   solver_branch_and_bound-> restricted-master MILP asserted dual bound
+    # The value is a query-level aggregate: a sum over candidate-local bounds,
+    # which `exact_candidates_completed` qualifies.
+    "exact_lower_bound_provenance",
+    "exact_iterations",
+    "exact_candidates_required",
+    "exact_candidates_completed",
+    "exact_candidate_at_stop",
+    "exact_cuts_generated",
+    "exact_cuts_accepted",
+    "exact_cuts_dominated",
+    "exact_cuts_evicted",
+    "exact_cuts_active",
+)
 _POLICY_RESULT_FIELDS = (
     "fixed_status",
     "fixed_cost",
@@ -931,7 +967,12 @@ def _result_fieldnames(split: str) -> tuple[str, ...]:
     """Return the stable result-table contract for one method profile."""
 
     anytime = _ANYTIME_RESULT_FIELDS if split in _ANYTIME_SPLITS else ()
-    return _BASE_RESULT_FIELDS + anytime + _POLICY_RESULT_FIELDS
+    return (
+        _BASE_RESULT_FIELDS
+        + anytime
+        + _DIAGNOSTIC_RESULT_FIELDS
+        + _POLICY_RESULT_FIELDS
+    )
 
 
 def _measurement_costs() -> dict[str, float]:
@@ -942,22 +983,83 @@ def _measurement_costs() -> dict[str, float]:
 def _call_under_budget(
     function: Callable[[], _T], budget_s: float, message: str
 ) -> tuple[Optional[_T], float, str]:
-    """Run one call under a signal fallback and a native-solver deadline."""
+    """Run one call under a signal fallback and a native-solver deadline.
+
+    Two containment properties, both of which this function previously broke.
+
+    **The alarm must never escape.** Callers treat an escaping exception as a
+    worker-protocol failure, which `_unexpected_method_failures` counts as
+    UNEXPECTED and `AnytimeGateSummary.passes` hard-fails on -- so an ordinary
+    timeout leaking out can fail a whole gate run. The timer used to stay armed
+    until the `finally`, leaving the interval between entering the `finally` and
+    disarming unguarded (the `except` has already been passed by then).
+    Microseconds normally, but the v3.1 scheduler oversubscribes ~45 processes
+    onto 52 cores, and a process descheduled in that interval sits there for
+    milliseconds. It showed up on 2 of 6 rehearsal rows.
+
+    Three defences, because none alone is airtight in pure Python: disarm
+    *inside* the guarded region so a racing alarm is still caught; gate the
+    handler on a completion flag so a later delivery is a no-op; and wrap the
+    whole thing so anything that still escapes is converted rather than raised.
+    The third matters for one residual sequence the first two cannot close -- a
+    NON-timeout exception raised close to the deadline, with the alarm then
+    delivered during the few bytecodes of the `except` body before it disarms.
+
+    **The budget must actually bind.** Disarming unconditionally on exit meant a
+    nested call that finished early cancelled its caller's deadline, after which
+    the outer function ran unbounded and reported success -- measured at 3.01 s
+    against a 0.3 s budget. The outer timer is therefore saved on entry and
+    restored on exit, less the time this call consumed.
+    """
+
+    finished = False
 
     def expire(_signum, _frame) -> None:
+        # A delivery after the guarded region is spent -- nothing left to
+        # interrupt, and raising here would escape past every handler.
+        if finished:
+            return
         raise TimeoutError(message)
 
+    def guarded() -> tuple[Optional[_T], float, str]:
+        nonlocal finished
+        try:
+            with budget_scope(budget_s):
+                value = function()
+            # Disarmed INSIDE the try: an alarm racing this call is still
+            # caught below and reported as an ordinary timeout.
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            finished = True
+            return value, time.perf_counter() - started, ""
+        except Exception as exc:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            finished = True
+            return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
+
+    # An outer budget still owns whatever time remains on it; this call may
+    # tighten that deadline but must never extend or discard it.
+    outer_remaining = signal.getitimer(signal.ITIMER_REAL)[0]
+    effective = max(budget_s, 0.001)
+    if outer_remaining > 0.0:
+        effective = min(effective, outer_remaining)
+
     previous = signal.signal(signal.SIGALRM, expire)
-    signal.setitimer(signal.ITIMER_REAL, max(budget_s, 0.001))
+    signal.setitimer(signal.ITIMER_REAL, effective)
     started = time.perf_counter()
     try:
-        with budget_scope(budget_s):
-            return function(), time.perf_counter() - started, ""
-    except Exception as exc:
-        return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
+        return guarded()
+    except TimeoutError:
+        return None, time.perf_counter() - started, f"TimeoutError: {message}"
     finally:
+        finished = True
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
+        if outer_remaining > 0.0:
+            # Hand the outer deadline back, minus what this call used. An
+            # already-expired outer budget must fire promptly rather than be
+            # silently dropped, so it is rearmed at the smallest positive value.
+            rest = outer_remaining - (time.perf_counter() - started)
+            signal.setitimer(signal.ITIMER_REAL, rest if rest > 0.0 else 1e-6)
 
 
 def _budgeted_call(
@@ -1005,8 +1107,12 @@ class AnytimeResult:
 
     contract: Optional[CertifiedContract]
     proof_search: Optional[QueryObservationPlan]
-    upper_seconds: float
-    lower_seconds: float
+    # None, not 0.0, when a phase never ran or the worker died before reporting.
+    # Serialized blank (see `_anytime_result_fields`): a hardcoded 0.0 on a
+    # worker-death or pool-failure path reads as "ran instantly", the same
+    # fabricated-timing defect `TimedResult` was fixed to avoid.
+    upper_seconds: Optional[float]
+    lower_seconds: Optional[float]
     errors: tuple[str, ...] = ()
 
     @property
@@ -1238,6 +1344,45 @@ def _anytime_plan_row(query_id: str, result: AnytimeResult) -> dict[str, object]
     }
 
 
+def _optional_seconds(result: "TimedResult") -> object:
+    """Serialize an execution time, or blank when it was never measured."""
+
+    return "" if result.seconds is None else result.seconds
+
+
+def _diagnostic_result_fields(
+    exact: Optional[QueryObservationPlan],
+) -> dict[str, object]:
+    """Serialize the exact method's separation diagnostics.
+
+    Sourced from the `exact` baseline rather than the Anytime controller's
+    internal proof search: `exact` runs the same constraint generation under its
+    own full budget, so it is the cleanest read on separation behaviour and it
+    exists in every profile that runs the exact method.
+
+    Blank rather than zero when the method produced no plan at all -- a zero
+    would assert "ran and did nothing", which is a different claim from "never
+    reported".
+    """
+
+    if exact is None:
+        return {field: "" for field in _DIAGNOSTIC_RESULT_FIELDS}
+    return {
+        "exact_lower_bound_provenance": exact.bound_provenance or "",
+        "exact_iterations": exact.iterations,
+        "exact_candidates_required": exact.candidates_required,
+        "exact_candidates_completed": exact.candidates_completed,
+        "exact_candidate_at_stop": (
+            "" if exact.candidate_at_stop is None else exact.candidate_at_stop
+        ),
+        "exact_cuts_generated": exact.cuts_generated,
+        "exact_cuts_accepted": exact.cuts_accepted,
+        "exact_cuts_dominated": exact.cuts_dominated,
+        "exact_cuts_evicted": exact.cuts_evicted,
+        "exact_cuts_active": exact.cuts_active,
+    }
+
+
 def _anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
     """Serialize every v2+ endpoint from the same Anytime-DSOS result."""
 
@@ -1252,8 +1397,8 @@ def _anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
         "approximation_ratio": optional(result.approximation_ratio),
         "interval_violation": result.interval_violation,
         "anytime_upper_source": result.upper_source,
-        "anytime_upper_seconds": result.upper_seconds,
-        "anytime_lower_seconds": result.lower_seconds,
+        "anytime_upper_seconds": optional(result.upper_seconds),
+        "anytime_lower_seconds": optional(result.lower_seconds),
         "anytime_error": result.error,
         "query_budget_s": QUERY_METHOD_TIMEOUT_S,
         "budget_is_frozen": int(_BUDGET_IS_FROZEN),
@@ -1265,10 +1410,17 @@ def _anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
 
 @dataclass(frozen=True)
 class TimedResult(Generic[_T]):
-    """One independently budgeted method result and its execution receipt."""
+    """One independently budgeted method result and its execution receipt.
+
+    `seconds` is None when the elapsed time is genuinely unknown -- a worker
+    that died before reporting. It must never be filled with 0.0 in that case:
+    a run that consumed its whole budget was once recorded as
+    `width_seconds = 0.0`, which reads as "returned instantly" in the evidence
+    table. An unmeasured quantity is reported as missing, not as zero.
+    """
 
     value: Optional[_T]
-    seconds: float
+    seconds: Optional[float]
     error: str
 
 
@@ -1385,6 +1537,28 @@ def _evaluate_prepared_method(
     """Process-pool entry point for one independently budgeted method."""
 
     query, method = job
+    started = time.perf_counter()
+    try:
+        return _dispatch_prepared_method(query, method)
+    except Exception as exc:
+        # `_call_under_budget` is supposed to convert every ordinary exception
+        # into a returned tuple, so reaching here is a containment failure and
+        # stays labelled as one -- it must NOT be relabelled as an ordinary
+        # timeout, which would erase the distinction the gate depends on. What
+        # is preserved is the child-side elapsed time: the parent cannot
+        # measure it (futures are consumed in schedule order, so parent timing
+        # includes queueing), and fabricating 0.0 put a false number into the
+        # evidence table.
+        elapsed = time.perf_counter() - started
+        error = f"method containment failure: {type(exc).__name__}: {exc}"
+        if method == "anytime":
+            return AnytimeResult(None, None, None, None, errors=(error,))
+        return TimedResult(None, elapsed, error)
+
+
+def _dispatch_prepared_method(query: PreparedQuery, method: str):
+    """Run one method. Every branch is independently budgeted."""
+
     if method == "anytime":
         return anytime_dsos(query.candidates, query.actions, QUERY_METHOD_TIMEOUT_S)
     if method == "width":
@@ -1419,10 +1593,12 @@ def _failed_query_methods(
 ) -> QueryMethodResults:
     """Represent an infrastructure failure without losing the query row."""
 
-    failed_exact: TimedResult[QueryObservationPlan] = TimedResult(None, 0.0, "")
-    failed_policy: TimedResult[PolicyResult] = TimedResult(None, 0.0, "")
+    # Timing is unknown, not zero: a pool failure says nothing about whether or
+    # how long the individual methods ran before it.
+    failed_exact: TimedResult[QueryObservationPlan] = TimedResult(None, None, "")
+    failed_policy: TimedResult[PolicyResult] = TimedResult(None, None, "")
     anytime = (
-        AnytimeResult(None, None, 0.0, 0.0, errors=(error,))
+        AnytimeResult(None, None, None, None, errors=(error,))
         if include_anytime
         else None
     )
@@ -1534,11 +1710,17 @@ def _evaluate_method_batch(
                 try:
                     slots[index][method] = future.result()
                 except Exception as exc:
+                    # The worker died without reporting -- process kill, pickling
+                    # failure, pool breakage. Its elapsed time is genuinely
+                    # unknown here, so it is recorded as missing rather than as
+                    # a fabricated 0.0. Parent-side timing would be wrong too:
+                    # futures are consumed in schedule order, so it would
+                    # include queueing and waiting on earlier futures.
                     error = f"method worker failure: {type(exc).__name__}: {exc}"
                     slots[index][method] = (
-                        AnytimeResult(None, None, 0.0, 0.0, errors=(error,))
+                        AnytimeResult(None, None, None, None, errors=(error,))
                         if method == "anytime"
-                        else TimedResult(None, 0.0, error)
+                        else TimedResult(None, None, error)
                     )
     except Exception as exc:
         error = f"method pool failure: {type(exc).__name__}: {exc}"
@@ -1845,6 +2027,7 @@ def _archive_query_evidence(
     placed = _placed_evidence(query.candidates, query.placed_by_candidate)
     unexpected_failures = _unexpected_method_failures(method_errors)
     result = {
+        "result_schema_version": RESULT_SCHEMA_VERSION,
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "split": split,
         "registry_split": _registry_split(split),
@@ -1861,16 +2044,18 @@ def _archive_query_evidence(
         "optimality_gap": exact.optimality_gap if exact else "",
         # v1 does not silently acquire the later Anytime method.
         **(_anytime_result_fields(anytime) if anytime is not None else {}),
+        **_diagnostic_result_fields(exact),
         "fixed_status": fixed.status if fixed else "UNRESOLVED",
         "fixed_cost": fixed.cost if fixed else "",
         "width_status": width.status if width else "UNRESOLVED",
         "width_cost": width.cost if width else "",
         "dual_status": dual.status if dual else "UNRESOLVED",
         "dual_cost": dual.cost if dual else "",
-        "exact_seconds": methods.exact.seconds,
-        "fixed_seconds": methods.fixed.seconds,
-        "width_seconds": methods.width.seconds,
-        "dual_seconds": methods.dual.seconds,
+        # Blank, never 0.0, when the elapsed time was never measured.
+        "exact_seconds": _optional_seconds(methods.exact),
+        "fixed_seconds": _optional_seconds(methods.fixed),
+        "width_seconds": _optional_seconds(methods.width),
+        "dual_seconds": _optional_seconds(methods.dual),
         "full_registry_cost": sum(action.cost for action in query.actions),
         "witnesses": len(exact.witnesses) if exact else 0,
         "placed_robust_outcome": placed["robust_outcome"],
@@ -2316,6 +2501,7 @@ def _run_receipt(
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
         }
     return {
+        "result_schema_version": RESULT_SCHEMA_VERSION,
         "freeze_id": _SPLIT_FREEZE_ID[split],
         "protocol_state": _SPLIT_PROTOCOL_STATE[split],
         "split": split,
@@ -2464,6 +2650,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
             if missing:
                 results.append(
                     {
+                        "result_schema_version": RESULT_SCHEMA_VERSION,
                         "freeze_id": _SPLIT_FREEZE_ID[split],
                         "split": split,
                         "registry_split": registry_split,

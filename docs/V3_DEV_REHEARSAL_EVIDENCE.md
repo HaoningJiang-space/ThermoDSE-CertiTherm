@@ -90,3 +90,403 @@ into is *why* the bound is tiny, for which three explanations are live:
 These are not currently distinguishable from the emitted evidence:
 `QueryObservationPlan.iterations` is computed (`synthesis.py:1256`) and then
 dropped — it is not among the 45 result columns.
+
+**R2 was terminated before it produced any `results.tsv`** and is therefore not
+evidence; see `TERMINATED.md` in its run directory. The prediction above stands
+untested. It was superseded by the diagnostic run below, which answers the same
+question far more cheaply.
+
+## D1 — 150 s diagnostic run: ~1,400 cuts yield a bound of 2
+
+Producer commit `8eec010` (`round/v3-separation-diagnostics`), dev registry,
+150 s budget, non-claim. Purpose: populate the separation diagnostics added in
+`4635fe2` and distinguish hypotheses (a)/(b)/(c).
+
+| workload/package | iters | candidates done | cuts generated | accepted | active | bound |
+|---|---:|---:|---:|---:|---:|---:|
+| resnet50/default | 4 | 0 of 3 | 1917 | 1719 | 1599 | 2.0 |
+| resnet50/standard | 4 | 0 of 3 | 1902 | 1574 | 1412 | 1.5 |
+| resnet50/enhanced | 4 | 0 of 3 | 1902 | 1599 | 1385 | 1.0 |
+| transformer/default | 4 | 0 of 3 | 2031 | 1446 | 1272 | 2.0 |
+| transformer/standard | 4 | 0 of 3 | 2025 | 1201 | 966 | 1.0 |
+| transformer/enhanced | 4 | 0 of 3 | 2028 | 1215 | 940 | 1.0 |
+
+**Finding: roughly 1,400 active cuts yield a lower bound of 2.0.**
+
+### What this establishes
+
+- **Hypothesis (a), too few rounds — refuted.** Cut generation is productive:
+  ~500 cuts per iteration, ~1,900 generated in 150 s. Scarcity is not the issue.
+  Every performance round so far — the 32× pool-churn fix, the GPU separation
+  gate, the 15-worker scheduler — accelerated cut *production*, which this table
+  shows was never the constraint.
+- **Hypothesis (c), candidate starvation — present.** `candidates_completed =
+  0 of 3` in every row, always stopping at candidate 0. Round-robin scheduling
+  is unlikely to repair an orders-of-magnitude weakness, but it would protect
+  against one pathological candidate monopolising the budget.
+
+### Correction, 2026-07-23 — claims withdrawn after peer review
+
+The first version of this section drew three conclusions that do not follow from
+the measurement. They are recorded here rather than deleted.
+
+1. **"Integrality gap of roughly 700×" — withdrawn.** It divided the 4,174
+   `width` cost by three candidates to infer a candidate-local optimum of
+   ~1,400. That is not legitimate: 4,174 is a feasible *upper bound* for the
+   whole query, and Theorem 2 licenses summing candidate-local optima, not
+   averaging one plan across candidates, which differ in library and difficulty.
+2. **"`lp_relaxation_bound == milp_lower_bound` confirms saturation" —
+   withdrawn.** Both fields are written from the same `_anytime_lower_bound`
+   call; `_solve_master` never ran. Their equality is schema aliasing, not two
+   solvers agreeing. (See the `milp_lower_bound` naming defect below.)
+3. **"Bound saturation confirmed and dominant" — withdrawn as stated.** It
+   presumes the answer. `C*` is unknown: the interval is `[2, 4174]` and nothing
+   measured says where in it the truth lies. If `C*` were small, the width/dual/
+   fixed contracts would simply be badly suboptimal and the bound would not be
+   weak at all.
+
+### The one structural result that does survive
+
+Dual feasibility gives `Σ_{e: a separates e} y_e ≤ c_a` per action; summing over
+actions gives `Σ_e y_e·|S_e| ≤ Σ_a c_a = C_total`, and `L(y) ≤ 1ᵀy`. Hence
+
+> `L ≤ C_total / s_min`, for `s_min` the smallest cut support.
+
+This is independent of `C*`. With `C_total = 5250`, a reported `L = 2` implies
+average cut support `≥ 2,625` actions. Conversely, certifying any *large* `C*`
+requires near-singleton cuts: proving action `a` necessary means exhibiting two
+worlds that **only `a`** separates.
+
+So *if* `C*` is large, cut support is the binding constraint and no amount of
+MILP closure, faster LP, GPU, or scheduling changes it. The antecedent is
+unverified.
+
+### Next experiment — a primal–dual–integer triangle, not another gate
+
+On one persisted candidate cut matrix: validate the cuts, solve the restricted
+master as a primal LP, run `_anytime_lower_bound` and check it does not exceed
+that optimum, solve the restricted master as a MILP, and record the support
+distribution `|S_e|` against the predicted `≥ 2,625`.
+
+This separates two explanations that currently look identical: a genuinely weak
+relaxation, versus **a defect in the bound implementation**. Thousands of cuts
+yielding 2 is unusual enough that implementation error must be excluded before
+any structural claim is made. The MILP's role here is diagnostic — it reveals
+whether the integer optimum over discovered cuts is 2, 15, or 1000.
+
+The restricted-master MILP optimum *is* a valid lower bound on the full integer
+optimum (relaxing the cut set enlarges the feasible region), provided the cuts
+are globally valid, columns and costs match the candidate-local problem, only a
+solver-certified bound is used on timeout, and candidate-local values are summed
+only where Theorem 2 applies.
+
+### Inference boundary
+
+The measured facts are only the counters and bounds tabulated above. That the
+separation LP uses a zero objective (`synthesis.py:598`) is a fact; that this
+*causes* large-support cuts is a hypothesis, not a diagnosis — a zero-objective
+LP returns an implementation-dependent basic solution, and basic solutions lie
+on many constraint boundaries rather than deep in the interior. The 10–41%
+domination rate is evidence of redundancy, which has several possible causes.
+
+## D2 — 150 s acceptance run after the scheduler fixes
+
+Producer commit range `4635fe2..4d1e0f7` on `round/v3-separation-diagnostics`,
+dev registry, 150 s budget, non-claim. Purpose: verify the three defects found
+while auditing `certitherm-v31-rehearsal-150-05d11ae` are closed.
+
+| criterion | before | after |
+|---|---:|---:|
+| `unexpected_failure` rows | 2 of 6 | **0 of 6** |
+| fabricated `*_seconds = 0.0` | 2 | **0** |
+| `exact_lower_bound_provenance` | absent | `weak_duality` (6/6) |
+| `result_schema_version` | absent | `2` |
+
+The two rows that previously reported `width_seconds = 0.0` now report ~150 s,
+which is what they actually consumed.
+
+**The diagnostics are byte-identical to D1** — iterations 4, active cuts
+1599/1412/1385/1272/966/940, bounds 2.0/1.5/1.0/2.0/1.0/1.0. The fixes changed
+what is *reported*, not what is *computed*, which is the intended blast radius
+for a containment-and-honesty round.
+
+`exact_lower_bound_provenance = weak_duality` on every row is the direct
+confirmation of the naming defect: the column called `milp_lower_bound` never
+once held a MILP bound.
+
+### Defects closed
+
+1. **A budget `TimeoutError` could escape containment.** The interval timer
+   stayed armed until the `finally`, and the `finally` itself is not inside the
+   `try` — so an alarm delivered there propagated past the `except` that had
+   already been passed. Callers label an escaping exception a worker-protocol
+   failure, `_unexpected_method_failures` counts that as UNEXPECTED, and
+   `AnytimeGateSummary.passes` hard-fails on a single unexpected failure. **An
+   ordinary timeout could therefore fail an entire gate run.**
+
+   Reproduced deterministically by slowing the disarm, which is what a
+   descheduled process looks like to a pending signal — and which explains the
+   2-of-6 rate that seemed implausible for a microsecond window: the v3.1
+   scheduler oversubscribes ~45 processes onto 52 cores.
+
+2. **A nested `_call_under_budget` silently cancelled the outer budget**, since
+   the inner `finally` disarmed unconditionally. Measured: a 0.3 s outer budget
+   ran **3.01 s and reported success**. Found while probing defect 1, not
+   suspected beforehand. A method could have overrun 1800 s without limit.
+
+3. **An unmeasured time was reported as `0.0`.** Elapsed time is now taken in
+   the worker, so even a containment failure reports real child-side time;
+   parent-side timing would be wrong because futures are consumed in schedule
+   order and would include queueing. A worker that dies without reporting now
+   yields a blank, not a zero.
+
+The strict failure classification was deliberately **not** relaxed. Treating a
+worker-surfaced `TimeoutError` as expected would have masked defect 1 rather
+than fixing it; a method timeout and a containment failure stay distinguishable.
+
+### Review status
+
+External peer review was **unavailable** for the fixes from `3f42332` onward —
+the Codex reviewer hit its usage limit mid-round (resets 2026-07-29) and no
+second reviewer is configured. The earlier analysis in D1 *was* reviewed, and
+that review is what produced the withdrawals recorded above. The fixes were
+self-reviewed against an explicit risk list, which is how the residual
+`except`-body escape window was found, but that is not equivalent and these
+commits should be re-reviewed when the reviewer is available.
+
+## D3 — primal–dual–integer triangle: the bound is faithful but climbs slowly
+
+Non-claim diagnostic on **candidate 0 (`arch_b`) of `resnet50`**, the SAFE/REJECT
+subproblem every dev query stalls on. Reconstructed from cached D2 operators;
+scripts and detail in `research/triangle/`. Producer branch
+`round/v3-separation-diagnostics`.
+
+At 300 s / 3442 discovered cuts:
+
+| quantity | value | conclusion |
+|---|---:|---|
+| primal LP | 20.10 | |
+| `_anytime_lower_bound` | 20.10 | LP = anytime → **bound code faithful, not a bug** |
+| restricted-master MILP | 21.00 | ≈ LP → **no integrality gap** |
+| MILP cover feasibility | 638 collisions survive | cheapest cover of discovered cuts is not feasible → **`C* > 21`** |
+| full-library separation | collision-free | candidate 0 is **synthesizable**, `C* ≤ 1846` |
+| reported `lower_bound` | 5.00 | 4× below the 20.1 the cuts already justify |
+
+`C*(arch_b) ∈ [21, 1846]`.
+
+LP over random nested subsets: 100→5.0, 250→12.5, 500→13, 1000→14, 2000→14,
+3000→14, 3442→20.1. Random subsets plateau near 14; only the full set reaches
+20.1, so the bound is pushed up by rare high-value cuts, not bulk volume.
+
+**This closes the "why is the bound tiny?" question and confirms the three
+withdrawals above were correct.** It is not saturation at 2 (the bound climbs to
+20 by 300 s), not a 700× integrality gap (MILP ≈ LP), and not a bound bug (LP =
+anytime). The real obstacle is slow, sublinear growth of a *faithful* LP lower
+bound on a synthesizable-but-hard candidate, with the cheapest covers far from
+feasible. Proving minimality at these budgets is not close — the interval is
+~88× wide.
+
+Two consequences:
+
+1. **Reporting defect (cheap fix).** The power-of-two refresh cadence made a
+   300 s run report 5.0 while its cuts justified 20.1. Every emitted interval
+   understates its own lower bound. Refreshing on exit (or on a fixed cadence)
+   is a one-line change independent of any method work.
+2. **The only lever (freeze-v4).** Faster LB growth needs the separation oracle
+   to target high-value / minimal-support cuts instead of arbitrary feasible
+   collisions (the LP objective is `np.zeros`, `synthesis.py:598`). MILP
+   closure, faster LP, GPU, and round-robin are all ruled out by the numbers.
+
+## D4 (pre-registration) — strong-cut oracle proof-of-concept
+
+Registered **before** the head-to-head run. D3 pinned the slow bound growth to
+cut *quality*: the zero-objective oracle takes the maximal separating set
+(support ~24 on arch_b), and dual feasibility caps the LP bound at
+`L ≤ C_total/s_min`. The PoC replaces the zero objective with a weighted-L1
+penalty on projected action gaps, driving the collision toward the SAFE/REJECT
+boundary where fewer actions separate. Standalone in `research/triangle/
+strong_oracle.py`; no change to `CertiTherm/` core; every strong cut is checked
+valid under the unmodified derivation rule.
+
+Preliminary (20 cells, uniform weights): baseline support min 23 / mean 25.9 vs
+strong support **min 2 / mean 2.1** — a ~12× reduction.
+
+**Pre-registered decision gate.** Green-light method-freeze-v4 iff, at the same
+300 s budget on candidate 0 (arch_b), the strong oracle's LP lower bound is
+**≥ 5× the baseline** (baseline D3: LP 20.1). A miss is recorded as a negative
+result, not retried into a pass.
+
+> **Correction (D6 peer review).** An earlier version of this paragraph said "if
+> `s_min` stays near 14, the ceiling `C_total/14 ≈ 132` is physical and
+> `C*(arch_b) ≤ ~132`." **That is wrong.** `C_total/s_min` is an upper bound on
+> the *LP relaxation* (the fractional point `x_a = 1/s_min` is feasible), **not**
+> on `C*`; the integer optimum can far exceed its LP relaxation. D4 below in fact
+> measured `C*(arch_b) ≥ 832`, which directly contradicts the withdrawn "≤ 132".
+
+### D4 result — gate PASSED by 7×; the interval collapses from 88× to 2.2×
+
+Head-to-head on candidate 0 (arch_b), same 300 s budget, uniform-L1 weights:
+
+| | cuts | LP | MILP | s_min | mean support |
+|---|---:|---:|---:|---:|---:|
+| baseline (zero objective) | 3442 | 20.1 | 21.0 | 14 | 23.5 |
+| **strong (weighted-L1)** | **431** | **720.0** | **832.0** | **2** | **2.1** |
+
+`soundness_failures = 0` — every strong cut is a genuine necessary constraint
+under the unmodified derivation rule. LP ratio **35.8×** against a pre-registered
+5× gate: **PASS.**
+
+**Consequences.**
+
+- With **8× fewer cuts** the strong oracle reaches a **36× higher** bound. Cut
+  quality, not quantity, was the entire story — confirming D3 and the
+  Codato–Fischetti / MaxHS literature.
+- MILP = 832 over the discovered cuts is a valid lower bound on `C*`, so
+  `C*(arch_b) ∈ [832, 1846]`: the interval collapses from **88× to 2.2×**, and
+  the bound was still climbing at timeout (2526 collisions generated, not
+  converged).
+- This **falsifies the earlier "maybe `C*` is small" branch**: `C*(arch_b) ≥ 832`
+  is genuinely large, so the width/dual whole-query contracts (~4174 over three
+  candidates) are in the right ballpark, not wildly loose.
+
+**Decision: green-light method-freeze-v4** built on the strong-cut oracle
+(weighted-L1 minimal-support separation), per the pre-registered gate. The
+interval `[832, 1846]` and the "2.2×" / "recoverable within ~2×" figures in this
+section are **conditional on the cut-threshold blocker in D6** (a subset cut can
+inflate the lower bound); read D6 before citing `≥ 832` as certified. Secondary
+levers (dual-priced weights, in-out stabilization, parallel strong-oracle) are
+v4 build work, not this PoC.
+
+### D5 — PoC steps 1–3: generalisation, min-cardinality, dual weights, stabilisation
+
+All in the standalone `research/triangle/strong_oracle.py`; no frozen-method
+edit. Every run validated every cut under the unmodified derivation rule
+(`soundness_failures = 0` throughout).
+
+**Step 1 — generalisation (uniform L1, 300 s each).** The 36× is not
+arch_b-specific:
+
+| candidate | actions | cuts | LP | MILP (= `C*` lower bound) | mean support | full registry |
+|---|---:|---:|---:|---:|---:|---:|
+| resnet50 arch_b | 243 | 431 | 720 | 832 | 2.1 | 1846 |
+| resnet50 arch_c | 199 | 331 | 576 | 744 | 2.6 | 1482 |
+| resnet50 arch_a | 251 | 405 | 720 | 800 | 2.1 | 1922 |
+| transformer arch_b | 243 | 379 | 720 | 776 | 2.0 | 1846 |
+
+The MILP over discovered cuts is a valid **lower** bound on each candidate's
+`C*` (discovered cuts ⊆ all cuts), and it is far above the baseline's ~20 on
+every candidate. The full-registry cost is only a valid **upper** bound where the
+candidate is synthesizable; that was verified for **arch_b only** (D3, full
+library collision-free). The other three have `soundness_failures = 0` (every
+collision they met was separable), which is necessary but not sufficient for
+full synthesizability — so their upper bound is pending a full-library check, and
+`C* ≥ MILP` is the claim that is actually established for them. Even so, each
+lower bound (744–832) collapses its interval versus the baseline's 21.
+
+**Step 2a — min-cardinality MILP vs the L1 surrogate.** On sampled cells the true
+minimum-support MILP returns **2 on every cell, identical to L1** (0/8 unit
+cuts). The cheap L1 LP is therefore *optimal* for support minimisation here — the
+expensive per-cell MILP buys nothing, and v4 does not need it.
+
+**Step 2b — dual-guided weights vs uniform (arch_b, 300 s).** Dual-load weights
+`w_a = Σ_{e:a∈e} λ_e` give MILP 856 vs uniform 832 (+2.9%) with the **same** LP
+(720). The support-minimisation itself is the dominant lever; dual weighting is a
+marginal add-on, not the driver. **Uniform L1 is the pragmatic v4 choice.**
+
+**Step 3 — in-out stabilisation: deferred to core integration, with reason.**
+Stabilisation attacks late-stage tailing-off, but every candidate here is still
+in the healthy bound-climbing regime (2000+ collisions generated, not
+converged), so it is premature to measure. It also needs the *continuous* master
+cover relaxation as the stabilisation anchor, which only exists inside the real
+solver — a faithful prototype cannot be built in the standalone loop. It belongs
+in the freeze-v4 integration, once closure (not climbing) becomes the regime.
+
+**Net v4 design.** A single LP-objective change — uniform weighted-L1
+minimal-support separation — recovers a **strong certified lower bound** (a
+bounded interval), not exact minimum-cost, across every dev candidate at 8×
+fewer cuts. It does **not** by itself establish exact minimality: closing the
+interval to `L = U` is separate work (see D6 → the upper-bound deletion pass).
+Dual weights and stabilisation are optional refinements, not prerequisites.
+cuOpt/PDLP remain excluded from the certifier; a batched **exact-simplex** GPU
+separation (propose-verify) is the only viable GPU route and is a v4 scalability
+extension, not a correctness one.
+
+### D6 — internal adversarial review, fixes, and a paired certified re-run
+
+External peer review was unavailable (Codex quota until 2026-07-29), so two
+independent Claude subagents adversarially reviewed the round. Both are recorded
+because the review changed real code and numbers.
+
+**Reviewer 1 (budget/signal fixes) found a HIGH-severity bug in a shipped fix.**
+`override_budget` (the stale-bound fix, `742b17a`) set only the contextvar
+deadline, but `_current_budget` takes `min(contextual, signalled)` and the
+method's `ITIMER_REAL` is still armed when the final refresh runs (the native
+budget raises at `deadline - reserve`, before the signal). The override was
+therefore clamped back to ~reserve seconds (~1 s for an 1800 s budget), and the
+dev runs only passed because the LP finishes within ~1 s. Fixed with an
+`ignore_signal` flag (`db97dd9`); a new test arms `setitimer` as production does
+and fails against the pre-fix code (clamped to 0.49 s). Also fixed:
+`AnytimeResult` still fabricated `seconds=0.0` on worker-death paths (`a934490`)
+and `candidate_at_stop` was lost on a between-candidates timeout (`e727f55`).
+Reviewer 1 confirmed the containment fix, nested timer save/restore, and
+preserved lower bound are correct.
+
+**Reviewer 2 (strong-cut PoC) confirmed the core soundness and found rigor gaps.**
+Verified sound: the strong oracle's feasible set is exactly the original's with
+slacks projected out, and the cut rule is byte-identical, so every cut is a
+genuine necessary constraint. Gaps fixed in `strong_oracle.py`: the "LP"/"MILP"
+figures were the raw primal / incumbent, not certified bounds; the 36× compared
+against a literal recalled from a *different* driver, not a paired run; an
+all-zero cut was mislabeled a "soundness failure" when it is the UNSYNTHESIZABLE
+witness.
+
+**Paired certified re-run (arch_b, 300 s, identical harness, only the objective
+differs).** Certified LP = weak-duality bound; MILP = branch-and-bound dual
+bound (gap 0):
+
+| mode | cuts | support (mean) | certified LP | MILP (dual bound) |
+|---|---:|---:|---:|---:|
+| zero (baseline oracle) | 3068 | 23.7 | 9 | 9 |
+| uniform (strong) | 431 | 2.1 | **720** | **832** |
+
+Isolating the objective change alone (same harness): **LP 80×, MILP 92×**.
+Against the original production baseline (D3, LP 20.1): 36×. Both clear the
+pre-registered 5× gate by a wide margin, and the certified bounds *equal* the raw
+figures reported earlier (gap 0), so D4's 720/832 were correct.
+
+**Claims softened after review.** The D5 "generalisation" rows are correlated,
+not four independent points: `resnet50 arch_b` and `transformer arch_b` share
+architecture `arch_b` (same 243-action library), so it is three architectures,
+and three rows report LP = 720 because the LP floor is set by a shared cost
+structure. The MILP lower bounds do differ (832/800/776/744), so per-candidate
+`C* ≥ MILP` holds *conditionally* (see the blocker below), but "the 36×
+generalises" rests on correlated evidence. The "L1 is optimal for support" claim
+rests on n = 8 sampled cells and is directional, not settled.
+
+**Blocker found by external (Codex) review — `C*(arch_b) ≥ 832` is not yet
+rigorous.** Two defects, both verified against code:
+
+1. **Cut-threshold mismatch (soundness) — FIXED, `83cbecc`.** The cut was
+   derived with `|v_a·Δ| > tolerance + separation_tolerance` while the collision
+   LP forces selected-action agreement with `|v_a·Δ| ≤ tolerance`. An action with
+   gap in `(tolerance, tolerance + 1e-9]` genuinely separates the pair but was
+   **excluded** from the cut, making it a *subset* of the true separator set — a
+   too-strong constraint that can push the hitting-set optimum **above** `C*` and
+   inflate the bound. Fixed by excluding already-selected actions by index (a
+   selected action provably cannot separate the collision it defined) and using
+   the exact Theorem-1 threshold `> tolerance` for the rest, in both the exact
+   synthesizer and the dual-price policy. **A probe on arch_b found zero actions
+   in the danger zone** (smallest separating gap `3.7e-5`, ~37000× the guard), so
+   the fix is behaviourally identical there and `832` is unchanged — the hole was
+   latent, not exploited.
+2. **MILP bound is solver-asserted, not self-contained (open).**
+   `mip_dual_bound` at `gap = 0` is optimal within HiGHS tolerances, not an exact
+   checkable certificate like `_anytime_lower_bound` (exact Fractions). It must be
+   labelled `solver_asserted`, and the code must never fall back to the incumbent
+   `m.fun`. Deferred to the freeze-v4 build (the PoC's `_milp_lower_bound` already
+   reads `mip_dual_bound`; production must add the label and lattice rounding).
+
+So `C*(arch_b) ≥ 832` is now sound with respect to (1) and rests on a
+**solver-asserted** MILP dual bound (2) — strong for these integer-cost
+instances at `gap = 0`, to be upgraded to an exact certificate in the build. The
+green-light for freeze-v4 stands.
