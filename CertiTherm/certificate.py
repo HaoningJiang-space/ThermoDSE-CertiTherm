@@ -237,7 +237,9 @@ def validate_cut(
         missing = sorted(mask - set(cut_indices))
         raise CertificateError(
             f"ledger cut != full separator set (extra={extra}, missing={missing}); "
-            f"only exact equality is a valid necessary cut")
+            f"the ledger requires the accepted canonical cut (exact equality). "
+            f"(a superset is a valid-but-weaker constraint; only a strict subset "
+            f"is unsound)")
     return mask
 
 

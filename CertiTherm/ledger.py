@@ -52,9 +52,14 @@ class WitnessLedger:
     lp_slack: float                # feasibility tolerance the witnesses satisfy to
 
     def __post_init__(self) -> None:
+        # F2 (review): worlds live in POWER space (dimension d), cuts/costs/
+        # selection live in ACTION space (n_actions). These are independent -- the
+        # old schema conflated them by tying safe_w to n_actions, which crashes
+        # whenever d != n_actions. Derive d from the worlds and n from the cuts.
         k, n = self.cut_masks.shape
+        d = self.safe_w.shape[1] if self.safe_w.ndim == 2 else -1
         for name, arr, shape in (
-            ("safe_w", self.safe_w, (k, n)), ("unsafe_w", self.unsafe_w, (k, n)),
+            ("safe_w", self.safe_w, (k, d)), ("unsafe_w", self.unsafe_w, (k, d)),
             ("selected_masks", self.selected_masks, (k, n)),
             ("reject_model", self.reject_model, (k,)),
             ("reject_point", self.reject_point, (k,)), ("dual", self.dual, (k,)),
@@ -63,11 +68,21 @@ class WitnessLedger:
             if arr.shape != shape:
                 raise ValueError(f"{name} shape {arr.shape} != {shape}")
         if len(self.action_ids) != n:
-            raise ValueError("action_ids length must equal n")
+            raise ValueError("action_ids length must equal n_actions")
+        if len(set(self.action_ids)) != n:
+            raise ValueError("action_ids must be unique")
         if not np.all((self.cut_masks == 0) | (self.cut_masks == 1)):
             raise ValueError("cut_masks must be 0/1")
         if not np.all((self.selected_masks == 0) | (self.selected_masks == 1)):
             raise ValueError("selected_masks must be 0/1")
+        # F7 (review): finite checks BEFORE the sign check -- `NaN < 0` is False,
+        # so a NaN dual would slip past and later raise on Fraction() conversion.
+        for name, arr in (("costs", self.costs), ("safe_w", self.safe_w),
+                          ("unsafe_w", self.unsafe_w), ("dual", self.dual)):
+            if not np.all(np.isfinite(arr)):
+                raise ValueError(f"{name} must be finite")
+        if not np.isfinite(self.lp_slack) or self.lp_slack < 0:
+            raise ValueError("lp_slack must be finite and non-negative")
         if np.any(self.dual < 0):
             raise ValueError("recorded dual must be non-negative (project first)")
 
@@ -138,6 +153,11 @@ def replay(
     `guard` and `ledger.lp_slack` are the two robustness parameters (review F6):
     `guard` bands the separator classification, `lp_slack` the witness feasibility.
     Both are explicit -- the caller must choose them, not inherit a silent default."""
+    if ledger.n_cuts == 0:
+        # F8 (review): an empty ledger proves nothing; fail closed rather than
+        # returning CERTIFIED with L=0 (that would certify "measure nothing").
+        return ReplayResult("UNRESOLVED", 0, 0, None, None,
+                            ("empty ledger: no cuts to certify",))
     if receipt_digest != ledger.receipt_digest:
         raise CertificateError(
             "ledger is bound to a different InstanceReceipt digest than the live "
@@ -145,6 +165,17 @@ def replay(
     live_ids = tuple(a.action_id for a in actions)
     if live_ids != ledger.action_ids:
         raise CertificateError("ledger action_ids do not match the live registry order")
+    # F1 (review, DEFERRED): replay still trusts `receipt_digest` as a passed
+    # string and `ledger.costs` are not yet re-bound to the live registry costs. A
+    # complete fix recomputes the InstanceReceipt digest from live inputs and
+    # asserts ledger.costs == live action costs. This lands with the exact-witness
+    # rework (F3) when the ledger is resumed; until then the ledger is NOT a
+    # standalone certificate and must run inside a driver that already verified the
+    # receipt against live inputs.
+    live_costs = np.asarray([float(a.cost) for a in actions], dtype=float)
+    if ledger.costs.shape == live_costs.shape and not np.allclose(
+            ledger.costs, live_costs, rtol=0, atol=0):
+        raise CertificateError("ledger costs differ from live registry costs")
 
     slack = Fraction(ledger.lp_slack)
     failures: List[str] = []
