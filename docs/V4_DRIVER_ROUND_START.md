@@ -33,49 +33,121 @@ binds the instance it ran on. That is precisely what this round fixes.
 
 > A single fresh-clone driver `v4_driver`, given a frozen candidate instance,
 > emits **one artifact** containing a `[L, U]` observation-contract interval where
-> (a) `U` is an oracle-verified collision-free cover cost, (b) `L` is a
-> **self-verified `weak_duality`** lower bound produced by the production
-> `_self_verified_master_cost` / `_cost_lattice` certifier (the HiGHS dual is used
-> only for search ordering, never as the reported certificate), and (c) both
-> endpoints and every intermediate ledger are bound to one `InstanceReceipt`
-> digest (registry SHA, action-ID ordering, operator SHA, tolerance, margin, Git
-> SHA), so the artifact is reproducible and tamper-evident from the receipt alone.
+> (a) `U` is an oracle-verified collision-free cover cost, computed in exact
+> rational arithmetic from the cover's action costs; (b) `L` is an
+> **exact-arithmetic weak-duality lower bound** obtained by evaluating
+> `_integer_lagrangian_bound` (or `_anytime_lower_bound`) on the LP dual marginals
+> in `Fraction` and lattice-lifting it — a bound valid for *any* non-negative dual,
+> so it never re-trusts the HiGHS basis; and (c) the interval, both provenance
+> receipts, and the witness-carrying cut ledger are bound to one `InstanceReceipt`
+> digest, so the artifact is **re-verifiable against canonical instance inputs**
+> (registry, power polytope, semantic thermal family, operator SHA, tolerances) —
+> not "reproducible from the receipt alone", since the receipt stores digests, not
+> the inputs themselves.
 
-Success = the driver produces such an artifact on all four dev candidates above,
-and an independent re-load of the artifact re-derives the same interval and the
-same receipt digest. It is **not** required that `L = U`; the deliverable is a
-provenance-bound bounded-gap contract, described as such.
+The artifact is exactly one of two states:
+
+- **`CERTIFIED_INTERVAL`** — `L` is exact-arithmetic weak-duality/lattice certified
+  *and* `U` is oracle-verified *and* every ledger cut passed the independent
+  cut-validity check. `L = U` (closure) is the special case detected by
+  `_self_verified_master_cost`; it is not required.
+- **`UNRESOLVED`** — anything else (solver failure, timeout, an unverifiable cut, a
+  bound the exact certifier could not produce). A `solver_asserted` HiGHS dual may
+  be *recorded for diagnostics*, but **is never published as an endpoint of the
+  contract interval.**
+
+Success = the driver produces a `CERTIFIED_INTERVAL` artifact on all four dev
+candidates above, and an independent re-load re-derives the same interval, the
+same receipt digest, and re-validates every cut. It is **not** required that
+`L = U`; the deliverable is a provenance-bound *bounded-gap* contract, described
+as such.
 
 ## Correctness gates (mandatory — any failure kills the round)
 
-Derived one-for-one from the 2026-07-23 audit's four retained findings:
+Derived from the two 2026-07-23 audits and the round-start peer review:
 
 1. **Single-artifact binding (audit §1).** The `[L, U]` interval, both provenance
-   records, and the cut ledger are emitted by one entrypoint into one artifact.
+   receipts, and the cut ledger are emitted by one entrypoint into one artifact.
    No step consumes another step's output without checking the shared
    `InstanceReceipt` digest. A digest mismatch → structured `UNRESOLVED` + nonzero
-   exit, never a silent proceed.
-2. **Lower bound provenance (audit §2).** The reported `L` carries
-   `bound_provenance == "weak_duality"` and equals `_self_verified_master_cost(...)`
-   after lattice lifting. The raw HiGHS `mip_dual_bound` is recorded separately as
-   `solver_asserted_milp_dual` and is *never* substituted for `L`. If the
-   self-verified certifier cannot produce a finite bound, `L` is reported as
-   `solver_asserted` **and the claim word "certified" is withheld** for that case.
-3. **Lattice derived, not assumed (audit §3).** Exactness / closure tests use
-   `_cost_lattice(costs)` (exact `Fraction`) — no `abs(L−cover)<0.5` integer
-   assumption anywhere in the driver.
-4. **Fresh-clone fail-closed (audit §3).** A missing or instance-mismatched cut
+   exit, never a silent proceed. The receipt binds registry (ordered
+   id+cost+tolerance+vector), power polytope, **semantic `ThermalFamily`** (not just
+   the operator NPZ bytes), operator source SHA, `margin_k`, `feas_tol`, and Git
+   SHA; `verify()` re-checks *every* such field — including the live tolerances —
+   against the running instance.
+2. **Lower bound is exact and solver-independent (review F8/F10).** `L` is the
+   `Fraction`-valued `_integer_lagrangian_bound(costs, cuts, dual)` (valid for any
+   `y ≥ 0`), lattice-lifted via `_fraction_lower_float`; equivalently
+   `_anytime_lower_bound` for the global bound. `_self_verified_master_cost` is used
+   **only** to detect closure (`L = U`), never as the general bound. The scalar
+   HiGHS `mip_dual_bound` is stored as `solver_asserted_milp_dual` for search
+   ordering / diagnostics and is **never** an endpoint. A negative test must show a
+   fabricated huge `mip_dual_bound` with a low exact Lagrangian does **not** inflate
+   `L`.
+3. **Cut validity — every ledger cut is a genuine necessary constraint (review
+   F9).** `L`'s soundness is conditional on the cut set. Each ledger cut carries its
+   generating SAFE/REJECT world-pair witness and cell identity. On reload an
+   **independent validator** (not the derivation expression that produced it)
+   re-checks: the witness's power feasibility in the polytope, its SAFE/REJECT
+   classification under the thermal family, observation indistinguishability under
+   the currently-selected actions, and recomputes the separator mask from action
+   tolerances — then confirms the ledger cut equals or conservatively follows from
+   that mask. Any cut that fails → `UNRESOLVED`. Without this gate `L` is
+   "self-verified given an *unverified* ledger", not a physical-instance certificate.
+4. **Exact rational endpoints (review F11).** `U` is recomputed from the cover's
+   action IDs as `Σ Fraction(float(cost))`; `L ≤ U` and closure are decided in
+   rational arithmetic. No `abs(L−cover)<0.5` integer assumption; `_cost_lattice`
+   derives the lattice from the registry. Floats are presentation-only.
+5. **Fresh-clone fail-closed (audit §3).** A missing or instance-mismatched cut
    ledger yields structured `UNRESOLVED` + nonzero exit (not `print + return 0`).
-   The cut ledger persists cuts + costs **plus** the `InstanceReceipt` digest; load
-   validates it against the current instance or refuses.
-5. **Worker parity as an artifact (audit §4).** A committed `parity.json` shows
-   `CERTITHERM_LP_WORKERS=1` vs `16` on one frozen input produce the identical
-   collision set and identical final feasibility verdict, with both sides hashed.
-   Parallelism is allowed to change *speed only*, proven by artifact, not comment.
-6. **Fail-closed vocabulary throughout.** Every timeout / numerical disagreement →
-   `UNRESOLVED`; an empty-separator witness → `UNSYNTHESIZABLE` (the driver stops,
-   unlike the PoC); a full-registry UB is reported only after exhaustive
-   verification. No fabricated feasible/infeasible verdict.
+   The ledger persists cuts + costs + witnesses **plus** the `InstanceReceipt`
+   digest; load validates it against the current instance or refuses.
+6. **Run identity bound too — `RunReceipt` (review F5).** A second mandatory digest
+   covers the algorithm controls that move the interval at fixed instance:
+   `collision_objective` + weights, fallback policy, oracle solver options, numeric
+   acceptance thresholds, deletion order, time budget, worker count, and the
+   HiGHS/dependency versions. Both `InstanceReceipt` and `RunReceipt` digests are
+   bound into the ledger and the final artifact. `InstanceReceipt` stays
+   mathematical instance identity only.
+7. **Claim-grade worktree (review F6).** A claim-grade run requires a valid HEAD
+   commit and a clean *relevant* worktree; a dirty tree or a failed Git lookup →
+   `UNRESOLVED`, not an artifact with `git_sha = None`. The receipt records the Git
+   tree/commit; non-claim diagnostic runs may omit it and are labelled as such.
+8. **Atomic, self-validating publication (review F12/F14).** The artifact is
+   written to a temp file in the destination, flushed/fsync'd, **reloaded and fully
+   re-validated** (receipt, `RunReceipt`, every cut witness, exact `L`, exact `U`,
+   top-level digest), then atomically renamed. A worker crash / SIGALRM / partial
+   write must leave **no** artifact with usable interval fields.
+9. **Worker parity as a multi-cover artifact (audit §4 / review F12).** A committed
+   `parity.json` shows `CERTITHERM_LP_WORKERS=1` vs `16` agree on the canonical
+   cell-status map and feasibility verdict across **several** frozen covers (full
+   registry, sparse, known-collision, no-collision, numerically hard cells) on each
+   instance — not one fixture. Any worker exception / missing / duplicate / unknown
+   cell → `UNRESOLVED`. Parallelism changes *speed only*, proven by artifact.
+10. **Fail-closed vocabulary throughout.** Every timeout / numerical disagreement →
+    `UNRESOLVED`; an empty-separator witness → `UNSYNTHESIZABLE` (the driver stops,
+    unlike the PoC); a full-registry UB is reported only after exhaustive
+    verification. No fabricated feasible/infeasible verdict.
+
+## Canonical artifact schema (review F14 — the verification target)
+
+One self-verifying artifact an *independent* verifier can check with **no MILP
+result**:
+
+- `InstanceReceipt` (semantic instance hashes) + `RunReceipt` (algorithm/env
+  hashes) + source-file/Git provenance;
+- exact costs and ordered action IDs (rational);
+- each cut with its physical SAFE/REJECT world-pair witness and cell identity;
+- the rational non-negative dual vector used for `L`;
+- the exact recomputed `Fraction` Lagrangian value and its lattice lift → `L`;
+- the `U` cover action IDs and the exhaustive oracle status ledger → `U`;
+- a top-level digest over all of the above.
+
+The verifier re-validates witnesses + cuts, evaluates the dual bound in rational
+arithmetic, derives `U` from the action IDs, checks `L ≤ U`, and verifies the
+top-level digest. `mip_dual_bound` is diagnostic only; a lower bound stronger than
+the LP/lattice lift, if ever needed, requires a proof-producing B&B object, not a
+bare solver claim.
 
 ## Performance gates (secondary — measured, not kill conditions this round)
 
@@ -91,19 +163,25 @@ these reverts to it and ends the round:
 
 - any single-artifact / receipt-binding gate cannot be met (endpoints stay
   hand-stitched);
-- a reported `L` labelled `certified`/`weak_duality` that is not reproduced by an
-  independent re-load of `_self_verified_master_cost`;
-- any `L > verified U` on a frozen input;
-- worker parity fails (1 vs 16 disagree on collision existence or feasibility);
-- a fresh clone with a missing/mismatched ledger proceeds instead of failing
-  closed.
+- a published `L` that is not reproduced by an *independent* re-evaluation of the
+  exact `Fraction` Lagrangian bound on the recorded dual;
+- any ledger cut that fails the independent cut-validity check yet contributes to
+  `L`;
+- any `L > verified U` on a frozen input (in rational arithmetic);
+- a `solver_asserted` HiGHS dual published as an endpoint of the contract interval;
+- worker parity fails (1 vs 16 disagree on cell-status or feasibility on any tested
+  cover);
+- a fresh clone with a missing/mismatched ledger, or a dirty claim-grade worktree,
+  proceeds instead of failing closed.
 
 ## Scope discipline
 
-- **In scope:** `InstanceReceipt`, provenance-bound cut ledger, the single
-  `v4_driver` wiring master → oracle verify → deletion → one artifact, reusing the
-  production `_self_verified_master_cost` / `_cost_lattice` certifier, and the
-  parity artifact.
+- **In scope:** `InstanceReceipt` + `RunReceipt`, the witness-carrying,
+  provenance-bound cut ledger and its independent validator, the single
+  `v4_driver` wiring master → oracle verify → deletion → one atomically-published
+  artifact, reusing the production `_integer_lagrangian_bound` /
+  `_anytime_lower_bound` / `_cost_lattice` certifier, and the multi-cover parity
+  artifact.
 - **Out of scope this round:** integrating a versioned `collision_objective` into
   the frozen `synthesis.py` oracle (plan Part B item 4 — a later round);
   the `cost ≤ L` diversification lever against degeneracy (deferred fork B); any
@@ -113,28 +191,42 @@ these reverts to it and ends the round:
 
 ## Requested dissents (≥3, per CCFA)
 
-1. **Receipt completeness.** Does the `InstanceReceipt` digest bind *everything*
-   that could change the interval — is there a field (e.g. the power-polytope
-   constraints, the margin sign convention, float endianness in the vector hash)
-   whose change would not alter the digest yet would alter `[L, U]`?
-2. **"weak_duality" honesty.** Is feeding the strong-cut MILP dual into
-   `_self_verified_master_cost` actually a *self-verified* certificate, or does it
-   silently re-trust HiGHS (e.g. if the exact dual is reconstructed from the same
-   solver's basis)? If the latter, gate 2 is not met and the word "certified"
-   stays off.
-3. **Fail-closed reachability.** Are there paths (worker pool crash, SIGALRM,
-   partial ledger write) where the driver emits a `[L, U]` artifact without a
-   valid receipt, i.e. the binding is bypassable under failure?
-4. **Parity sufficiency.** Does agreement on one frozen input generalise, or could
-   worker count change the collision set on a *different* selection (e.g.
-   nondeterministic LP tie-breaking under threads)?
+1. **Receipt completeness.** With the `RunReceipt` added, is there *still* a knob
+   that moves `[L, U]` at fixed instance yet is bound by neither digest (e.g. a
+   BLAS thread count that changes LP tie-breaking, an env var read by the oracle)?
+2. **Cut-validity independence.** Is the reload cut validator genuinely independent
+   of the derivation that produced the cut, or does it share the same masking
+   expression (so a systematic derivation bug would pass its own check)?
+3. **Exact-`L` honesty.** Is `_integer_lagrangian_bound` on the recorded dual truly
+   solver-independent end-to-end, including how the dual vector is *captured* from
+   HiGHS (rounding, sign, ordering) before it is fed in? Could a mis-captured dual
+   ever *raise* the bound rather than only loosen it?
+4. **Atomic-publish reachability.** Are there still paths (fsync failure, rename
+   across filesystems, a crash between reload-validate and rename) where a
+   partially-usable artifact survives, or where a valid run is lost as `UNRESOLVED`?
+5. **Parity sufficiency.** Do the chosen frozen covers actually exercise the
+   nondeterministic cells, or could a different selection still diverge under
+   threads?
 
 ## Verification
 
 - All correctness gates as tests in `CertiTherm/tests`, run on a fresh moe-server
   clone from a clean committed revision via
-  `.claude/skills/moe-server-remote/scripts/remote_exec.sh`.
-- One Codex peer-review pass on this round-start before the driver is built, and
-  one on the driver + artifact before merge to `master`.
+  `.claude/skills/moe-server-remote/scripts/remote_exec.sh`. Residual scaffold
+  tests still owed with the driver: cut tampering, partial-write recovery, and
+  exact re-derivation of `L` and `U` end-to-end.
+- One Codex peer-review pass on this round-start (this revision) before the driver
+  is built, and one on the driver + artifact before merge to `master`.
 - D8 (the diagnostic table above, finalised once the two deletions complete) is
   recorded in `docs/V3_DEV_REHEARSAL_EVIDENCE.md` as NON-CLAIM.
+
+## Change log
+
+- **v2 (2026-07-23):** revised after the round-start peer review. Corrected the `L`
+  path (exact `_integer_lagrangian_bound`/`_anytime_lower_bound`, not
+  `_self_verified_master_cost`, which is closure-only; never the scalar
+  `mip_dual_bound`); added the cut-validity gate (F9), exact rational endpoints
+  (F11), `RunReceipt` (F5), claim-grade worktree gate (F6), atomic self-validating
+  publication (F12/F14), multi-cover parity, the two-state artifact contract, and
+  the canonical artifact schema. Scaffold code fixes F2/F3/F4/F7/F12a already
+  landed (`993a55a`).
