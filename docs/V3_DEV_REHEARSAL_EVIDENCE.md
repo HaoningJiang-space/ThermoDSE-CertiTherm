@@ -401,3 +401,57 @@ dev candidate, soundly, at 8× fewer cuts. Dual weights and stabilisation are
 optional refinements, not prerequisites. cuOpt/PDLP remain excluded from the
 certifier; a batched **exact-simplex** GPU separation (propose-verify) is the
 only viable GPU route and is a v4 scalability extension, not a correctness one.
+
+### D6 — internal adversarial review, fixes, and a paired certified re-run
+
+External peer review was unavailable (Codex quota until 2026-07-29), so two
+independent Claude subagents adversarially reviewed the round. Both are recorded
+because the review changed real code and numbers.
+
+**Reviewer 1 (budget/signal fixes) found a HIGH-severity bug in a shipped fix.**
+`override_budget` (the stale-bound fix, `742b17a`) set only the contextvar
+deadline, but `_current_budget` takes `min(contextual, signalled)` and the
+method's `ITIMER_REAL` is still armed when the final refresh runs (the native
+budget raises at `deadline - reserve`, before the signal). The override was
+therefore clamped back to ~reserve seconds (~1 s for an 1800 s budget), and the
+dev runs only passed because the LP finishes within ~1 s. Fixed with an
+`ignore_signal` flag (`db97dd9`); a new test arms `setitimer` as production does
+and fails against the pre-fix code (clamped to 0.49 s). Also fixed:
+`AnytimeResult` still fabricated `seconds=0.0` on worker-death paths (`a934490`)
+and `candidate_at_stop` was lost on a between-candidates timeout (`e727f55`).
+Reviewer 1 confirmed the containment fix, nested timer save/restore, and
+preserved lower bound are correct.
+
+**Reviewer 2 (strong-cut PoC) confirmed the core soundness and found rigor gaps.**
+Verified sound: the strong oracle's feasible set is exactly the original's with
+slacks projected out, and the cut rule is byte-identical, so every cut is a
+genuine necessary constraint. Gaps fixed in `strong_oracle.py`: the "LP"/"MILP"
+figures were the raw primal / incumbent, not certified bounds; the 36× compared
+against a literal recalled from a *different* driver, not a paired run; an
+all-zero cut was mislabeled a "soundness failure" when it is the UNSYNTHESIZABLE
+witness.
+
+**Paired certified re-run (arch_b, 300 s, identical harness, only the objective
+differs).** Certified LP = weak-duality bound; MILP = branch-and-bound dual
+bound (gap 0):
+
+| mode | cuts | support (mean) | certified LP | MILP (dual bound) |
+|---|---:|---:|---:|---:|
+| zero (baseline oracle) | 3068 | 23.7 | 9 | 9 |
+| uniform (strong) | 431 | 2.1 | **720** | **832** |
+
+Isolating the objective change alone (same harness): **LP 80×, MILP 92×**.
+Against the original production baseline (D3, LP 20.1): 36×. Both clear the
+pre-registered 5× gate by a wide margin, and the certified bounds *equal* the raw
+figures reported earlier (gap 0), so D4's 720/832 were correct and
+`C*(arch_b) ≥ 832` is now rigorously certified, not incumbent-based.
+
+**Claims softened after review.** The D5 "generalisation" rows are correlated,
+not four independent points: `resnet50 arch_b` and `transformer arch_b` share
+architecture `arch_b` (same 243-action library), so it is three architectures,
+and three rows report LP = 720 because the LP floor is set by a shared cost
+structure. The MILP lower bounds do differ (832/800/776/744), so per-candidate
+`C* ≥ MILP` holds, but "the 36× generalises" rests on correlated evidence, not
+four independent confirmations. The "L1 is optimal for support" claim rests on
+n = 8 sampled cells and is directional, not settled. The green-light for
+freeze-v4 stands; its breadth is narrower than first stated.

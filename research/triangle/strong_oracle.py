@@ -206,8 +206,13 @@ def run_strong_loop(cand, actions, budget_s, weight_mode):
     soundness_failures = [0]
 
     def current_weights():
-        # uniform = min-cardinality proxy; dual = dual-guided (falls back to
-        # uniform until the first cuts define a master dual).
+        # zero = the ORIGINAL feasibility oracle (no support penalty) run through
+        # THIS identical harness, so a head-to-head isolates only the objective
+        # change (addresses the confound of comparing against a literal recalled
+        # from the production driver). uniform = min-cardinality proxy;
+        # dual = dual-guided (falls back to uniform until cuts define a master dual).
+        if weight_mode == "zero":
+            return np.zeros(len(actions))
         if weight_mode == "dual":
             load = _master_dual_weights(cuts, costs)
             if load is not None and load.max() > 0:
@@ -227,6 +232,8 @@ def run_strong_loop(cand, actions, budget_s, weight_mode):
                 batch.append(pair)
         return batch
 
+    unseparable = [0]
+
     def step():
         nonlocal selected
         batch = one_pass()
@@ -235,10 +242,14 @@ def run_strong_loop(cand, actions, budget_s, weight_mode):
         for pair in batch:
             ledger.generated += 1
             cut = _cut_from_pair(pair, actions)
-            # SOUNDNESS: the strong pair must yield a valid, non-empty cut under
-            # the UNMODIFIED derivation rule.
             if not cut.any():
-                soundness_failures[0] += 1
+                # NOT a soundness failure of the derivation: an all-zero cut is
+                # the UNSYNTHESIZABLE witness -- a pair no registered action
+                # separates (production returns UNSYNTHESIZABLE here). The strong
+                # objective drives pairs toward minimal separation, so it is more
+                # likely to surface one; count it distinctly rather than
+                # discarding it silently as a "soundness failure".
+                unseparable[0] += 1
                 continue
             if _insert_minimal_cut(cuts, cut, masks, ledger):
                 latest["cuts"] = [c.copy() for c in cuts]
@@ -247,21 +258,41 @@ def run_strong_loop(cand, actions, budget_s, weight_mode):
 
     plan, secs, err = _call_under_budget(
         lambda: [step() for _ in range(10_000)], budget_s, f"{budget_s}s budget")
-    return latest["cuts"], costs, secs, err, ledger, soundness_failures[0]
+    return latest["cuts"], costs, secs, err, ledger, unseparable[0]
 
 
 def _lp_bound(C, cost):
+    """Raw primal linprog.fun -- NOT a certified lower bound (solver tolerance
+    can put it above the true optimum). Kept only to show it next to the
+    certified bound."""
     n = cost.shape[0]
     r = linprog(cost, A_ub=-C, b_ub=-np.ones(C.shape[0]), bounds=[(0, 1)] * n,
                 method="highs")
     return r.fun if r.success else None
 
 
-def _milp_opt(C, cost):
+def _certified_lp_bound(cuts, cost):
+    """Certified weak-duality lower bound, NOT raw linprog.fun.
+
+    `_anytime_lower_bound` evaluates L(y) in exact rational arithmetic with
+    directed-downward rounding, so it is valid under solver error; the raw primal
+    objective can sit slightly ABOVE the true LP optimum and is not a lower bound
+    (synthesis.py documents this). Reused verbatim from production.
+    """
+    return _anytime_lower_bound(np.asarray(cost, float), list(cuts))
+
+
+def _milp_lower_bound(C, cost):
+    """Return (certified integer lower bound, gap). Uses the branch-and-bound
+    DUAL bound, not the incumbent: only mip_dual_bound is a guaranteed lower
+    bound on C*; the incumbent (m.fun) can sit above the true optimum by the
+    solver's residual gap."""
     n = cost.shape[0]
     m = milp(c=cost, constraints=LinearConstraint(C, lb=np.ones(C.shape[0]), ub=np.inf),
              integrality=np.ones(n), bounds=Bounds(0, 1))
-    return m.fun if m.success else None
+    if not m.success:
+        return None, None
+    return getattr(m, "mip_dual_bound", m.fun), getattr(m, "mip_gap", None)
 
 
 def main():
@@ -270,32 +301,31 @@ def main():
     print(f"candidate 0 = {cid}: {len(actions)} actions, C_total={cost.sum():.0f}, "
           f"weight_mode={WEIGHT_MODE}, budget={BUDGET_S}s")
 
-    cuts, cost, secs, err, ledger, sound_fail = run_strong_loop(
+    cuts, cost, secs, err, ledger, unseparable = run_strong_loop(
         cand, actions, BUDGET_S, WEIGHT_MODE)
     print(f"ran {secs:.1f}s  antichain={len(cuts)}  generated={ledger.generated}  "
-          f"soundness_failures={sound_fail}  err={err[:60]!r}")
+          f"unseparable_witnesses={unseparable}  err={err[:60]!r}")
+    if unseparable:
+        print(f"  NOTE: {unseparable} pairs no action separates (UNSYNTHESIZABLE "
+              f"at tolerance) -- the upper bound may not be finite for this candidate.")
     if not cuts:
         print("no cuts"); return
     C = np.asarray(cuts, dtype=float)
+    # Persist BEFORE computing bounds, so a bound-side bug never wastes the run.
+    np.savez_compressed(OUTPUT / f"strong_antichain_{WEIGHT_MODE}_{WORKLOAD}_c{CAND_INDEX}.npz",
+                        cuts=C, costs=np.asarray(cost, float))
     support = C.sum(axis=1)
-    print("\n--- STRONG-oracle support |S_e| ---")
+    print("\n--- support |S_e| ---")
     print(f"  min={support.min():.0f}  mean={support.mean():.1f}  "
           f"median={np.median(support):.0f}  max={support.max():.0f}")
     print(f"  ceiling C_total/s_min = {cost.sum()/support.min():.1f}")
-    lp = _lp_bound(C, cost)
-    mp = _milp_opt(C, cost)
-    print(f"\n--- bound over {len(cuts)} strong cuts ---")
-    print(f"  LP   = {lp:.3f}")
-    print(f"  MILP = {mp:.3f}")
-    if WORKLOAD == "resnet50" and CAND_INDEX == 0:
-        print(f"\n--- BASELINE reference (D3, arch_b, zero-objective, 300s/3442 cuts) ---")
-        print(f"  LP = 20.1, MILP = 21.0, s_min = 14")
-        if lp is not None:
-            print(f"\n  strong/baseline LP ratio = {lp/20.1:.2f}x  "
-                  f"(gate: >= 5x -> green-light freeze-v4)")
-    else:
-        print(f"\n  (no baseline for {WORKLOAD} cand{CAND_INDEX}; generalization check: "
-              f"support ~2 and large LP replicate arch_b's behaviour)")
+    lp = _certified_lp_bound(cuts, cost)
+    milp_lb, gap = _milp_lower_bound(C, cost)
+    raw_lp = _lp_bound(C, cost)          # uncertified primal, for reference only
+    print(f"\n--- certified bounds over {len(cuts)} cuts (mode={WEIGHT_MODE}) ---")
+    print(f"  certified LP lower bound (weak duality) = {lp}")
+    print(f"  MILP lower bound (dual, gap={gap})       = {milp_lb}")
+    print(f"  [raw primal linprog.fun, NOT a bound]    = {raw_lp:.3f}")
 
 
 if __name__ == "__main__":
