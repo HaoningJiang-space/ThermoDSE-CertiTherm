@@ -33,7 +33,12 @@ from .core import (
     ThermalFamily,
     WorldPair,
 )
-from .solver_budget import run_highs
+from .solver_budget import override_budget, run_highs
+
+# A small, independent budget for the one bounded LP a timed-out run still owes:
+# the final anytime-lower-bound refresh over the cuts already in hand. Generous
+# for a single relaxation over a few thousand cuts, and still fail-closed.
+_FINAL_REFRESH_BUDGET_S = 30.0
 
 
 class UnresolvedComputation(RuntimeError):
@@ -1768,8 +1773,15 @@ def synthesize_minimum_observation(
             # an actual interval instead of an empty bound column -- the whole
             # value of the anytime path. Guarded so a failure here cannot mask
             # the timeout itself.
+            #
+            # override_budget, NOT the ambient one: the method budget is already
+            # spent, so the refresh LP would otherwise raise "exhausted before
+            # solver launch" and the reported bound would stay at its last
+            # power-of-two value. That starvation made a 300 s run report 5.0
+            # while its accumulated cuts justified 20.1 (see research/triangle).
             try:
-                _refresh_bound()
+                with override_budget(_FINAL_REFRESH_BUDGET_S):
+                    _refresh_bound()
             except _UNRESOLVED_FAILURES:
                 pass
         candidate_ids, candidate_cost = _candidate_fields()

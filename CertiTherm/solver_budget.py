@@ -64,6 +64,36 @@ def budget_scope(seconds: float) -> Iterator[None]:
         _ACTIVE_BUDGET.reset(token)
 
 
+@contextmanager
+def override_budget(seconds: float) -> Iterator[None]:
+    """Install a FRESH deadline, ignoring any (possibly expired) parent.
+
+    `budget_scope` only ever tightens toward the parent, so once a method's
+    budget has expired nothing nested under it can run -- every solve raises
+    "method budget exhausted before solver launch". That is correct while the
+    method is executing, but wrong for the one bounded solve a timed-out run
+    still owes: the final anytime-lower-bound refresh over the cuts already in
+    hand. Starving it made a 300 s run report a lower bound of 5.0 when its
+    accumulated cuts justified 20.1.
+
+    This replaces the active deadline outright rather than tightening toward it,
+    so the refresh gets a small, independent, still-fail-closed budget. Use it
+    only for bounded, deterministic cleanup work after a deadline has passed.
+    """
+
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("solver budget must be finite and positive")
+    state = _BudgetState(
+        deadline_s=time.monotonic() + seconds,
+        return_reserve_s=_return_reserve(seconds),
+    )
+    token = _ACTIVE_BUDGET.set(state)
+    try:
+        yield
+    finally:
+        _ACTIVE_BUDGET.reset(token)
+
+
 def _signal_budget() -> Optional[_BudgetState]:
     """Fallback for callers that install ITIMER_REAL without ``budget_scope``."""
 
