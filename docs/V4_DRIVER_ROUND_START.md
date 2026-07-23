@@ -90,10 +90,14 @@ Derived from the two 2026-07-23 audits and the round-start peer review:
    **independent validator** (not the derivation expression that produced it)
    re-checks: the witness's power feasibility in the polytope, its SAFE/REJECT
    classification under the thermal family, observation indistinguishability under
-   the currently-selected actions, and recomputes the separator mask from action
-   tolerances — then confirms the ledger cut equals or conservatively follows from
-   that mask. Any cut that fails → `UNRESOLVED`. Without this gate `L` is
-   "self-verified given an *unverified* ledger", not a physical-instance certificate.
+   the currently-selected actions, and recomputes the full separator set `S` from
+   action tolerances — then confirms the ledger cut **equals `S` exactly**. On
+   soundness: only a *strict subset* of `S` is unsound (it can inflate `L`); a
+   superset is a valid-but-weaker constraint. We nonetheless adopt **exact
+   equality** as a deliberately stronger, canonical ledger invariant, not because a
+   superset is mathematically invalid. Any cut that fails → `UNRESOLVED`. Without
+   this gate `L` is "self-verified given an *unverified* ledger", not a
+   physical-instance certificate.
 4. **Exact rational endpoints (review F11).** `U` is recomputed from the cover's
    action IDs as `Σ Fraction(float(cost))`; `L ≤ U` and closure are decided in
    rational arithmetic. No `abs(L−cover)<0.5` integer assumption; `_cost_lattice`

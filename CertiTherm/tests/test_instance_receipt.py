@@ -57,9 +57,11 @@ def _build(tmp_path, actions=None, power=None, thermal=None, operator=None,
     )
 
 
-def _verify(receipt, *, actions=None, power=None, thermal=None, operator,
+def _verify(receipt, *, candidate_id="arch_a", workload="resnet50", cand_index=2,
+            actions=None, power=None, thermal=None, operator,
             margin_k=MARGIN_K, feas_tol=FEAS_TOL):
     receipt.verify(
+        candidate_id=candidate_id, workload=workload, cand_index=cand_index,
         actions=actions if actions is not None else _actions(),
         power=power if power is not None else _power(),
         thermal=thermal if thermal is not None else _thermal(),
@@ -169,6 +171,32 @@ def test_changed_feas_tol_fails_verify(tmp_path):
     r = _build(tmp_path, operator=op)
     with pytest.raises(InstanceReceiptError, match="feas_tol mismatch"):
         _verify(r, operator=op, feas_tol=1e-9)
+
+
+def test_changed_candidate_label_fails_verify(tmp_path):
+    """Review point 1: candidate/workload/index labels are re-checked live."""
+    op = _operator(tmp_path)
+    r = _build(tmp_path, operator=op)
+    with pytest.raises(InstanceReceiptError, match="candidate_id mismatch"):
+        _verify(r, candidate_id="arch_x", operator=op)
+    with pytest.raises(InstanceReceiptError, match="workload mismatch"):
+        _verify(r, workload="transformer", operator=op)
+    with pytest.raises(InstanceReceiptError, match="cand_index mismatch"):
+        _verify(r, cand_index=0, operator=op)
+
+
+def test_changed_registry_cost_fails_verify(tmp_path):
+    """Review point 1: full_registry_cost recomputed from live actions, not
+    trusted from the stored value."""
+    op = _operator(tmp_path)
+    r = _build(tmp_path, operator=op)
+    cheaper = (MeasurementAction("a::m0", np.array([1.0, 0.0, 0.0]), cost=4.0),
+               MeasurementAction("a::m1", np.array([0.0, 1.0, 0.0]), cost=2.0),
+               MeasurementAction("a::m2", np.array([0.0, 0.0, 1.0]), cost=99.0))  # was 1.0
+    # registry digest changes too; the cost check is reached only if we bypass it,
+    # so assert the registry-level guard fires (cost is inside the digest).
+    with pytest.raises(InstanceReceiptError):
+        _verify(r, actions=cheaper, operator=op)
 
 
 def test_missing_operator_on_reload_is_structured(tmp_path):

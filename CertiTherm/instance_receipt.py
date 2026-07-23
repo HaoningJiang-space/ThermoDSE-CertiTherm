@@ -263,6 +263,9 @@ class InstanceReceipt:
     def verify(
         self,
         *,
+        candidate_id: str,
+        workload: str,
+        cand_index: int,
         actions: Sequence["MeasurementAction"],
         power: "PowerPolytope",
         thermal: "ThermalFamily",
@@ -275,12 +278,20 @@ class InstanceReceipt:
         drifted instance cannot masquerade as this one. The caller must treat any
         raise as UNRESOLVED, never continue.
 
-        Checks every semantic field that can move `[L, U]` (audit F3/F4): the
-        registry, the power polytope, the *semantic* thermal family (not merely the
-        operator file), the operator source SHA, AND the run tolerances `margin_k`
-        / `feas_tol` — a changed margin or feasibility tolerance alters collisions
-        and the interval while leaving the instance math untouched, so it must be
-        checked against the live values here, not just stored."""
+        Re-checks EVERY semantic field the receipt binds (review point 1): the
+        candidate/workload/index labels, the registry, the power polytope, the
+        *semantic* thermal family (not merely the operator file), the operator
+        source SHA, the run tolerances `margin_k` / `feas_tol` (a changed margin or
+        tolerance moves `[L, U]` while leaving the instance math untouched), and the
+        `full_registry_cost` recomputed from the live actions (not the stored
+        value). `git_sha` is provenance, checked separately by
+        `assert_claim_grade_revision` (clean + committed live HEAD)."""
+        _require(candidate_id == self.candidate_id,
+                 f"candidate_id mismatch: live {candidate_id!r} vs receipt {self.candidate_id!r}")
+        _require(workload == self.workload,
+                 f"workload mismatch: live {workload!r} vs receipt {self.workload!r}")
+        _require(int(cand_index) == self.cand_index,
+                 f"cand_index mismatch: live {cand_index} vs receipt {self.cand_index}")
         _require(tuple(a.action_id for a in actions) == self.action_ids,
                  "action-ID ordering does not match the receipt")
         _require(_registry_digest(actions) == self.registry_digest,
@@ -298,6 +309,31 @@ class InstanceReceipt:
                  "margin_k mismatch: live run uses a different margin than the receipt")
         _require(float(feas_tol).hex() == float(self.feas_tol).hex(),
                  "feas_tol mismatch: live run uses a different tolerance than the receipt")
+        live_cost = float(sum(float(a.cost) for a in actions))
+        _require(live_cost.hex() == float(self.full_registry_cost).hex(),
+                 f"full_registry_cost mismatch: live {live_cost} vs receipt {self.full_registry_cost}")
+
+    def assert_claim_grade_revision(self, repo_root: Path) -> None:
+        """Claim-grade provenance gate (review point 1 / round-start gate 7): the
+        live HEAD must equal the receipt's `git_sha` AND the relevant worktree must
+        be clean. A `None` git_sha, a drifted HEAD, or a dirty tree raises -> the
+        caller must treat it as UNRESOLVED, never publish a claim-grade artifact.
+        Kept separate from `verify()` because instance identity does not depend on
+        the commit, but a *claim* does."""
+        _require(self.git_sha is not None,
+                 "receipt has no git_sha; not a claim-grade instance")
+        live = _git_revision(Path(repo_root))
+        _require(live == self.git_sha,
+                 f"live HEAD {live} != receipt git_sha {self.git_sha}")
+        try:
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=str(repo_root), check=True, capture_output=True, text=True,
+            ).stdout.strip()
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+            raise InstanceReceiptError(f"could not check worktree cleanliness: {exc}")
+        _require(status == "",
+                 "worktree is dirty; a claim-grade run requires a clean committed tree")
 
     # -- serialisation ----------------------------------------------------
 

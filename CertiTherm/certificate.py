@@ -207,8 +207,19 @@ def validate_cut(
     guard: Fraction,
 ) -> FrozenSet[int]:
     """Fail closed unless `cut_indices` equals EXACTLY the full separator set of the
-    witness (review F4): a proper subset is a stronger, unproven constraint and a
-    superset admits non-separating actions — neither is a valid necessary cut.
+    witness. Soundness asymmetry (review F4, corrected):
+
+      * a STRICT SUBSET S'' ⊂ S is UNSOUND -- a feasible cover may separate the
+        pair by an action in S \\ S'', satisfying the true necessary constraint
+        `Σ_{a∈S} x_a ≥ 1` while violating `Σ_{a∈S''} x_a ≥ 1`, so a subset cut can
+        inflate the lower bound;
+      * a SUPERSET S' ⊃ S is a VALID but weaker necessary constraint (every
+        feasible cover hits S, hence S'); it cannot inflate the bound.
+
+    We nonetheless require EXACT EQUALITY as a deliberately stronger, simpler
+    ledger invariant (each cut is precisely its witness's separators), not because
+    a superset is mathematically invalid. Exact equality also makes the ledger
+    canonical and easy to replay.
 
     Also require the separator set to be disjoint from `selected` (review F5):
     recomputed WITHOUT any selected-subtraction, so a selected action that really
