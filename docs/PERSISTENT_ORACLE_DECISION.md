@@ -148,3 +148,29 @@ hinges on reentrancy of the concurrent solve, not on ordering. Applied:
 - Repeated trials with variance; pinned hardware/software.
 - Optional decomposition (no-kernel+thread) for clean factorial attribution.
 - Keep the thread backend OPT-IN (env-gated) until the above closes.
+
+## Kernel-first MaxHS — the lower-bound step change (DIAGNOSTIC)
+
+arch_c, ~600 s budget each, VERIFY_WORKERS=8, kernel-first verify OFF vs ON:
+
+| config | rounds in budget | L reached | wall |
+|---|---:|---:|---:|
+| kernel-first OFF | 23 | 896 | 605 s |
+| kernel-first ON | **174** | **960** | 622 s (incl. 18 s kernel build) |
+
+**7.6x more rounds in the same budget, and a strictly better bound.** The old D8
+run needed 1800 s to reach L=928 on this candidate; kernel-first reaches L=960 in
+600 s -- better bound on a 3x smaller budget. This is the lower-bound counterpart to
+the 21x deletion result: the verify no longer pays ~681 strong LPs per refuted
+round, only ~48.
+
+Combined pipeline implication: L=960 with U=1091 is a **1.136x gap**, reached in
+~600 s (MaxHS) + 59 s (kernel+thread deletion) ~= 11 min, versus ~1800 s + 1238 s
+~= 51 min before. The 1.2x-gap threshold (L >= 1091/1.2 = 909) is crossed well
+before the 600 s mark, so **time-to-1.2x-gap is plausibly under the 10 min gate** --
+to be confirmed by a clean run that stops at the gap rather than at a wall budget.
+
+**NOT claim-grade:** this ran on a DIRTY checkout (HEAD 5f18f98 with the two maxhs
+files checked out at 2caeb68, dirty=2) and under contention from the concurrent
+comprehensive eval. A clean claim-grade re-run at a single pinned commit, with a
+stop-at-gap criterion and no competing load, is owed before this becomes a claim.
