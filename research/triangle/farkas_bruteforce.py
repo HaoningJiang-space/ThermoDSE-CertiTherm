@@ -98,6 +98,30 @@ def margin_gamma(j, selected):
     return float(r.fun) if r.status == 0 else float("nan")
 
 
+def margin_inf(j, selected):
+    """Gamma_inf_j(S) = min_{z in Q_j} max_{i in S} (|d_i'z| - tau_i)  (min-max form).
+
+    Duplicate-invariant counterpart of the sum-hinge: it is the smallest tolerance
+    inflation that would destroy identifiability at cell j. Epigraph LP over (z, t)."""
+    A, b = rows_for_cell(j, ())
+    nz = 2 * D
+    if not selected:
+        return float("-inf")
+    rows, rhs = [], []
+    for r in range(A.shape[0]):
+        rows.append(np.concatenate((A[r], [0.0]))); rhs.append(b[r])
+    for i in selected:
+        d = np.concatenate((ACT[i], -ACT[i]))
+        rows.append(np.concatenate((d, [-1.0])));  rhs.append(TAU[i])
+        rows.append(np.concatenate((-d, [-1.0]))); rhs.append(TAU[i])
+    r = linprog(np.concatenate((np.zeros(nz), [1.0])),
+                A_ub=np.array(rows), b_ub=np.array(rhs),
+                bounds=[(None, None)] * (nz + 1), method="highs")
+    if r.status == 2:
+        return float("inf")                          # Q_j empty -> cell unreachable
+    return float(r.fun) if r.status == 0 else float("nan")
+
+
 def main():
     print(f"tiny instance: D={D} blocks, {NC} cells, {NA} actions, big-M={BIG_M:g}")
 
@@ -131,11 +155,33 @@ def main():
             if (g > 1e-9) != identifies:
                 gmis += 1
                 print(f"  GAMMA MISMATCH S={S}: Gamma={g:.3e} identifies={identifies}")
-    print(f"(A2) margin theorem Gamma(S)>0 <=> identifying: {gmis} mismatches "
+    print(f"(A2) margin theorem Gamma_1(S)>0 <=> identifying: {gmis} mismatches "
           f"-> {'PASS' if gmis == 0 else 'FAIL'}")
     if best is not None:
-        print(f"     Gamma at the optimum S={best}: {gammas[best]:.4f}  "
-              f"(a real separation margin, not a knife edge)")
+        print(f"     Gamma_1 at the optimum S={best}: {gammas[best]:.4f}")
+
+    # ---- (A3) min-max form used by the corrected audit --------------------
+    imis, dup_ok = 0, None
+    for r in range(NA + 1):
+        for S in itertools.combinations(range(NA), r):
+            gi = min(margin_inf(j, S) for j in range(NC))
+            identifies = all(is_empty(*rows_for_cell(j, S)) for j in range(NC))
+            if (gi > 1e-9) != identifies:
+                imis += 1
+                print(f"  GAMMA_INF MISMATCH S={S}: Gamma_inf={gi:.3e} id={identifies}")
+    print(f"(A3) min-max theorem Gamma_inf(S)>0 <=> identifying: {imis} mismatches "
+          f"-> {'PASS' if imis == 0 else 'FAIL'}")
+    if best is not None:
+        gi_best = min(margin_inf(j, best) for j in range(NC))
+        # duplication invariance: repeating a channel must NOT change the min-max
+        dup = tuple(sorted(best + (best[0],))) if len(set(best)) == len(best) else best
+        gi_dup = min(margin_inf(j, dup) for j in range(NC))
+        dup_ok = abs(gi_best - gi_dup) < 1e-9
+        print(f"     Gamma_inf at S={best}: {gi_best:.4f}; with a duplicated channel: "
+              f"{gi_dup:.4f} -> duplication-invariant: {dup_ok}")
+        g1_dup = min(margin_gamma(j, dup) for j in range(NC))
+        print(f"     (contrast) Gamma_1 same duplication: {gammas[best]:.4f} -> "
+              f"{g1_dup:.4f} -> inflated by duplication: {g1_dup > gammas[best] + 1e-9}")
 
     # ---- (B) monolithic Farkas MIP ---------------------------------------
     # variables: x (NA binaries) then, per cell, y_j >= 0 over that cell's rows built
