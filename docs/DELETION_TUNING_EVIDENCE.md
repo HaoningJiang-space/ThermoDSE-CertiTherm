@@ -65,9 +65,32 @@ yet **8 actions differ in each direction** (`cost` keeps `module::mtxu`,
 `post_route::ibuf_15`, `post_route::io_3_13`...).
 
 So the earlier reading — "the inclusion-minimal cover is unique, ordering only buys speed" —
-was wrong. These are two DISTINCT equal-cost inclusion-minimal covers, which is direct
-evidence that the optimal cost face is degenerate. That degeneracy was previously only
-inferred indirectly from the MaxHS plateau at `L=1256`; here it is exhibited.
+was wrong. The correct statement:
+
+> Cost-first and spectral-first deletion reach two distinct inclusion-minimal FEASIBLE
+> covers with identical surrogate cost `U = 1091` and cardinality 143, differing by eight
+> actions in each direction. This demonstrates order sensitivity and degeneracy among
+> feasible upper-bound endpoints under the current `1/2/4/8` cost lattice. It does **not**
+> establish multiplicity of globally optimal covers.
+
+**A stronger claim was made and is withdrawn.** An earlier version called this "direct
+evidence that the optimal cost face is degenerate" and tied it to the MaxHS plateau at
+`L = 1256`. That is wrong twice over: `upper_bound.py` produces an inclusion-minimal cover,
+not a minimum-cost one, and `U = 1091` on `arch_c` is an unclosed interval endpoint with no
+optimality proof; while `L = 1256` is a plateau on a DIFFERENT candidate (`arch_b`). Joining
+them mixes evidence across instances.
+
+What the finding is actually worth:
+
+1. deletion ordering changes the SEMANTIC composition of the contract while leaving the
+   hand-assigned scalar cost untouched;
+2. the current `1/2/4/8` lattice cannot distinguish these different contracts at all;
+3. under measured acquisition cost, noise, or reuse cost, the equal-cost relation may well
+   dissolve — in which case one of the two covers is genuinely cheaper.
+
+The next results table must therefore report Jaccard/Hamming distance between the two
+covers, their composition by action class and fidelity, and the cost difference recomputed
+under a MEASURED cost vector rather than the frozen lattice.
 
 The substantive speed evidence is the DETERMINISTIC counters, not wall time: oracle queries
 and `POOL_REACHED` are exact counts unaffected by host load, and they drop consistently
