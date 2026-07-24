@@ -144,15 +144,15 @@ def main():
     cand, actions, cid = candidate()
     cost = np.array([a.cost for a in actions], dtype=float)
     n = len(actions)
-    deadline = time.perf_counter() + BUDGET_S
     calls = [0]
 
     deletion_exhaustive = DELETION_MODE == "exhaustive"
-    kernel = None
+    kernel, t_kernel, t_initial = None, 0.0, 0.0
     if USE_KERNEL and not deletion_exhaustive:
         from CertiTherm.thermal_kernel import build_kernel
         t_k = time.perf_counter()
         kernel = build_kernel(cand.power, cand.thermal, MARGIN_K, FEAS_TOL)
+        t_kernel = time.perf_counter() - t_k
         print(f"kernel built in {time.perf_counter()-t_k:.0f}s: SAFE "
               f"{kernel.n_safe_full}->{len(kernel.safe_row_indices)}, REJECT "
               f"{kernel.n_reject_full}->{len(kernel.reject_specs)}", flush=True)
@@ -170,11 +170,20 @@ def main():
     # the initial full-registry certification is a genuine absence -> exhaustive
     if not collision_free(cand, actions, set(range(n)), exhaustive=True):
         print("full registry NOT collision-free -> UNSYNTHESIZABLE"); return
-    print(f"full registry collision-free ({time.perf_counter()-t0:.0f}s), U0={cost.sum():.0f}",
+    t_initial = time.perf_counter() - t0
+    print(f"full registry collision-free ({t_initial:.0f}s), U0={cost.sum():.0f}",
           flush=True)
 
     cover = set(range(n))
     order = deletion_order(cand, actions, cost, n)
+    # BUDGET_S bounds the DELETION SWEEP only. It used to start before the kernel
+    # build and the initial exhaustive full-registry certification, so those two
+    # host-dependent phases ate into the sweep's budget -- meaning a slow host could
+    # truncate the sweep, change which cover is reached, and change the counters.
+    # That makes an A/B on ordering uninterpretable, because the arms would differ
+    # by available budget rather than by ordering.
+    t_phase = {"kernel_s": t_kernel, "initial_verify_s": t_initial}
+    deadline = time.perf_counter() + BUDGET_S
     completed = True
     i, chunk = 0, min(64, n)                                 # adaptive group size
     while i < len(order):
@@ -215,6 +224,9 @@ def main():
         "lp_workers": os.environ.get("CERTITHERM_LP_WORKERS"),
         "deletion_mode": DELETION_MODE,
         "deletion_order": DELETION_ORDER,
+        "kernel_build_s": t_phase["kernel_s"],
+        "initial_verify_s": t_phase["initial_verify_s"],
+        "deletion_budget_s": BUDGET_S,
         "use_kernel": USE_KERNEL,
     }
     # MANIFEST_TAG keeps concurrent/successive arms from overwriting each other's
