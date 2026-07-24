@@ -87,3 +87,31 @@ cells: shares matrices, no spawn/pickle), then paired A/B (baseline / kernel-onl
 kernel+threads / kernel+persistent-process / kernel workers=1) on a clean checkout,
 verifying identical U/cover/digests, targeting a ≥15% cut of the kernel-only time
 (4.25× → ≥5×). Only commit a production backend if the A/B clears it.
+
+## Backend A/B result — thread beats process 4.9x; kernel+thread = 21x end-to-end
+
+Clean checkout 8b09994, arch_c, kernelized first-collision deletion, LP_WORKERS=16,
+both to completion, identical U=1091 / cover=143:
+
+| config | wall | note |
+|---|---:|---|
+| baseline (no kernel, process) | 1238 s | claim-grade reference |
+| kernel + process | 290 s | 4.27x (kernel lever) |
+| kernel + thread | 59 s | **4.9x thread-on-kernel; 21x combined end-to-end** |
+
+The 52 pool-reaching queries each spawned a fresh ProcessPoolExecutor + re-pickled
+the matrices (~230 s total); the ThreadPoolExecutor shares the matrices with no
+spawn, so kernel+thread is 4.9x faster than kernel+process and **21x vs the
+no-kernel baseline** -- clearing the >=5x goal by a wide margin, with identical
+U/cover (sound). HiGHS releases the GIL enough that threads win at ~48 cells.
+
+**Caveats (honest):**
+- The thread backend is a MEASUREMENT prototype. Before production it needs the
+  review's hardening: ordered-reply/coverage validation, poison-on-failure, the
+  SIGALRM lifecycle rules, and a HiGHS-internal-thread oversubscription check.
+- 59 s includes the one-time 17 s kernel build.
+- Decomposition owed: the thread lever removes per-query pool spawns, which is
+  compression-INDEPENDENT, so it should generalise across candidates better than
+  the kernel lever. A no-kernel+thread config (the review's config 3) would
+  separate the two; the thread backend is currently only in the kernelized sibling,
+  not the frozen baseline path.
