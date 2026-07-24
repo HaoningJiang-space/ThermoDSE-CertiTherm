@@ -77,7 +77,18 @@ def rows_for_cell(j, selected):
 # first real run: for a SELECTED action the LP constraint is |d_i'z| <= tau_i, and
 # the returned point sat a few ulps outside, which classified it as a separator of
 # the very collision it was supposed to forbid.
-SEP_GUARD = 1e-6
+#
+# The band is DERIVED, not chosen. HiGHS's default primal feasibility tolerance is
+# `eps`; the returned point may violate each row and each bound by up to `eps`.
+# For d_i = (a_i, -a_i) applied to (p_safe, p_unsafe), the induced error in
+# |d_i'z| is bounded by 2*||a_i||_1*eps from the two power vectors, plus eps from
+# the measurement row itself. Hence a PER-ACTION band -- a single global constant
+# would be too loose for small ||a_i||_1 and too tight for large.
+LP_FEAS_TOL = 1e-7                      # HiGHS default primal feasibility tolerance
+
+
+def sep_guard(i):
+    return LP_FEAS_TOL * (1.0 + 2.0 * float(np.abs(ACT[i]).sum()))
 
 
 def canonical_separators(delta, selected):
@@ -97,9 +108,10 @@ def canonical_separators(delta, selected):
     seps, ambiguous = [], False
     for i in range(NA):
         gap = abs(float(ACT[i] @ delta))
-        if gap > TAU[i] + SEP_GUARD:
+        g = sep_guard(i)
+        if gap > TAU[i] + g:
             seps.append(i)
-        elif gap >= TAU[i] - SEP_GUARD and i not in sel:
+        elif gap >= TAU[i] - g and i not in sel:
             ambiguous = True
     return tuple(seps), ambiguous
 
@@ -360,11 +372,75 @@ def lazy_bnc(lock_mode="correct", presolve=True):
     return (float(COST[list(S)].sum()), S), stats, status, cuts, wits
 
 
+def set_instance(d, act, tau, cost):
+    global D, ACT, TAU, COST, NA, NC
+    D, ACT, TAU, COST = d, act, tau, cost
+    NA, NC = len(act), d
+
+
+def random_instance(rng):
+    """A random tiny instance. Agreement on ONE instance can be luck; the
+    formulation claim needs differential testing over many."""
+    d = int(rng.integers(2, 5))
+    na = int(rng.integers(3, 7))
+    act = rng.integers(0, 2, size=(na, d)).astype(float)
+    for r in range(na):
+        if not act[r].any():                       # no all-zero measurement vector
+            act[r, int(rng.integers(0, d))] = 1.0
+    tau = np.full(na, float(rng.choice([0.05, 0.1, 0.25])))
+    cost = rng.integers(1, 5, size=na).astype(float)
+    return d, act, tau, cost
+
+
+def random_sweep(n, seed):
+    """Three-way agreement over `n` random instances. Reports the breakdown
+    honestly: instances that are UNSYNTHESIZABLE or trivially certified by the
+    empty set are skipped, not counted as passes."""
+    rng = np.random.default_rng(seed)
+    saved = (D, ACT, TAU, COST)
+    agreed = skipped = failed = 0
+    trivial = 0
+    for k in range(n):
+        set_instance(*random_instance(rng))
+        bf = brute_force()
+        if bf is None:
+            skipped += 1; continue                 # no certifying subset exists
+        if bf[0] == 0.0:
+            trivial += 1                           # empty set already certifies
+        ihs_cost, _, _, ihs_st = outer_ihs()
+        res, stats, _, cuts, wits = lazy_bnc("correct", True)
+        bnc_cost = res[0] if res else None
+        ok_cuts, _ = verify_cuts(cuts, wits)
+        lb = certified_lower_bound(cuts)
+        lb_ok = lb is None or float(lb[1]) <= bf[0] + 1e-12
+        if (ihs_st == "OK" and ihs_cost is not None and bnc_cost is not None
+                and abs(ihs_cost - bf[0]) < 1e-6 and abs(bnc_cost - bf[0]) < 1e-6
+                and ok_cuts and lb_ok):
+            agreed += 1
+        else:
+            failed += 1
+            print("  MISMATCH seed=%d k=%d: brute=%s ihs=%s(%s) bnc=%s cuts_ok=%s lb_ok=%s"
+                  % (seed, k, bf[0], ihs_cost, ihs_st, bnc_cost, ok_cuts, lb_ok))
+            print("    D=%d ACT=%s TAU=%s COST=%s" % (D, ACT.tolist(), TAU.tolist(),
+                                                     COST.tolist()))
+    set_instance(*saved)
+    print("random sweep: %d agreed, %d failed, %d skipped (no certifying subset), "
+          "%d of the agreed were trivially certified by the empty set"
+          % (agreed, failed, skipped, trivial))
+    return failed == 0 and agreed > 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lock-mode", choices=("correct", "reversed"), default="correct")
     ap.add_argument("--presolve", choices=("on", "off"), default="on")
+    ap.add_argument("--random", type=int, default=0,
+                    help="run N random instances through the three-way check and exit")
+    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
+
+    if args.random:
+        sys.exit(0 if random_sweep(args.random, args.seed) else 1)
 
     print("tiny instance: D=%d blocks, %d cells, %d actions" % (D, NC, NA))
     print("mode: lock=%s presolve=%s" % (args.lock_mode, args.presolve))
