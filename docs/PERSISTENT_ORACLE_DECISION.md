@@ -174,3 +174,42 @@ to be confirmed by a clean run that stops at the gap rather than at a wall budge
 files checked out at 2caeb68, dirty=2) and under contention from the concurrent
 comprehensive eval. A clean claim-grade re-run at a single pinned commit, with a
 stop-at-gap criterion and no competing load, is owed before this becomes a claim.
+
+## COMPREHENSIVE REAL-WORKLOAD EVAL — the 21x does NOT generalise
+
+Clean checkout 5f18f98 (dirty=0), 52 CPUs, WORKERS=16, python 3.8.10 / numpy 1.24.4
+/ scipy 1.10.1. Every dev candidate, baseline (no kernel, process) vs kernel+thread,
+both to completion:
+
+| candidate | base | kernel+thread | speedup | U (both) | cover (both) | kernel build | cell compression |
+|---|---:|---:|---:|---:|---:|---:|---|
+| resnet50 c1 (arch_c) | 952 s | **58 s** | **16.4x** | 1091 | 143 | 18 s | 543->48 (11.3x) |
+| resnet50 c2 (arch_a) | 1394 s | 573 s | **2.43x** | 1457 | 188 | 70 s | 711->280 (2.54x) |
+| resnet50 c0 (arch_b) | 1353 s | 895 s | **1.51x** | 1383 | 179 | 78 s | 681->364 (1.87x) |
+| transformer c0 (arch_b) | 1408 s | 1218 s | **1.16x** | 1383 | 179 | 118 s | 681->405 (1.68x) |
+
+**SOUNDNESS: U and cover are IDENTICAL between baseline and kernel+thread on ALL
+FOUR candidates.** The kernel changes speed only, on every real workload tested.
+
+**The headline must change.** The end-to-end speedup tracks the cell compression
+almost exactly (16.4x/2.43x/1.51x/1.16x against 11.3x/2.54x/1.87x/1.68x), and
+arch_c is the compression OUTLIER. Comprehensively:
+
+- **the >=5x gate is met on 1 of 4 real candidates (arch_c only)**;
+- median end-to-end speedup is ~2x, worst case 1.16x;
+- the kernel BUILD cost also grows as compressibility falls (18 s -> 118 s), eating
+  into the gain exactly where the gain is smallest.
+
+So "21x" (and the 16.4x here) is an arch_c figure, NOT a general result. The honest
+claim is: *kernel+thread is sound on every candidate and buys 1.16x-16.4x end-to-end
+(median ~2x), tracking how compressible that instance's thermal frontier is.*
+
+Note: resnet50 c0 and transformer c0 are the same architecture (arch_b) on different
+workloads and converge to the same U=1383 / cover=179.
+
+### What this implies for the goal
+The `end-to-end >=5x` acceptance gate is NOT generally met by kernel+thread alone.
+Reaching it on the low-compression candidates needs the levers the review ranked
+next -- persistent native HiGHS models with basis reuse (the per-cell LPs differ by
+one row), adaptive chunked verification, and the kernel-first MaxHS lever (which is
+compression-dependent too, but attacks a different loop).
