@@ -217,16 +217,53 @@ time-to-same-bound. At 1.1–1.3x it is an engineering backend, not a paper cont
 Only after C passes. Only if BOTH reduce oracle work does the global margin warm start get
 added and the combination measured.
 
-## Gate A — RESULT: PASS (moe-server, fresh clone, `d69d53b`)
+## Gate A — RESULT: PASS **as a SCIP wiring and mutation check only**
+
+### What Gate A does NOT establish (peer review, accepted)
+
+The three arms are **not independent**. Brute force enumerates all `2^m` subsets but calls
+the *same* `separate` routine as both algorithms. A systematic error in the collision LP,
+the guard semantics, witness validity, or the separator definition would make all three
+arms agree on the same wrong answer. Gate A therefore checks **master/callback wiring
+against exhaustive enumeration of the same approximate predicate** — it does not establish
+that the implemented predicate is the intended semi-infinite formulation.
+
+Outstanding before any correctness claim beyond wiring:
+
+- **Numerical false-infeasibility is treated as proof.** `deep_witness` returning HiGHS
+  status 2 immediately certifies `P_j(S)` empty. A confidently-wrong infeasible status
+  yields a wrong feasible cover and a wrong "optimal" with no callback error — at least as
+  severe as the reversed-lock failure. Needs an independently validated Farkas
+  infeasibility certificate per cell used to establish `U`, else `UNRESOLVED`.
+- **Feasible witnesses are not validated.** `separate` accepts the LP point without
+  checking SAFE / REJECT / box / selected-measurement rows against a declared numerical
+  contract. Recomputing separator membership does not prove the pair is a physical
+  collision.
+- **`verify_cuts` is a consistency check, not an independent verifier.** It calls the same
+  `canonical_separators` as the producer. A genuinely independent path must go through the
+  clean-room `CertiTherm/certificate.py` over exact rationals.
+- **No independent exact oracle for the tiny instance.** Ground truth needs an
+  analytically or rationally derived answer, not the same float LP.
+- **`consenfops` never invoked.** See below.
+- **Costs enter as floats.** `Fraction(c)` captures the float's exact binary value, which
+  may differ from the intended rational cost; the lattice inherits that. Integer costs here
+  do not expose it, but production must originate costs as integers/decimal strings.
+
+## Gate A — measurements (moe-server, fresh clone, `d69d53b` then `832104c`)
 
 Fresh `git clone --recurse-submodules` + `make bootstrap` +
 `pip install -r requirements-bnc.txt`, run at a committed revision.
 
 | run | verdict |
 | --- | --- |
-| A1 correct locks, presolve on | **PASS** — three-way agreement, separation fired, ledger verified, `L <= C*` |
+| A1 correct locks, presolve on | **PASS** — three-way agreement, separation fired, ledger consistent, `L <= C*`, incumbent re-verified outside SCIP |
 | A2 correct locks, presolve off | **PASS** — identical numbers to A1 |
-| A3 reversed locks | **failed the gate, as required** |
+| A3 reversed locks | **failed the gate, and matched the expected mutation signature** |
+| A4 randomized sweep, 60 instances, seed 1 | **38 agreed, 0 FAILED**, 20 no-certifying-subset, 2 UNRESOLVED |
+
+A4 exists because agreement on one instance can be coincidence. Instances with no
+certifying subset and instances with no ground truth are counted in their own columns, so
+neither inflates the pass count.
 
 A1/A2: brute force `C* = 3` via `S=(0,1,2)`; outer IHS `C* = 3` in 4 rounds / 3 MILP
 solves; lazy B&C `C* = 3`, `enfolp=1 check=10 separations=4 cached=7 cuts_added=3`;
