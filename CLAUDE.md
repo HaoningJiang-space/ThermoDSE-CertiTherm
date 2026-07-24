@@ -160,6 +160,57 @@ Generated evidence (`artifacts/`, `.build/`, `.venv/`) is gitignored and lives o
 tracked tree; only compact TSV/CSV/NPZ/Markdown manifests under `experiments/` and
 `CertiTherm/results*` are meant to be committed.
 
+### Process rules (adopted 2026-07-25 after a velocity review)
+
+**Two tiers of experiment, not one.** Applying claim-grade discipline to everything makes
+every wrong hypothesis expensive and therefore *slows* the rate at which wrong hypotheses
+are found. Everything under `research/triangle/` is NON-CLAIM by construction.
+
+| tier | discipline | when |
+| --- | --- | --- |
+| quick diagnostic | reproducible, records commit + config, keeps raw output, never dresses a failure as success, single run | deciding what to do next |
+| claim-grade | clean revision, full manifest, counterbalancing, repetitions, resource isolation, review | entering a paper table, supporting a quantitative conclusion, or deciding something irreversible |
+
+Fail-closed semantics (`UNRESOLVED`, refusing to certify) apply to **both** tiers — they
+guard against wrong conclusions, not against slowness.
+
+**Repetitions are for random variation only.** Repeating a *deterministic* computation buys
+nothing. Verify determinism once, then use repetitions only for the quantities that actually
+vary (wall time). A 4-repetition design over provably bit-identical counters was measured
+and cut to 2.
+
+**Falsification before promotion.** Before any number is promoted from diagnostic to
+conclusion it needs the cheapest available check that could refute it, and any quantitative
+conclusion must be reconciled in order of magnitude against measured values already in this
+repository. **If a quantity can be measured, do not extrapolate it.** This is a completion
+condition for the commit, not an extra review stage. It exists because a published
+extrapolation was wrong by ~84x while the contradicting measurement sat in a document cited
+by the same commit.
+
+**Review is triggered by risk, not by commit count.**
+
+| tier | examples | review |
+| --- | --- | --- |
+| 0 | NON-CLAIM docs, wording, local instrumentation | self-check, batch afterwards |
+| 1 | cheap reversible diagnostics under ~30 min | smoke test first, batch review afterwards |
+| 2 | runs over ~1 h, changes to oracle / ground truth / fail-closed semantics, anything steering the main direction | peer review **before** running |
+| 3 | paper claims, certificate correctness, large unrecoverable experiments | implementation and evidence reviewed separately |
+
+A correction that only **weakens or withdraws** a claim never needs pre-review: it cannot
+manufacture a false positive.
+
+**While the framing is unsettled, build probes (<30 min), not gates.** A full correctness
+gate built before the research question settled cost ~4 h and is now shelved. The fix is not
+to freeze a direction — reversing a direction that the evidence has killed is cheap
+compared with spending another week on it — but to keep the artefact small until the
+question stops moving.
+
+**Progress is not commits.** Report per round: which direction-changing uncertainty was
+eliminated; which end-to-end demonstrable capability was added; which paper claim gained
+traceable evidence. In the round that prompted this rule, 81 commits and ~7 700 lines
+produced 3 159 lines of NON-CLAIM diagnostics and zero lines of the load-bearing
+contribution.
+
 ## Conventions
 
 - Commit subjects are short imperative statements describing the exact semantic change
