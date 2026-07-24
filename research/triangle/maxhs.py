@@ -38,6 +38,11 @@ WORKLOAD = sys.argv[3] if len(sys.argv) > 3 else "resnet50"
 CAND = int(sys.argv[4]) if len(sys.argv) > 4 else 0
 # Threads for the per-cover verify scan (the ~681-LP sequential bottleneck).
 VERIFY_WORKERS = int(os.environ.get("CERTITHERM_VERIFY_WORKERS", "1"))
+# Stop-at-gap: with a known upper bound U, stop as soon as L >= U/TARGET_GAP so the
+# "time-to-target-gap" acceptance gate is MEASURED rather than inferred from a
+# wall-budget run. 0 disables (run to the budget as before).
+TARGET_U = float(os.environ.get("CERTITHERM_TARGET_U", "0"))
+TARGET_GAP = float(os.environ.get("CERTITHERM_TARGET_GAP", "1.2"))
 
 
 def _load_strong_oracle():
@@ -112,7 +117,8 @@ def main():
     if not cuts:
         print("no warm-start antichain found -> regenerate with strong_oracle first"); return
 
-    deadline = time.perf_counter() + BUDGET_S
+    t_start = time.perf_counter()
+    deadline = t_start + BUDGET_S
     round_i = 0
     L = None
     seen_covers = set()
@@ -122,6 +128,16 @@ def main():
         cover, L, gap, cover_cost = _milp_cover(C, cost)
         if cover is None:
             print("MILP failed / non-integral / incomplete cover -> UNRESOLVED"); return
+
+        # MEASURE the time-to-target-gap gate directly: with a known verified U, the
+        # interval [L, U] reaches the target the moment L >= U/TARGET_GAP.
+        if TARGET_U > 0 and L is not None and L >= TARGET_U / TARGET_GAP:
+            elapsed = time.perf_counter() - t_start
+            print(f"TIME-TO-GAP: L={L:.0f} >= U/{TARGET_GAP}="
+                  f"{TARGET_U / TARGET_GAP:.1f} after {round_i} rounds in "
+                  f"{elapsed:.0f}s  (interval [{L:.0f}, {TARGET_U:.0f}] = "
+                  f"{TARGET_U / L:.3f}x)", flush=True)
+            return
 
         fp = tuple(cover.tolist())
         if fp in seen_covers:
