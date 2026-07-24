@@ -213,3 +213,30 @@ Reaching it on the low-compression candidates needs the levers the review ranked
 next -- persistent native HiGHS models with basis reuse (the per-cell LPs differ by
 one row), adaptive chunked verification, and the kernel-first MaxHS lever (which is
 compression-dependent too, but attacks a different loop).
+
+## Per-LP profiling — the per-solve lever is EXHAUSTED (transformer arch_b, worst case)
+
+Clean checkout, 60 cells of the real collision LP (common_a_ub = 1167x454, 4.2 MB):
+
+| component | time | share |
+|---|---:|---:|
+| assembly (vstack/append per cell) | 0.03 s | **0.6%** |
+| solve (linprog / HiGHS) | 5.45 s | **99.4%** |
+| per cell | 91.4 ms | (asm 0.5 ms, solve 90.9 ms) |
+
+Two hypotheses KILLED:
+- **Buffer/assembly reuse is worthless.** I suspected the per-cell `vstack` of the
+  4.2 MB matrix (681x per scan) was costly. It is 0.6% of oracle time. Wrong.
+- **Sparse A_ub barely helps.** The matrix is 29.9% nonzero; handing linprog a CSR
+  matrix gives only **1.06x** on the solve. So scipy's dense->internal conversion is
+  not the bottleneck either -- the SIMPLEX itself is.
+
+`highspy` is **absent from the pinned env**, so true persistent-model + basis reuse
+(warm-starting each cell from the previous basis, since the LPs differ by one row)
+would require adding a dependency and re-pinning the claim-grade environment. It
+remains the only untried per-LP lever, and it is still *per-LP* optimisation.
+
+**Conclusion: the per-solve path is essentially exhausted at ~90 ms/cell under the
+pinned stack.** Further speedup must come from solving FEWER LPs -- i.e. from the
+combinatorial main problem (fewer master iterations, better cuts), not from making
+each LP faster. This is what redirects the work to bound-aware cooperative IHS.
