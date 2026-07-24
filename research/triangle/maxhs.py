@@ -23,6 +23,7 @@ import importlib.util
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +36,8 @@ OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/diag150b")
 BUDGET_S = float(sys.argv[2]) if len(sys.argv) > 2 else 7200.0
 WORKLOAD = sys.argv[3] if len(sys.argv) > 3 else "resnet50"
 CAND = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+# Threads for the per-cover verify scan (the ~681-LP sequential bottleneck).
+VERIFY_WORKERS = int(os.environ.get("CERTITHERM_VERIFY_WORKERS", "1"))
 
 
 def _load_strong_oracle():
@@ -122,7 +125,8 @@ def main():
         collisions = 0
         unknown = 0
         zero_w = np.zeros(len(actions))
-        for spec in so._specs(base):
+
+        def solve_one(spec):
             # The L1 objective makes the strong LP numerically fragile on some
             # cells (HiGHS status 15). Fall back to the zero-objective solve --
             # SAME feasible set, no boundary-seeking degeneracy -- so a solver
@@ -130,13 +134,33 @@ def main():
             # the run. A cell is UNKNOWN only if both fail; convergence then
             # cannot be proved (tri-state, Codex F4).
             try:
-                pair = so.strong_collision_spec(base, spec, av, w)
+                return so.strong_collision_spec(base, spec, av, w), False
             except RuntimeError:
                 try:
-                    pair = so.strong_collision_spec(base, spec, av, zero_w)
+                    return so.strong_collision_spec(base, spec, av, zero_w), False
                 except RuntimeError:
-                    unknown += 1
-                    continue
+                    return None, True                        # UNKNOWN cell
+
+        # NON-INCREMENTAL: this per-cover verify was ~681 SEQUENTIAL strong LPs, and
+        # MaxHS runs it every round (~52k LPs/run) -- the real lower-bound bottleneck.
+        # `strong_collision_spec` is reentrant (reads `base`, builds all-new local
+        # arrays via vstack/hstack/concatenate, no shared mutation), so the solves
+        # thread safely. Results are consumed in CANONICAL spec order, so cut
+        # derivation and antichain insertion are byte-identical to the sequential run.
+        specs = so._specs(base)
+        if VERIFY_WORKERS > 1:
+            with ThreadPoolExecutor(max_workers=VERIFY_WORKERS) as pool:
+                results = list(pool.map(solve_one, specs))
+        else:
+            results = [solve_one(spec) for spec in specs]
+        if len(results) != len(specs):                        # fail closed on short scan
+            print(f"round {round_i}: verify returned {len(results)}/{len(specs)} cells "
+                  f"-> UNRESOLVED"); return
+
+        for pair, is_unknown in results:                      # canonical order preserved
+            if is_unknown:
+                unknown += 1
+                continue
             if pair is None:
                 continue
             collisions += 1
