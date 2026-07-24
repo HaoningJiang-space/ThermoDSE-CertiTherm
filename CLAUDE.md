@@ -179,17 +179,27 @@ tracked tree; only compact TSV/CSV/NPZ/Markdown manifests under `experiments/` a
   pre-rewrite state. `origin`'s push URL now uses a dedicated deploy key (`github-certitherm`
   host alias).
 
-  **The rewrite did NOT cover every remote (verified 2026-07-24).** The pre-rewrite commit
-  `9b38cad`, which contains `.claude/settings.json`, is *not* an ancestor of `origin/master`
-  and is not reachable from any `origin/*` ref — the public side is clean. It IS still
-  reachable from three branches on the internal `moe` mirror:
-  `moe/round/certitherm-git-governance`, `moe/round/g2-soundness-replay`,
-  `moe/round/g3-evidence-repair`. All three are superseded G1–G4 work already archived under
-  the `legacy-g1-g4-archived` tag, and they were missed when the history was rewritten.
-  Deleting them is the remaining cleanup; it is an owner decision, not something to do
-  unprompted. Do not read or print the blob's contents in the course of checking this —
-  reachability is establishable from object and ref names alone
-  (`git rev-list --objects --all`, `git branch -r --contains`).
+  **The rewrite did not originally cover every remote; this was found and closed on
+  2026-07-24/25.** The pre-rewrite commit `9b38cad`, which contains `.claude/settings.json`,
+  was never an ancestor of `origin/master` — the public side was always clean — but it
+  remained reachable from three superseded branches on the internal `moe` mirror
+  (`round/certitherm-git-governance`, `round/g2-soundness-replay`,
+  `round/g3-evidence-repair`), all G1–G4 work already archived under the
+  `legacy-g1-g4-archived` tag. On explicit owner authorisation those three branches were
+  deleted, the mirror's reflog expired and `gc --prune=now` run. Verified afterwards:
+  `9b38cad` no longer exists as an object on the mirror, no ref contains it, and no object
+  reachable from any ref is named `.claude/settings.json` (pack shrank 86 731 KB → 1 128 KB).
+  `moe` now carries only `master` and `round/dr-dsc-and-separation-profiling`;
+  `legacy-g1-g4-archived` (→ `70f87a5`) lives on `origin` and was untouched.
+
+  Two things this did NOT do. It did not touch the local working clone's object store —
+  nothing reachable there is named `.claude/settings.json`, but unreferenced objects may
+  persist in the local reflog until it is expired. And **deleting a git ref is not
+  credential revocation**: the tokens must be confirmed revoked at the provider, which
+  remains the owner's action.
+
+  When checking reachability, do not read or print the blob's contents — object and ref
+  names alone are sufficient (`git rev-list --objects --all`, `git branch -r --contains`).
 
   Revocation is the owner's to confirm at the provider; the project ledger still records it
   as unconfirmed, so treat both tokens as live until the owner says otherwise. Never re-add
