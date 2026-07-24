@@ -412,12 +412,15 @@ def _collision_search_kernelized(
     reuses `_CollisionProblem`/`_solve_collision_spec`/`_pair_rows`/`_robust_safe_rows`.
 
     NON-EXHAUSTIVE existence only (the deletion path): returns the first collision or
-    None. Soundness of a None result rests on the monotonicity theorem (dropped cells
-    are unreachable/dominated over P ∩ any selected actions) plus the offline
-    four-variant gate for this instance. Every POSITIVE witness is validated against
-    the FULL SAFE rows; a failure raises `KernelValidationError` so the caller
-    degrades to the baseline oracle. Never used with `exhaustive=True` -- restricting
-    specs changes the returned witness set, which would move MaxHS cuts / U."""
+    None. A None result is trusted ONLY for a structurally valid, correctly bound,
+    theorem-valid kernel: soundness rests on the monotonicity theorem, whose dominance
+    is POINTWISE -- the same `p_unsafe` that rejects at a dropped cell also rejects at
+    a retained cell, so the identical `(p_safe, p_unsafe)` pair (and its
+    indistinguishability) is a collision at a retained cell; nothing transforms either
+    world. A corrupted same-binding kernel could still return a false None (no witness
+    to check), which is why the artifact is validated and bound. Every POSITIVE witness
+    IS validated against the FULL SAFE rows; a failure raises `KernelValidationError`.
+    Never used with `exhaustive=True` -- restricting specs changes the witness set."""
     kernel.validate_binding(polytope, thermal, margin_k, feasibility_tolerance)
     n = polytope.dimension
     a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
@@ -442,7 +445,9 @@ def _collision_search_kernelized(
     common_b_ub = np.concatenate(common_rhs_chunks)
     specs = tuple(kernel.reject_specs)                          # REJECT-cell subset (lexicographic)
     if not specs:
-        raise UnresolvedComputation("kernel has no reject specs to separate")
+        # a valid artifact never has empty reject_specs; if one reaches here treat it
+        # as a kernel fault (degrade to baseline), not a fail-closed UNRESOLVED.
+        raise KernelValidationError("kernel has no reject specs to separate")
     worker_count = min(_configured_workers(workers), len(specs))
     problem = _CollisionProblem(
         n=n, objective=np.zeros(2 * n), common_a_ub=common_a_ub, common_b_ub=common_b_ub,
@@ -498,9 +503,15 @@ def first_collision(
 ) -> Optional[WorldPair]:
     """Degrade-to-baseline entry for the deletion path: with `kernel=None` (default)
     this is exactly `_collision`. With a VerifiedThermalKernel it runs the kernelized
-    sibling; on a binding mismatch or a witness-validation failure it falls back to
-    the authoritative baseline `_collision`, so a bad kernel can never change a
-    verdict -- only make it slower."""
+    sibling; on a binding mismatch or a positive-witness validation failure it falls
+    back to the authoritative baseline `_collision`. Guarantee: a DETECTED kernel
+    problem (bad binding, false positive) only makes the query slower, never wrong. A
+    same-binding but corrupted kernel that returns a false None is NOT caught here --
+    that is the artifact's binding/validity contract, not this fallback's job."""
+    # Materialise `selected` ONCE: the kernel path consumes it building action rows,
+    # and the baseline fallback must see the SAME actions (a one-shot iterator would
+    # otherwise reach the baseline exhausted -> no actions -> a changed verdict).
+    selected = tuple(selected)
     if kernel is None:
         return _collision(polytope, thermal, actions, selected, margin_k,
                           feasibility_tolerance, workers)

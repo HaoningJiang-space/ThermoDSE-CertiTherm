@@ -10,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from dataclasses import replace
+
 from CertiTherm.core import MeasurementAction, PowerPolytope, ThermalFamily
 from CertiTherm.synthesis import _collision, first_collision, _full_safe_satisfied
 from CertiTherm.thermal_kernel import build_kernel
@@ -78,6 +80,19 @@ def test_degrade_to_baseline_on_binding_mismatch():
     assert _kern((), stale) is not None
     # measured selection: baseline collision-free, degraded result also None
     assert _kern((0,), stale) is None
+
+
+def test_fallback_rematerializes_selected_generator():
+    """Regression (review): a sabotaged kernel that drops the binding SAFE row 0
+    produces a FALSE collision on the measured selection, fails full-SAFE validation,
+    and must fall back to the baseline (collision-free). With `selected` given as a
+    one-shot generator, the fallback must still see the action -> None. On the old
+    code the exhausted generator reached the baseline with no actions -> a collision."""
+    good = build_kernel(_power(), _thermal(), MARGIN, TOL)   # safe=(0,), reject=((0,0),)
+    sabotaged = replace(good, safe_row_indices=())           # drop the binding SAFE row
+    res = first_collision(_power(), _thermal(), _actions(), iter([0]),
+                          MARGIN, TOL, 1, sabotaged)
+    assert res is None                                       # degraded to baseline verdict
 
 
 def test_full_safe_satisfied_helper():
