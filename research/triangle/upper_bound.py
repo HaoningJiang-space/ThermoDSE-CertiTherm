@@ -65,6 +65,40 @@ DELETION_MODE = os.environ.get("CERTITHERM_DELETION_MODE", "exhaustive")
 # Use the verified thermal-frontier kernel for the (non-exhaustive) deletion tests.
 # The final cover re-verify stays full+exhaustive regardless. Built once per run.
 USE_KERNEL = os.environ.get("CERTITHERM_USE_KERNEL", "0") == "1"
+# Deletion ORDER. Ordering affects only which inclusion-minimal cover deletion
+# lands on (i.e. the quality of U) and how fast it gets there -- every removal is
+# still accepted only after an exact collision test, so soundness is unchanged by
+# this knob. "cost" is the frozen baseline; "spectral" is the A/B arm.
+DELETION_ORDER = os.environ.get("CERTITHERM_DELETION_ORDER", "cost")
+
+
+def deletion_order(cand, actions, cost, n):
+    """Order in which actions are OFFERED for removal (most expendable first).
+
+    `cost`     -- expensive first. The historical baseline: it ignores how much
+                  thermal information a channel actually carries, so it will
+                  happily try to drop an expensive channel that is the only
+                  observer of a decision-bearing mode, waste an exact test, and
+                  keep it anyway.
+
+    `spectral` -- expensive-AND-uninformative first, ranked by
+                  cost_i / (leverage_i + eps), where leverage is the channel's
+                  coverage of thermally amplified input-mode energy. The spectral
+                  statistic has existed in the repository only as an
+                  interpretability number; this is the first place it drives the
+                  algorithm. It cannot make the result unsound -- it only chooses
+                  the order of exactly verified removals.
+    """
+    if DELETION_ORDER != "spectral":
+        return sorted(range(n), key=lambda i: (-cost[i], -i))
+    from CertiTherm.spectral import channel_spectral_leverage, thermal_spectrum
+    spec = thermal_spectrum(cand.thermal)
+    lev = np.array([channel_spectral_leverage(a, spec) for a in actions], dtype=float)
+    eps = 1e-12
+    score = cost / (lev + eps)                       # high = dear and uninformative
+    print(f"  spectral deletion order: leverage min={lev.min():.3e} "
+          f"median={np.median(lev):.3e} max={lev.max():.3e}", flush=True)
+    return sorted(range(n), key=lambda i: (-score[i], -i))
 
 
 def candidate():
@@ -137,7 +171,7 @@ def main():
           flush=True)
 
     cover = set(range(n))
-    order = sorted(range(n), key=lambda i: (-cost[i], -i))   # expensive first
+    order = deletion_order(cand, actions, cost, n)
     completed = True
     i, chunk = 0, min(64, n)                                 # adaptive group size
     while i < len(order):
@@ -177,6 +211,7 @@ def main():
         "oracle_calls": calls[0], "margin_k": MARGIN_K, "feas_tol": FEAS_TOL,
         "lp_workers": os.environ.get("CERTITHERM_LP_WORKERS"),
         "deletion_mode": DELETION_MODE,
+        "deletion_order": DELETION_ORDER,
         "use_kernel": USE_KERNEL,
     }
     mpath = OUTPUT / f"upper_bound_{WORKLOAD}_c{CAND}.json"
