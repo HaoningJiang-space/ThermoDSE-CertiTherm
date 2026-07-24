@@ -51,65 +51,60 @@ Ordering **cannot** affect soundness: every removal is accepted only after an ex
 collision test, and the final cover re-verify is always full and exhaustive. It affects
 only which inclusion-minimal cover deletion lands on, and how fast.
 
-Single run, `resnet50 c1` (arch_c), 16 workers:
+Counterbalanced paired A/B, run `ab-1fce5e2-20260724T182649Z`, 16 arms (2 repetitions x 4
+candidates x 2 orders), 16 workers, budget scoped to the deletion sweep, every arm's
+manifest validated for `completed_sweep`. Each candidate got one cost-first and one
+spectral-first pair, so slot position is balanced within every candidate.
 
-| order | U | cover | oracle queries | full scans (`POOL_REACHED`) | wall |
-|---|---:|---:|---:|---:|---:|
-| cost | 1091 | 143 | 224 | 52 | 60 s |
-| spectral | 1091 | 143 | **199** (−11%) | **25** (−52%) | **46 s** (−23%) |
+### PRIMARY — deterministic counters (identical across repetitions, 4/4 candidates)
 
-`U` is unchanged — but **the covers are NOT the same set**. Comparing the manifest
-`cover_action_ids` directly on `resnet50 c1`: both orders return 143 actions at `U = 1091`,
-yet **8 actions differ in each direction** (`cost` keeps `module::mtxu`,
-`post_route::ibuf_12`, `post_route::io_0_0`...; `spectral` keeps `module::vecu`,
-`post_route::ibuf_15`, `post_route::io_3_13`...).
+| candidate | queries cost -> spectral | full scans cost -> spectral | U | cover |
+|---|---:|---:|---:|---:|
+| resnet50 c0 | 276 -> 257 (**-19**) | 53 -> 38 (**-15**) | 1383 both | 179 both |
+| resnet50 c1 | 224 -> 199 (**-25**) | 52 -> 25 (**-27**) | 1091 both | 143 both |
+| resnet50 c2 | 283 -> 259 (**-24**) | 55 -> 39 (**-16**) | 1457 both | 188 both |
+| transformer c0 | 276 -> 257 (**-19**) | 64 -> 39 (**-25**) | 1383 both | 179 both |
 
-So the earlier reading — "the inclusion-minimal cover is unique, ordering only buys speed" —
-was wrong. The correct statement:
+Every counter is bit-identical between repetition 1 and repetition 2, for both orders, on
+all four candidates. Spectral ordering reduces oracle queries on 4/4 and full scans on 4/4.
+The largest full-scan reduction is on `resnet50 c1` (-52%); the largest on the hardest
+candidate, `transformer c0`, is -39%.
 
-> Cost-first and spectral-first deletion reach two distinct inclusion-minimal FEASIBLE
-> covers with identical surrogate cost `U = 1091` and cardinality 143, differing by eight
-> actions in each direction. This demonstrates order sensitivity and degeneracy among
-> feasible upper-bound endpoints under the current `1/2/4/8` cost lattice. It does **not**
-> establish multiplicity of globally optimal covers.
+### SECONDARY — paired CPU-seconds (not a significance claim at n=2)
 
-**A stronger claim was made and is withdrawn.** An earlier version called this "direct
-evidence that the optimal cost face is degenerate" and tied it to the MaxHS plateau at
-`L = 1256`. That is wrong twice over: `upper_bound.py` produces an inclusion-minimal cover,
-not a minimum-cost one, and `U = 1091` on `arch_c` is an unclosed interval endpoint with no
-optimality proof; while `L = 1256` is a plateau on a DIFFERENT candidate (`arch_b`). Joining
-them mixes evidence across instances.
+Per-process user+system CPU-seconds, which unlike wall time distinguish "did less work"
+from "waited less for CPU":
 
-What the finding is actually worth:
+| candidate | cost/spectral ratio (median) | range |
+|---|---:|---|
+| resnet50 c0 | 1.146 | 1.116 – 1.175 |
+| resnet50 c1 | 1.402 | 1.365 – 1.438 |
+| resnet50 c2 | 1.177 | 1.170 – 1.185 |
+| transformer c0 | 1.222 | 1.214 – 1.230 |
 
-1. deletion ordering changes the SEMANTIC composition of the contract while leaving the
-   hand-assigned scalar cost untouched;
-2. the current `1/2/4/8` lattice cannot distinguish these different contracts at all;
-3. under measured acquisition cost, noise, or reuse cost, the equal-cost relation may well
-   dissolve — in which case one of the two covers is genuinely cheaper.
+Spectral consumed less CPU on 4/4 candidates in both slot positions. No p-value or
+confidence interval is computed: two pairs per candidate cannot support one.
 
-The next results table must therefore report Jaccard/Hamming distance between the two
-covers, their composition by action class and fidelity, and the cost difference recomputed
-under a MEASURED cost vector rather than the frozen lattice.
+### Equal cost, different cover — on 4/4 candidates, and the difference is INTRA-CLASS
 
-The substantive speed evidence is the DETERMINISTIC counters, not wall time: oracle queries
-and `POOL_REACHED` are exact counts unaffected by host load, and they drop consistently
-(224->199, 276->257, 283->259; 52->25, 64->39, 55->39). Wall time on a host at load 6.8-9.8
-is the weaker signal and should not lead.
+| candidate | U | cover size | Hamming | Jaccard |
+|---|---:|---:|---:|---:|
+| resnet50 c0 | 1383 | 179 | 20 | 0.8942 |
+| resnet50 c1 | 1091 | 143 | 16 | 0.8940 |
+| resnet50 c2 | 1457 | 188 | 18 | 0.9086 |
+| transformer c0 | 1383 | 179 | 20 | 0.8942 |
 
-Channel leverage spans roughly 100x on this candidate (`min 9.87e-04`, `median 4.51e-03`,
-`max 9.23e-02`), which is why the ordering has anything to work with.
+Composition by action class is **identical** in every case — same number of `module`,
+`chiplet`, `placement_region` and `post_route` actions in both covers. The entire
+difference is *which* `post_route` actions are kept.
 
-**Status: not yet quotable.** Two defects in the current A/B design:
-
-1. **Not counterbalanced.** The script runs all `cost` candidates and then all `spectral`
-   candidates within each repetition, so `spectral` is always later in wall-clock time and
-   is confounded with drifting host load, thermal state and cache warmth. Order must
-   alternate (AB/BA) per candidate and repetition.
-2. **One repetition so far**, no confidence intervals, no per-run resource telemetry.
-
-The deterministic query/scan counts are far more robust to both defects than the wall-time
-deltas, and are what should carry the claim if they persist across repetitions.
+That sharpens the earlier statement. The degeneracy lives strictly **inside one action
+class**, and the `1/2/4/8` lattice assigns one cost per class, so it cannot possibly
+distinguish these covers. It also makes a testable prediction: replacing the lattice with a
+measured cost vector will dissolve the tie **only if post-route report cost varies within
+the class** (with region size, block count, or which blocks are involved). If every
+post-route report really does cost the same, the tie is structural, not an artefact of
+quantisation.
 
 ## 3. What this does and does not support
 
@@ -118,7 +113,11 @@ it costs nothing in soundness. This matters more under a transient formulation, 
 REJECT cell set grows from `(model, point)` to `(model, point, time)` and LP-count
 reduction moves from an optimisation to a feasibility prerequisite.
 
-Does not support: any claim about `U` quality (unchanged, though the cover CHANGES); any
-claim about candidates other than arch_c until the counterbalanced replicated A/B lands; any
-general statement about parallelism on other machines or other candidates; and no wall-time
-speedup figure at all until the A/B is counterbalanced and repeated.
+Does not support: any claim about `U` quality -- it is unchanged on all four candidates,
+though the cover changes; any inferential timing claim, since n=2 pairs per candidate; any
+statement about candidates outside this dev registry or about other machines; and nothing
+about whether the spectral ordering would still help once the cost lattice is replaced by
+measured costs, which could change which actions are offered first.
+
+One rep-3 arm was in flight when the run was stopped at the approved 16-arm point. It has no
+manifest and is excluded; it is an incomplete arm, not a truncated result.
