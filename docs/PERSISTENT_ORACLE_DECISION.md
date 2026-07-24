@@ -68,3 +68,22 @@ Instrument the deletion run to count N (probe-resolved vs pool-reaching), for bo
 the baseline and the kernelized path, on arch_c. That single cheap measurement
 decides whether item 2 is a process pool, a thread pool, or not worth it — before
 any oracle code is written.
+
+## Gate result — N measured (arch_c, commit b461248)
+
+Kernelized deletion run, LP_WORKERS=16:
+
+    kernelized queries = 224
+    probe_resolved     = 172   (resolved at the first-cell probe, no pool)
+    POOL_REACHED (N)   = 52    (pool-using queries -- each a fresh spawn today)
+    sequential         = 0
+
+**N = 52 ≥ 2 → gate PASSED.** 77% of deletion tests resolve at the probe, but 52
+reach the pool, so today's run pays ~52 fresh ProcessPoolExecutor spawns + matrix
+re-pickles. Amortising those into ONE persistent/threaded pool is worth prototyping.
+
+Next: prototype the THREADED backend first (review's preferred candidate at ~48
+cells: shares matrices, no spawn/pickle), then paired A/B (baseline / kernel-only /
+kernel+threads / kernel+persistent-process / kernel workers=1) on a clean checkout,
+verifying identical U/cover/digests, targeting a ≥15% cut of the kernel-only time
+(4.25× → ≥5×). Only commit a production backend if the A/B clears it.
