@@ -378,6 +378,142 @@ def _collision_search(
     return tuple(collisions)
 
 
+class KernelValidationError(Exception):
+    """A kernelized collision witness failed validation against the FULL SAFE rows,
+    so the kernel result cannot be trusted. The caller must re-run the authoritative
+    baseline oracle. This is NOT an UnresolvedComputation -- the instance is fine,
+    only the kernel short-cut is; degrade to baseline, do not fail closed."""
+
+
+def _full_safe_satisfied(
+    safe_world: np.ndarray, thermal: ThermalFamily, margin_k: float, tolerance: float
+) -> bool:
+    """True iff `safe_world` obeys EVERY (full, unkernelized) robust-SAFE row to
+    tolerance. The kernel drops SAFE rows it proved redundant; this re-checks the
+    dropped ones on the returned witness, so an audit/cache error that dropped a
+    binding row is caught (defence-in-depth on top of the monotonicity theorem)."""
+    rows, rhs = _robust_safe_rows(thermal, margin_k)
+    return bool(np.all(rows @ np.asarray(safe_world, dtype=float) <= rhs + tolerance))
+
+
+def _collision_search_kernelized(
+    polytope: PowerPolytope,
+    thermal: ThermalFamily,
+    actions: Sequence[MeasurementAction],
+    selected: Iterable[int],
+    margin_k: float,
+    feasibility_tolerance: float,
+    workers: Optional[int],
+    kernel,
+) -> Optional[WorldPair]:
+    """First collision using a VerifiedThermalKernel: the collision LP is built with
+    only the kernel's SAFE-row subset and only the kernel's REJECT specs. Sibling of
+    `_collision_search` (which is left byte-for-byte unchanged and is the fallback);
+    reuses `_CollisionProblem`/`_solve_collision_spec`/`_pair_rows`/`_robust_safe_rows`.
+
+    NON-EXHAUSTIVE existence only (the deletion path): returns the first collision or
+    None. Soundness of a None result rests on the monotonicity theorem (dropped cells
+    are unreachable/dominated over P ∩ any selected actions) plus the offline
+    four-variant gate for this instance. Every POSITIVE witness is validated against
+    the FULL SAFE rows; a failure raises `KernelValidationError` so the caller
+    degrades to the baseline oracle. Never used with `exhaustive=True` -- restricting
+    specs changes the returned witness set, which would move MaxHS cuts / U."""
+    kernel.validate_binding(polytope, thermal, margin_k, feasibility_tolerance)
+    n = polytope.dimension
+    a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
+    action_rows: List[np.ndarray] = []
+    action_rhs: List[float] = []
+    for index in selected:
+        action = actions[index]
+        delta = np.concatenate((action.vector, -action.vector))
+        action_rows.extend((delta, -delta))
+        action_rhs.extend((action.tolerance, action.tolerance))
+    bounds = tuple(zip(polytope.lower_w, polytope.upper_w)) * 2
+    robust_rows, robust_rhs = _robust_safe_rows(thermal, margin_k)
+    idx = list(kernel.safe_row_indices)                        # SAFE-row subset
+    robust_rows, robust_rhs = robust_rows[idx], robust_rhs[idx]
+    safe_rows = np.hstack((robust_rows, np.zeros_like(robust_rows)))
+    common_chunks = [base_a_ub, safe_rows]
+    common_rhs_chunks = [base_b_ub, robust_rhs]
+    if action_rows:
+        common_chunks.append(np.asarray(action_rows))
+        common_rhs_chunks.append(np.asarray(action_rhs))
+    common_a_ub = np.vstack(common_chunks)
+    common_b_ub = np.concatenate(common_rhs_chunks)
+    specs = tuple(kernel.reject_specs)                          # REJECT-cell subset (lexicographic)
+    if not specs:
+        raise UnresolvedComputation("kernel has no reject specs to separate")
+    worker_count = min(_configured_workers(workers), len(specs))
+    problem = _CollisionProblem(
+        n=n, objective=np.zeros(2 * n), common_a_ub=common_a_ub, common_b_ub=common_b_ub,
+        a_eq=a_eq, b_eq=b_eq, bounds=bounds, response=thermal.response_k_per_w,
+        ambient=thermal.ambient_k, error_k=thermal.error_k, limit_k=thermal.limit_k,
+        margin_k=margin_k, feasibility_tolerance=feasibility_tolerance,
+        model_ids=thermal.model_ids,
+    )
+
+    def _validated(pair: Optional[WorldPair]) -> Optional[WorldPair]:
+        if pair is not None and not _full_safe_satisfied(
+            pair.safe_power_w, thermal, margin_k, feasibility_tolerance
+        ):
+            raise KernelValidationError(
+                "kernel collision witness violates a full SAFE row; use the baseline")
+        return pair
+
+    if worker_count == 1:
+        for spec in specs:
+            pair = _validated(_solve_collision_spec(problem, spec))
+            if pair is not None:
+                return pair
+        return None
+
+    probe = _validated(_solve_collision_spec(problem, specs[0]))
+    if probe is not None:
+        return probe
+    remaining = specs[1:]
+    if not remaining:
+        return None
+    with ProcessPoolExecutor(
+        max_workers=worker_count, mp_context=get_context("spawn"),
+        initializer=_initialize_collision_worker, initargs=(problem,),
+    ) as pool:
+        for start in range(0, len(remaining), worker_count):
+            batch = tuple(pool.map(_solve_collision_worker,
+                                   remaining[start : start + worker_count]))
+            for item in batch:
+                if item is not None:
+                    return _validated(item)
+    return None
+
+
+def first_collision(
+    polytope: PowerPolytope,
+    thermal: ThermalFamily,
+    actions: Sequence[MeasurementAction],
+    selected: Iterable[int],
+    margin_k: float,
+    feasibility_tolerance: float,
+    workers: Optional[int] = None,
+    kernel=None,
+) -> Optional[WorldPair]:
+    """Degrade-to-baseline entry for the deletion path: with `kernel=None` (default)
+    this is exactly `_collision`. With a VerifiedThermalKernel it runs the kernelized
+    sibling; on a binding mismatch or a witness-validation failure it falls back to
+    the authoritative baseline `_collision`, so a bad kernel can never change a
+    verdict -- only make it slower."""
+    if kernel is None:
+        return _collision(polytope, thermal, actions, selected, margin_k,
+                          feasibility_tolerance, workers)
+    # lazy import avoids a module-load cycle (thermal_kernel imports synthesis)
+    from CertiTherm.thermal_kernel import ThermalKernelError
+    try:
+        return _collision_search_kernelized(polytope, thermal, actions, selected,
+                                            margin_k, feasibility_tolerance, workers, kernel)
+    except (KernelValidationError, ThermalKernelError):
+        return _collision(polytope, thermal, actions, selected, margin_k,
+                          feasibility_tolerance, workers)
+
+
 def _collision(
     polytope: PowerPolytope,
     thermal: ThermalFamily,
