@@ -72,6 +72,32 @@ def farkas_exists(A, b):
     return r.status == 0
 
 
+def margin_gamma(j, selected):
+    """Gamma_j(S) = min_{z in Q_j} sum_{i in S} [ |d_i'z| - tau_i ]_+  via LP.
+
+    Q_j is the collision polytope WITHOUT the measurement rows (SAFE + REJECT at j +
+    box). Variables (z, s); s_i >= d_i'z - tau_i, s_i >= -d_i'z - tau_i, s_i >= 0.
+    Theorem to test: S is decision-identifying  <=>  Gamma(S) = min_j Gamma_j > 0."""
+    A, b = rows_for_cell(j, ())                     # Q_j: no measurement rows
+    nz, ns = 2 * D, len(selected)
+    if ns == 0:
+        return 0.0 if not is_empty(A, b) else float("inf")
+    rows, rhs = [], []
+    for r in range(A.shape[0]):                     # z in Q_j
+        rows.append(np.concatenate((A[r], np.zeros(ns)))); rhs.append(b[r])
+    for t, i in enumerate(selected):                # hinge epigraph
+        d = np.concatenate((ACT[i], -ACT[i]))
+        e = np.zeros(ns); e[t] = -1.0
+        rows.append(np.concatenate((d, e)));  rhs.append(TAU[i])
+        rows.append(np.concatenate((-d, e))); rhs.append(TAU[i])
+    c = np.concatenate((np.zeros(nz), np.ones(ns)))
+    r = linprog(c, A_ub=np.array(rows), b_ub=np.array(rhs),
+                bounds=[(None, None)] * nz + [(0, None)] * ns, method="highs")
+    if r.status == 2:
+        return float("inf")                         # Q_j empty -> cell unreachable
+    return float(r.fun) if r.status == 0 else float("nan")
+
+
 def main():
     print(f"tiny instance: D={D} blocks, {NC} cells, {NA} actions, big-M={BIG_M:g}")
 
@@ -94,6 +120,22 @@ def main():
           f"-> {'PASS' if mismatches == 0 else 'FAIL'}")
     print(f"    brute-force C* = {c_star:.0f} via S={best} "
           f"({len(certifying)} certifying subsets)")
+
+    # ---- (A2) decision-separation margin: Gamma(S) > 0 <=> identifying ----
+    gmis, gammas = 0, {}
+    for r in range(NA + 1):
+        for S in itertools.combinations(range(NA), r):
+            g = min(margin_gamma(j, S) for j in range(NC))
+            gammas[S] = g
+            identifies = all(is_empty(*rows_for_cell(j, S)) for j in range(NC))
+            if (g > 1e-9) != identifies:
+                gmis += 1
+                print(f"  GAMMA MISMATCH S={S}: Gamma={g:.3e} identifies={identifies}")
+    print(f"(A2) margin theorem Gamma(S)>0 <=> identifying: {gmis} mismatches "
+          f"-> {'PASS' if gmis == 0 else 'FAIL'}")
+    if best is not None:
+        print(f"     Gamma at the optimum S={best}: {gammas[best]:.4f}  "
+              f"(a real separation margin, not a knife edge)")
 
     # ---- (B) monolithic Farkas MIP ---------------------------------------
     # variables: x (NA binaries) then, per cell, y_j >= 0 over that cell's rows built
