@@ -6,10 +6,12 @@ amortization gate A < Q*(L_f - L_k): audit cost A is paid once, per-query saving
 
 Uses kernel_verify.Replica (same pair-collision LP as production, parameterised by
 SAFE-row and REJECT-cell subsets). Scans are SEQUENTIAL here (one linprog per cell),
-so absolute times differ from the parallel production oracle, but the L_f/L_k RATIO
--- what the gate needs -- scales the same way. A collision-FREE selection (full
-registry) is timed because that is the exhaustive worst case the deletion/MaxHS loop
-actually pays; colliding selections early-stop and are not representative.
+so absolute times differ from the parallel production oracle. Whether the L_f/L_k
+RATIO carries over to the parallel oracle is a HYPOTHESIS, NOT verified here -- the
+authoritative number is the end-to-end deletion A/B on the real (parallel) oracle
+(kernel_ab.sh). A collision-FREE selection (full registry) is timed because that is
+the exhaustive worst case the deletion/MaxHS loop actually pays; colliding
+selections early-stop and are not representative.
 
 NON-CLAIM measurement. Usage: python research/triangle/kernel_timing.py <out> <wl> <cand>
 """
@@ -74,8 +76,8 @@ def main():
         print(f"  break-even queries Q* = A/(L_f-L_k) = {Q_be:.0f} scans")
         print(f"  (a MaxHS+deletion run does O(300) exhaustive scans/candidate -> "
               f"amortises if Q > {Q_be:.0f})")
-    print("  NOTE: sequential replica; parallel oracle keeps the same ratio, "
-          "smaller absolute times.")
+    print("  NOTE: sequential replica. Whether the parallel oracle keeps this ratio "
+          "is a HYPOTHESIS -- see the end-to-end A/B (kernel_ab.sh) for the real number.")
 
 
 if __name__ == "__main__":

@@ -261,9 +261,11 @@ sequential replica (parallel oracle keeps the ratio):
 
 The kernel pays for itself after ONE exhaustive scan; a MaxHS+deletion run does
 O(300) scans/candidate, so it amortizes ~300×. 46.8× is below the 128× work proxy
-(LP time is sublinear in row count) but far above the ≥5× end-to-end goal. Even the
-modest candidates (proxy 2.8–6.4× → per-scan est. ~2–4×) clear the gate trivially,
-since `A` is paid once and savings accrue over ~300 scans.
+(LP time is sublinear in row count) but far above the ≥5× goal. **Caveat: this is a
+SEQUENTIAL replica.** Whether the 46.8× ratio carries over to the *parallel*
+production oracle is a HYPOTHESIS, not verified here — the authoritative end-to-end
+number is the deletion A/B on the real oracle (`kernel_ab.sh`), which must be run on
+a clean checkout at the pinned commit before any end-to-end speedup is claimed.
 
 **Item-3 conclusion (arch_c fully, generalisation measured):** the thermal-frontier
 kernel is a sound, well-amortized collision-oracle speedup (46.8× per scan on
