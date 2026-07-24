@@ -327,3 +327,30 @@ justifies a **one-time** per-instance gate rather than per-scan revalidation.
 - **Amortization** `Q* = ceil(build+validation_cost / (L_f − L_k))` from candidate- and
   mode-specific measurements; cached kernel → build cost 0. Treat "MaxHS exceeds
   break-even" as a prediction to enforce, not an invariant.
+
+## Claim-grade end-to-end A/B (arch_c) — the real number is 4.25x, not 46.8x
+
+Clean checkout at commit d061025 (worktree clean; python 3.8.10, numpy 1.24.4,
+scipy 1.10.1), fail-fast launcher `kernel_ab.sh`, git receipt recorded. First-
+collision deletion, kernel OFF vs ON, both to completion, parallel oracle
+(LP_WORKERS=16).
+
+| | kernel OFF | kernel ON |
+|---|---:|---:|
+| wall | 1238 s | 291 s (incl. 17 s one-time build) |
+| U | 1091 | 1091 |
+| cover_size | 143 | 143 |
+| oracle_calls | 224 | 224 |
+
+**Soundness: identical U, cover, and oracle_calls** -- the kernel changes speed
+only, on the real production oracle.
+
+**End-to-end speedup = 1238/291 = 4.25x** (4.5x deletion-only, build amortised).
+The 46.8x sequential-scan probe does NOT carry to the parallel end-to-end pipeline:
+in first-collision mode most deletion tests early-stop and the 16-way parallelism
+already amortises per-call cost, so the kernel's marginal end-to-end benefit is
+~4.3x on arch_c -- and arch_c is the COMPRESSION outlier, so the modest candidates
+(3-6x work proxy) will give less end-to-end. **Kernel alone is below the >=5x goal**;
+it must compound with the persistent oracle pool (item 2) and cooperative IHS
+(item 5). The 46.8x is retained only as a single-scan, sequential-replica figure,
+explicitly NOT an end-to-end claim.
