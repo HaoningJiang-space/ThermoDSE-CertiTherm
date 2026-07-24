@@ -104,16 +104,50 @@ def canonical_separators(delta, selected):
     true separator set, which is unsound -- a cover could satisfy the true
     constraint while violating the truncated one, inflating the lower bound. (A
     superset would merely be weaker; only the subset direction is dangerous.)"""
-    sel = set(selected)
     seps, ambiguous = [], False
     for i in range(NA):
         gap = abs(float(ACT[i] @ delta))
         g = sep_guard(i)
         if gap > TAU[i] + g:
             seps.append(i)
-        elif gap >= TAU[i] - g and i not in sel:
+        elif gap >= TAU[i] - g and not _implied_by_selection(i, selected):
             ambiguous = True
     return tuple(seps), ambiguous
+
+
+def _implied_by_selection(i, selected):
+    """True iff the LP already FORCES |a_i'delta| <= tau_i, so `i` is provably not
+    a separator regardless of where the returned point sits in the guard band.
+
+    Two cases are cheap and exact:
+      * `i` is itself selected -- its own row is in the LP;
+      * `i` is PARALLEL to a selected `i'` with |lambda|*tau_i' <= tau_i, since
+        |a_i'd| = |lambda| |a_i''d| <= |lambda| tau_i'.
+
+    The parallel case is not a corner case: duplicated or proportional
+    measurement channels are common, and without it a selected channel sitting on
+    its own binding constraint drags every duplicate into the guard band and
+    makes every witness UNRESOLVED -- deterministically, not by numerical luck.
+
+    Anything else is left ambiguous. Proving general implication needs a Farkas
+    argument per action per witness, which is not worth the cost; UNRESOLVED is
+    the correct fail-closed answer there."""
+    if i in set(selected):
+        return True
+    ai = ACT[i]
+    nai = float(np.dot(ai, ai))
+    if nai <= 0.0:
+        return True                                # a zero row constrains nothing
+    for j in selected:
+        aj = ACT[j]
+        naj = float(np.dot(aj, aj))
+        if naj <= 0.0:
+            continue
+        lam = float(np.dot(ai, aj)) / naj          # a_i = lam * a_j if parallel
+        if np.allclose(ai, lam * aj, rtol=0.0, atol=1e-12):
+            if abs(lam) * TAU[j] <= TAU[i] + LP_FEAS_TOL:
+                return True
+    return False
 
 
 # --- separation -------------------------------------------------------------
@@ -193,12 +227,20 @@ def verify_cuts(cuts, wits):
 
 # --- (1) brute force --------------------------------------------------------
 def brute_force():
+    """-> (cost, S) | None (nothing certifies) | "UNRESOLVED".
+
+    An UNRESOLVED subset must PROPAGATE, not be skipped. Skipping it would let
+    brute force report a C* while a cheaper subset it could not decide might have
+    certified -- i.e. a ground truth that is only conditionally true, silently.
+    Ground truth has to be unconditional or absent."""
     best = None
     for r in range(NA + 1):
         for S in itertools.combinations(range(NA), r):
             cuts, _, st = separate(S)
+            if st == "UNRESOLVED":
+                return "UNRESOLVED"
             if st != "OK":
-                continue
+                continue                                # UNSYNTHESIZABLE: S does not certify
             if not cuts:                                # no collision anywhere
                 c = float(COST[list(S)].sum())
                 if best is None or c < best[0]:
@@ -373,9 +415,10 @@ def lazy_bnc(lock_mode="correct", presolve=True):
 
 
 def set_instance(d, act, tau, cost):
-    global D, ACT, TAU, COST, NA, NC
+    global D, ACT, TAU, COST, NA, NC, RESP
     D, ACT, TAU, COST = d, act, tau, cost
     NA, NC = len(act), d
+    RESP = np.eye(d)                               # must track D, not stay stale
 
 
 def random_instance(rng):
@@ -398,13 +441,16 @@ def random_sweep(n, seed):
     empty set are skipped, not counted as passes."""
     rng = np.random.default_rng(seed)
     saved = (D, ACT, TAU, COST)
-    agreed = skipped = failed = 0
-    trivial = 0
+    agreed = nocert = failed = unresolved = trivial = 0
     for k in range(n):
         set_instance(*random_instance(rng))
         bf = brute_force()
+        if bf == "UNRESOLVED":
+            # No ground truth for this instance. Counted and reported, never
+            # folded into either the pass or the fail column.
+            unresolved += 1; continue
         if bf is None:
-            skipped += 1; continue                 # no certifying subset exists
+            nocert += 1; continue                  # no certifying subset exists
         if bf[0] == 0.0:
             trivial += 1                           # empty set already certifies
         ihs_cost, _, _, ihs_st = outer_ihs()
@@ -424,9 +470,9 @@ def random_sweep(n, seed):
             print("    D=%d ACT=%s TAU=%s COST=%s" % (D, ACT.tolist(), TAU.tolist(),
                                                      COST.tolist()))
     set_instance(*saved)
-    print("random sweep: %d agreed, %d failed, %d skipped (no certifying subset), "
-          "%d of the agreed were trivially certified by the empty set"
-          % (agreed, failed, skipped, trivial))
+    print("random sweep over %d instances: %d agreed, %d FAILED, %d no-certifying-subset, "
+          "%d UNRESOLVED (no ground truth); %d of the agreed were trivially certified by "
+          "the empty set" % (n, agreed, failed, nocert, unresolved, trivial))
     return failed == 0 and agreed > 0
 
 
@@ -446,6 +492,10 @@ def main():
     print("mode: lock=%s presolve=%s" % (args.lock_mode, args.presolve))
 
     bf = brute_force()
+    if bf == "UNRESOLVED" or bf is None:
+        print("(1) brute force      %s -- no ground truth, gate cannot run"
+              % ("UNRESOLVED" if bf == "UNRESOLVED" else "no certifying subset"))
+        sys.exit(2)
     print("(1) brute force      C* = %.0f via S=%s" % bf)
 
     ihs_cost, rounds, solves, ihs_st = outer_ihs()
