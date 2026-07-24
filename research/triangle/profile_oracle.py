@@ -97,8 +97,31 @@ def main():
     print(f"  solve    (linprog/HiGHS) : {t_solve:.2f}s  ({t_solve/tot:6.1%})")
     print(f"  per cell: {tot/len(specs)*1000:.1f} ms  "
           f"(asm {t_asm/len(specs)*1000:.1f} ms, solve {t_solve/len(specs)*1000:.1f} ms)")
-    print(f"\nVERDICT: buffer reuse can recover at most {t_asm/tot:.1%} of oracle time; "
-          f"the rest needs model/basis reuse (highspy) or fewer cells.")
+
+    # --- SPARSE: the matrix is stored dense, but is it? scipy re-converts every
+    # entry per call, so if the structure is sparse, handing linprog a CSR matrix
+    # removes that work. Compression-INDEPENDENT and needs no new dependency.
+    from scipy.sparse import csr_matrix
+    nnz = int(np.count_nonzero(common_a_ub))
+    dens = nnz / common_a_ub.size
+    print(f"\n  common_a_ub density: {nnz}/{common_a_ub.size} = {dens:.1%} nonzero")
+    sp_common = csr_matrix(common_a_ub)
+    t_sp = 0.0
+    for (m, q) in specs:
+        rrow = np.concatenate((np.zeros(n), -resp[m, q]))
+        rrhs = -(thermal.limit_k + MARGIN_K - thermal.error_k[m] - thermal.ambient_k[m, q])
+        from scipy.sparse import vstack as spvstack
+        A = spvstack([sp_common, csr_matrix(rrow)], format="csr")
+        b = np.append(common_b_ub, rrhs)
+        t0 = time.perf_counter()
+        linprog(obj, A_ub=A, b_ub=b, A_eq=a_eq, b_eq=b_eq, bounds=bounds, method="highs",
+                options={"primal_feasibility_tolerance": FEAS_TOL,
+                         "dual_feasibility_tolerance": FEAS_TOL})
+        t_sp += time.perf_counter() - t0
+    print(f"  solve (SPARSE A_ub)      : {t_sp:.2f}s  "
+          f"({t_sp/len(specs)*1000:.1f} ms/cell)  speedup vs dense: {t_solve/t_sp:.2f}x")
+    print(f"\nVERDICT: assembly is only {t_asm/tot:.1%}; the lever is the SOLVE. "
+          f"Sparse A_ub gives {t_solve/t_sp:.2f}x on the solve with no new dependency.")
 
 
 if __name__ == "__main__":
