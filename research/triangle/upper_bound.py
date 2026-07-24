@@ -70,6 +70,9 @@ USE_KERNEL = os.environ.get("CERTITHERM_USE_KERNEL", "0") == "1"
 # still accepted only after an exact collision test, so soundness is unchanged by
 # this knob. "cost" is the frozen baseline; "spectral" is the A/B arm.
 DELETION_ORDER = os.environ.get("CERTITHERM_DELETION_ORDER", "cost")
+# Suffix appended to the manifest filename so successive A/B arms do not overwrite
+# each other. Empty by default, so existing invocations are unchanged.
+MANIFEST_TAG = os.environ.get("CERTITHERM_MANIFEST_TAG", "")
 
 
 def deletion_order(cand, actions, cost, n):
@@ -214,7 +217,11 @@ def main():
         "deletion_order": DELETION_ORDER,
         "use_kernel": USE_KERNEL,
     }
-    mpath = OUTPUT / f"upper_bound_{WORKLOAD}_c{CAND}.json"
+    # MANIFEST_TAG keeps concurrent/successive arms from overwriting each other's
+    # manifest. Without it an A/B leaves only the LAST arm's cover_action_ids on
+    # disk, which is why comparing the two covers previously needed a manual copy
+    # between runs -- and why the difference went unnoticed at first.
+    mpath = OUTPUT / f"upper_bound_{WORKLOAD}_c{CAND}{MANIFEST_TAG}.json"
     mpath.write_text(json.dumps(manifest, indent=2))
     print(f"manifest -> {mpath}")
 
