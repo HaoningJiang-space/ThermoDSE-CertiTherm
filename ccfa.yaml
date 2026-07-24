@@ -22,6 +22,8 @@ active_contract: "docs/INFORMATION_THEORETIC_METHOD.md"
 # That same audit also caught a fabricated number here (see revision_ledger).
 
 artifacts:
+  research_proposal: "docs/RESEARCH_PROPOSAL_DECISION_COMPLETE_THERMAL_DSE.md"
+  proposal_literature: "literature-search-20260724-decision-complete-thermal-dse/"
   method: "docs/INFORMATION_THEORETIC_METHOD.md"
   measurement_library: "docs/MEASUREMENT_LIBRARY.md"
   thermal_error_contract: "docs/THERMAL_ERROR_CONTRACT.md"
