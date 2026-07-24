@@ -71,6 +71,39 @@ def rows_for_cell(j, selected):
     return np.array(A), np.array(b)
 
 
+# --- canonical separator set ------------------------------------------------
+# A stored world pair only satisfies its LP to solver tolerance, so a strict
+# `|d_i'z| > tau_i` is not decidable near the boundary. GATE A CAUGHT THIS on its
+# first real run: for a SELECTED action the LP constraint is |d_i'z| <= tau_i, and
+# the returned point sat a few ulps outside, which classified it as a separator of
+# the very collision it was supposed to forbid.
+SEP_GUARD = 1e-6
+
+
+def canonical_separators(delta, selected):
+    """C(z) = { i : |d_i'z| > tau_i }, evaluated over the WHOLE registry.
+
+    -> (separators, ambiguous). Membership inside the guard band is undecidable
+    EXCEPT for a selected action, where the LP constraint |d_i'z| <= tau_i is a
+    mathematical prior that resolves it: a selected action is provably not a
+    separator of its own collision.
+
+    An ambiguous NON-selected action makes the whole witness UNRESOLVED rather
+    than producing a cut. Silently dropping it would yield a STRICT SUBSET of the
+    true separator set, which is unsound -- a cover could satisfy the true
+    constraint while violating the truncated one, inflating the lower bound. (A
+    superset would merely be weaker; only the subset direction is dangerous.)"""
+    sel = set(selected)
+    seps, ambiguous = [], False
+    for i in range(NA):
+        gap = abs(float(ACT[i] @ delta))
+        if gap > TAU[i] + SEP_GUARD:
+            seps.append(i)
+        elif gap >= TAU[i] - SEP_GUARD and i not in sel:
+            ambiguous = True
+    return tuple(seps), ambiguous
+
+
 # --- separation -------------------------------------------------------------
 def separate(selected):
     """Exhaustively scan every cell for a collision world.
@@ -94,12 +127,14 @@ def separate(selected):
         if r.status != 0:
             return [], [], "UNRESOLVED"
         z = r.x
-        delta = z[:D] - z[D:]
-        sep = tuple(int(i) for i in range(NA) if abs(ACT[i] @ delta) > TAU[i])
+        sep, ambiguous = canonical_separators(z[:D] - z[D:], selected)
+        if ambiguous:
+            return [], [], "UNRESOLVED"        # undecidable witness -> never a cut
         if not sep:
             return [], [], "UNSYNTHESIZABLE"
-        assert not (set(sep) & set(selected)), "separator inside the selected set"
-        cuts.append(sep); wits.append(z.copy())
+        if set(sep) & set(selected):           # fail closed, never assert
+            return [], [], "UNRESOLVED"
+        cuts.append(sep); wits.append((z.copy(), tuple(selected)))
     return cuts, wits, "OK"
 
 
@@ -137,11 +172,10 @@ def verify_cuts(cuts, wits):
     """INDEPENDENT check: re-derive C(z) from the stored world pair alone and
     require exact equality with the archived cut. A superset would be valid but
     weaker; a strict subset would be UNSOUND. Only exact equality is accepted."""
-    for sep, z in zip(cuts, wits):
-        delta = z[:D] - z[D:]
-        again = tuple(int(i) for i in range(NA) if abs(ACT[i] @ delta) > TAU[i])
-        if again != tuple(sep):
-            return False, (sep, again)
+    for sep, (z, sel) in zip(cuts, wits):
+        again, ambiguous = canonical_separators(z[:D] - z[D:], sel)
+        if ambiguous or again != tuple(sep):
+            return False, (sep, again, ambiguous)
     return True, None
 
 
