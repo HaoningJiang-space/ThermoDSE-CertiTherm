@@ -91,63 +91,25 @@ def sep_guard(i):
     return LP_FEAS_TOL * (1.0 + 2.0 * float(np.abs(ACT[i]).sum()))
 
 
-def canonical_separators(delta, selected):
-    """C(z) = { i : |d_i'z| > tau_i }, evaluated over the WHOLE registry.
+def canonical_separators(delta):
+    """C(z) = { i : |d_i'z| > tau_i }, a function of the WITNESS AND REGISTRY ONLY.
 
-    -> (separators, ambiguous). Membership inside the guard band is undecidable
-    EXCEPT for a selected action, where the LP constraint |d_i'z| <= tau_i is a
-    mathematical prior that resolves it: a selected action is provably not a
-    separator of its own collision.
+    What depends on the selection `S` is the GENERATION of a witness (by solving
+    `P_j(S)`), not the evaluation of the separator set. Making membership depend
+    on `S` would mean two runs storing the same numerical `z` could archive
+    different cuts, and the verifier could not re-derive a cut from the pair.
 
-    An ambiguous NON-selected action makes the whole witness UNRESOLVED rather
-    than producing a cut. Silently dropping it would yield a STRICT SUBSET of the
-    true separator set, which is unsound -- a cover could satisfy the true
-    constraint while violating the truncated one, inflating the lower bound. (A
-    superset would merely be weaker; only the subset direction is dangerous.)"""
-    seps, ambiguous = [], False
-    for i in range(NA):
-        gap = abs(float(ACT[i] @ delta))
-        g = sep_guard(i)
-        if gap > TAU[i] + g:
-            seps.append(i)
-        elif gap >= TAU[i] - g and not _implied_by_selection(i, selected):
-            ambiguous = True
-    return tuple(seps), ambiguous
+    Ambiguity inside the derived guard band is resolved by INCLUSION, in the safe
+    direction: a superset of the true separator set is a valid but weaker
+    necessary constraint (every certifying cover hits the true set, hence the
+    superset), whereas a strict subset is UNSOUND -- a cover could satisfy the
+    true constraint while violating the truncated one, inflating the bound.
 
-
-def _implied_by_selection(i, selected):
-    """True iff the LP already FORCES |a_i'delta| <= tau_i, so `i` is provably not
-    a separator regardless of where the returned point sits in the guard band.
-
-    Two cases are cheap and exact:
-      * `i` is itself selected -- its own row is in the LP;
-      * `i` is PARALLEL to a selected `i'` with |lambda|*tau_i' <= tau_i, since
-        |a_i'd| = |lambda| |a_i''d| <= |lambda| tau_i'.
-
-    The parallel case is not a corner case: duplicated or proportional
-    measurement channels are common, and without it a selected channel sitting on
-    its own binding constraint drags every duplicate into the guard band and
-    makes every witness UNRESOLVED -- deterministically, not by numerical luck.
-
-    Anything else is left ambiguous. Proving general implication needs a Farkas
-    argument per action per witness, which is not worth the cost; UNRESOLVED is
-    the correct fail-closed answer there."""
-    if i in set(selected):
-        return True
-    ai = ACT[i]
-    nai = float(np.dot(ai, ai))
-    if nai <= 0.0:
-        return True                                # a zero row constrains nothing
-    for j in selected:
-        aj = ACT[j]
-        naj = float(np.dot(aj, aj))
-        if naj <= 0.0:
-            continue
-        lam = float(np.dot(ai, aj)) / naj          # a_i = lam * a_j if parallel
-        if np.allclose(ai, lam * aj, rtol=0.0, atol=1e-12):
-            if abs(lam) * TAU[j] <= TAU[i] + LP_FEAS_TOL:
-                return True
-    return False
+    An earlier version had this backwards, mapping ambiguity to UNRESOLVED. On a
+    randomized sweep that made 36 of 60 instances undecidable, because a selected
+    action sits on its own binding constraint by construction."""
+    return tuple(i for i in range(NA)
+                 if abs(float(ACT[i] @ delta)) > TAU[i] - sep_guard(i))
 
 
 # --- separation -------------------------------------------------------------
@@ -165,23 +127,57 @@ def separate(selected):
     """
     cuts, wits = [], []
     for j in range(NC):
-        A, b = rows_for_cell(j, selected)
-        r = linprog(np.zeros(A.shape[1]), A_ub=A, b_ub=b,
-                    bounds=[(None, None)] * A.shape[1], method="highs")
-        if r.status == 2:
+        z, st = deep_witness(j, selected)
+        if st == "EMPTY":
             continue                                   # P_j(S) empty -> no collision
-        if r.status != 0:
+        if st != "OK":
             return [], [], "UNRESOLVED"
-        z = r.x
-        sep, ambiguous = canonical_separators(z[:D] - z[D:], selected)
-        if ambiguous:
-            return [], [], "UNRESOLVED"        # undecidable witness -> never a cut
+        sep = canonical_separators(z[:D] - z[D:])
         if not sep:
             return [], [], "UNSYNTHESIZABLE"
-        if set(sep) & set(selected):           # fail closed, never assert
+        if set(sep) & set(selected):
+            # A selected action classified as a separator of the collision it
+            # forbids means the witness is not numerically trustworthy even with
+            # slack maximised. Fail closed rather than emit a cut that cannot
+            # exclude the current cover (which would stall the search silently).
             return [], [], "UNRESOLVED"
-        cuts.append(sep); wits.append((z.copy(), tuple(selected)))
+        cuts.append(sep); wits.append(z.copy())
     return cuts, wits, "OK"
+
+
+def deep_witness(j, selected):
+    """A collision world for cell j with the SELECTED rows pushed off their
+    boundary: maximise `t` subject to `|a_i'delta| <= tau_i - t` for i in S, with
+    the rest of `P_j(S)` unchanged and `t >= 0`.
+
+    -> (z, "OK" | "EMPTY" | "UNRESOLVED").
+
+    This does not change WHICH cells collide: at `t = 0` the feasible set is
+    exactly `P_j(S)`, so the LP is feasible iff `P_j(S)` is non-empty. It only
+    chooses a better representative among the collisions that already exist.
+
+    Why it is needed: a zero-objective feasibility LP returns a vertex, which
+    puts selected measurement rows exactly on `|a_i'delta| = tau_i`. Every
+    unselected action parallel to a selected one then lands inside the guard band
+    by construction. Fixing the classifier cannot remove that; generating a
+    witness with slack does."""
+    A, b = rows_for_cell(j, ())                     # P_j WITHOUT measurement rows
+    nz = 2 * D
+    rows = [np.concatenate((A[r], [0.0])) for r in range(A.shape[0])]
+    rhs = list(b)
+    for i in selected:                              # |a_i'delta| + t <= tau_i
+        d = np.concatenate((ACT[i], -ACT[i]))
+        rows.append(np.concatenate((d, [1.0])));  rhs.append(TAU[i])
+        rows.append(np.concatenate((-d, [1.0]))); rhs.append(TAU[i])
+    obj = np.concatenate((np.zeros(nz), [-1.0]))    # maximise t
+    tcap = float(TAU.max()) if len(TAU) else 1.0    # keeps t bounded when S is empty
+    r = linprog(obj, A_ub=np.asarray(rows), b_ub=np.asarray(rhs),
+                bounds=[(None, None)] * nz + [(0.0, tcap)], method="highs")
+    if r.status == 2:
+        return None, "EMPTY"
+    if r.status != 0:
+        return None, "UNRESOLVED"
+    return r.x[:nz], "OK"
 
 
 def certified_lower_bound(cuts):
@@ -215,13 +211,18 @@ def certified_lower_bound(cuts):
 
 
 def verify_cuts(cuts, wits):
-    """INDEPENDENT check: re-derive C(z) from the stored world pair alone and
-    require exact equality with the archived cut. A superset would be valid but
-    weaker; a strict subset would be UNSOUND. Only exact equality is accepted."""
-    for sep, (z, sel) in zip(cuts, wits):
-        again, ambiguous = canonical_separators(z[:D] - z[D:], sel)
-        if ambiguous or again != tuple(sep):
-            return False, (sep, again, ambiguous)
+    """Re-derive C(z) from the stored world pair ALONE and require exact equality.
+
+    NOT an independent verifier: it calls the same `canonical_separators` as the
+    producer, so it catches corrupted or mismatched ledger entries but cannot
+    catch a systematic error in the guard semantics, action indexing, or the
+    separator definition itself. A genuinely independent check needs the
+    clean-room `CertiTherm/certificate.py` path over exact rationals, including
+    witness feasibility validation. Reported as a consistency check, not a proof."""
+    for sep, z in zip(cuts, wits):
+        again = canonical_separators(z[:D] - z[D:])
+        if again != tuple(sep):
+            return False, (sep, again)
     return True, None
 
 
@@ -405,12 +406,24 @@ def lazy_bnc(lock_mode="correct", presolve=True):
     # bound that exact weak duality over the cut rows cannot reproduce. It is
     # recorded, never published as the certified L.
     stats["solver_asserted_dual"] = model.getDualbound()
-    if stats["status"] != "OK" or status not in ("optimal", "bestsollimit"):
+    # `bestsollimit` and friends do NOT establish optimality; only `optimal` may
+    # be reported as such, and even then the incumbent is re-verified below.
+    if stats["status"] != "OK" or status != "optimal":
         return None, stats, status, cuts, wits
     if model.getNSols() == 0:
         return None, stats, status, cuts, wits
     sol = model.getBestSol()
     S = tuple(i for i, v in enumerate(xs) if model.getSolVal(sol, v) > 0.5)
+
+    # FINAL INDEPENDENT VERIFICATION, outside every callback. A missed callback
+    # path, an API mismatch, or a future SCIP behaviour change could otherwise
+    # admit an incumbent separation never examined. Only this check may establish
+    # a finite U.
+    fin_cuts, _, fin_st = separate(S)
+    if fin_st != "OK" or fin_cuts:
+        stats["status"] = "INCUMBENT_UNVERIFIED(%s,%d collisions)" % (fin_st, len(fin_cuts))
+        return None, stats, status, cuts, wits
+    stats["final_verify"] = "PASS"
     return (float(COST[list(S)].sum()), S), stats, status, cuts, wits
 
 
@@ -540,12 +553,20 @@ def main():
 
     passed = agree and fired and ok_cuts and lb_ok
     if args.lock_mode == "reversed":
-        # The whole point of this mode: a reversed lock MUST break something.
-        # If it silently passes, our regression cannot detect the real bug.
-        print("\nREVERSED-LOCK EXPECTATION: the gate must NOT pass -> %s"
+        # A regression that only asserts "the gate failed" passes for ANY reason
+        # -- an unrelated bug, a missing dependency, a weak bound. Assert the
+        # SIGNATURE of the lock mutation instead: SCIP must be reached, must
+        # never fire enforcement, must add no cuts, and must return a cost that
+        # contradicts the independently enumerated optimum.
+        sig = (stats["enfolp"] == 0 and stats["cuts"] == 0
+               and bnc_cost is not None and abs(bnc_cost - bf[0]) > 1e-6)
+        print("\nREVERSED-LOCK SIGNATURE: enfolp=%d cuts=%d bnc_cost=%s vs C*=%s -> %s"
+              % (stats["enfolp"], stats["cuts"], bnc_cost, bf[0],
+                 "matched" if sig else "NOT matched"))
+        print("REVERSED-LOCK EXPECTATION: the gate must NOT pass -> %s"
               % ("OK (it failed, as required)" if not passed
                  else "PROBLEM: reversed locks passed; this regression is blind"))
-        sys.exit(0 if not passed else 1)
+        sys.exit(0 if (sig and not passed) else 1)
 
     print("\nVERDICT: %s" % ("PASS" if passed else "FAIL"))
     sys.exit(0 if passed else 1)
