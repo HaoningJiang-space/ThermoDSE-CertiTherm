@@ -87,6 +87,19 @@ def main():
     w = np.ones(len(actions))                       # uniform L1 (strong cuts)
     full_registry = float(cost.sum())               # a valid feasible UB
 
+    # Kernel-first verify (opt-in): frontier cells searched before the full scan.
+    # ACCEPTANCE still requires the full scan, so nothing is certified from a
+    # kernel-negative and no exhaustive witness-equivalence proof is needed.
+    KERNEL_SPECS = frozenset()
+    if os.environ.get("CERTITHERM_USE_KERNEL", "0") == "1":
+        from CertiTherm.thermal_kernel import build_kernel
+        t_k = time.perf_counter()
+        _kernel = build_kernel(cand.power, cand.thermal, so.MARGIN_K, so.FEAS_TOL)
+        KERNEL_SPECS = frozenset(_kernel.reject_specs)
+        print(f"kernel built in {time.perf_counter() - t_k:.0f}s: REJECT "
+              f"{_kernel.n_reject_full}->{len(KERNEL_SPECS)} (kernel-first verify)",
+              flush=True)
+
     npz = OUTPUT / f"strong_antichain_uniform_{WORKLOAD}_c{CAND}.npz"
     cuts, masks = [], []
     if npz.exists():
@@ -129,10 +142,10 @@ def main():
         def solve_one(spec):
             # The L1 objective makes the strong LP numerically fragile on some
             # cells (HiGHS status 15). Fall back to the zero-objective solve --
-            # SAME feasible set, no boundary-seeking degeneracy -- so a solver
-            # hiccup on one cell degrades that cut to max-support, never crashes
-            # the run. A cell is UNKNOWN only if both fail; convergence then
-            # cannot be proved (tri-state, Codex F4).
+            # SAME feasible set, so the returned pair is still a genuine collision
+            # (the zero objective just picks an ARBITRARY feasible pair, whose cut
+            # may have any support -- not necessarily maximal). A cell is UNKNOWN
+            # only if both fail; convergence then cannot be proved (tri-state).
             try:
                 return so.strong_collision_spec(base, spec, av, w), False
             except RuntimeError:
@@ -141,35 +154,59 @@ def main():
                 except RuntimeError:
                     return None, True                        # UNKNOWN cell
 
-        # NON-INCREMENTAL: this per-cover verify was ~681 SEQUENTIAL strong LPs, and
-        # MaxHS runs it every round (~52k LPs/run) -- the real lower-bound bottleneck.
-        # `strong_collision_spec` is reentrant (reads `base`, builds all-new local
-        # arrays via vstack/hstack/concatenate, no shared mutation), so the solves
-        # thread safely. Results are consumed in CANONICAL spec order, so cut
-        # derivation and antichain insertion are byte-identical to the sequential run.
-        specs = so._specs(base)
-        if VERIFY_WORKERS > 1:
-            with ThreadPoolExecutor(max_workers=VERIFY_WORKERS) as pool:
-                results = list(pool.map(solve_one, specs))
-        else:
-            results = [solve_one(spec) for spec in specs]
-        if len(results) != len(specs):                        # fail closed on short scan
-            print(f"round {round_i}: verify returned {len(results)}/{len(specs)} cells "
-                  f"-> UNRESOLVED"); return
+        def scan(spec_list):
+            """Solve a spec list, threaded. `pool.map` keeps result[i] paired with
+            spec[i], so cuts are derived in canonical order. NOTE: threading
+            preserves the INDEXING, not the WITNESS -- a degenerate L1 optimum may
+            return a different (still valid) pair than a sequential run, so the cut
+            trajectory and the time-budgeted L can differ. Every such cut is still a
+            valid necessary constraint, so L stays sound."""
+            if VERIFY_WORKERS > 1 and len(spec_list) > 1:
+                with ThreadPoolExecutor(max_workers=VERIFY_WORKERS) as pool:
+                    return list(pool.map(solve_one, spec_list))
+            return [solve_one(spec) for spec in spec_list]
 
-        for pair, is_unknown in results:                      # canonical order preserved
-            if is_unknown:
-                unknown += 1
-                continue
-            if pair is None:
-                continue
-            collisions += 1
-            cut = so._cut_from_pair(pair, actions, cover)     # exclude selected + > tolerance
-            if not cut.any():
-                print(f"round {round_i}: UNSYNTHESIZABLE (a pair no action separates)"); return
-            assert not (cut.astype(bool)[list(cover)]).any(), "cut overlaps the cover"
-            if _insert_minimal_cut(cuts, cut, masks):
-                added += 1
+        def harvest(spec_results):
+            """Derive + insert cuts in canonical order. Returns False to abort."""
+            nonlocal added, collisions, unknown
+            for pair, is_unknown in spec_results:
+                if is_unknown:
+                    unknown += 1
+                    continue
+                if pair is None:
+                    continue
+                collisions += 1
+                cut = so._cut_from_pair(pair, actions, cover)  # excl. selected + > tolerance
+                if not cut.any():
+                    print(f"round {round_i}: UNSYNTHESIZABLE (a pair no action separates)")
+                    return False
+                if (cut.astype(bool)[list(cover)]).any():      # fail closed (never assert)
+                    print(f"round {round_i}: derived cut overlaps the cover -> UNRESOLVED")
+                    return False
+                if _insert_minimal_cut(cuts, cut, masks):
+                    added += 1
+            return True
+
+        # NON-INCREMENTAL (review): KERNEL-FIRST verify with exhaustive fallback.
+        # A cover is refuted the moment ANY cell yields a collision, and a kernel
+        # cell's collision is a genuine witness -- so search the ~48 frontier cells
+        # first. Only a cover that looks collision-free on the kernel needs the FULL
+        # scan, and ACCEPTANCE always requires that full scan. Nothing is ever
+        # certified from a kernel-negative, so this is sound WITHOUT an exhaustive
+        # witness-equivalence proof. ~681 LPs/round -> ~48 for every refuted round.
+        all_specs = list(so._specs(base))
+        if KERNEL_SPECS:
+            kernel_specs = [s for s in all_specs if s in KERNEL_SPECS]
+            rest_specs = [s for s in all_specs if s not in KERNEL_SPECS]
+        else:
+            kernel_specs, rest_specs = all_specs, []
+
+        if not harvest(scan(kernel_specs)):
+            return
+        if collisions == 0 and rest_specs:
+            # kernel-negative: the cover may only be ACCEPTED after the full scan
+            if not harvest(scan(rest_specs)):
+                return
 
         if collisions == 0 and unknown > 0:
             print(f"round {round_i}: cover collision-free on solved cells but {unknown} "
