@@ -62,6 +62,9 @@ LP_WORKERS = os.environ.get("CERTITHERM_LP_WORKERS", "1")
 # result from _collision is itself a certified exhaustive absence. The final cover
 # re-verify is ALWAYS exhaustive regardless of this flag.
 DELETION_MODE = os.environ.get("CERTITHERM_DELETION_MODE", "exhaustive")
+# Use the verified thermal-frontier kernel for the (non-exhaustive) deletion tests.
+# The final cover re-verify stays full+exhaustive regardless. Built once per run.
+USE_KERNEL = os.environ.get("CERTITHERM_USE_KERNEL", "0") == "1"
 
 
 def candidate():
@@ -83,22 +86,21 @@ def candidate():
     return cand, actions, a0["architecture_id"]
 
 
-def collision_free(cand, actions, cover, *, exhaustive: bool) -> bool:
+def collision_free(cand, actions, cover, *, exhaustive: bool, kernel=None) -> bool:
     """True iff `cover` leaves NO SAFE/REJECT collision.
 
     `exhaustive=True` scans every reject cell (`_collisions`, raises on worker
-    failure so an empty batch is a genuine certified absence). `exhaustive=False`
-    uses `_collision`, which returns the FIRST collision and stops -- a failed
-    deletion is rejected after a few LPs -- while a `None` return still triggers the
-    full parallel scan under the hood, so a negative result is equally certified.
-    Both honour CERTITHERM_LP_WORKERS."""
+    failure so an empty batch is a genuine certified absence) -- ALWAYS full, never
+    kernelised. `exhaustive=False` uses the first-collision entry `first_collision`,
+    which with `kernel` set runs the verified thermal-frontier kernel and degrades to
+    the full baseline on any kernel problem. Both honour CERTITHERM_LP_WORKERS."""
     cov = tuple(sorted(cover))
     if exhaustive:
         batch = syn._collisions(cand.power, cand.thermal, actions, cov,
                                 MARGIN_K, FEAS_TOL, None)
         return len(batch) == 0
-    return syn._collision(cand.power, cand.thermal, actions, cov,
-                          MARGIN_K, FEAS_TOL, None) is None
+    return syn.first_collision(cand.power, cand.thermal, actions, cov,
+                               MARGIN_K, FEAS_TOL, None, kernel) is None
 
 
 def main():
@@ -109,15 +111,24 @@ def main():
     calls = [0]
 
     deletion_exhaustive = DELETION_MODE == "exhaustive"
+    kernel = None
+    if USE_KERNEL and not deletion_exhaustive:
+        from CertiTherm.thermal_kernel import build_kernel
+        t_k = time.perf_counter()
+        kernel = build_kernel(cand.power, cand.thermal, MARGIN_K, FEAS_TOL)
+        print(f"kernel built in {time.perf_counter()-t_k:.0f}s: SAFE "
+              f"{kernel.n_safe_full}->{len(kernel.safe_row_indices)}, REJECT "
+              f"{kernel.n_reject_full}->{len(kernel.reject_specs)}", flush=True)
 
     def feasible(cover) -> bool:
         # deletion TESTS use the configured mode (first-collision => fast rejects)
         calls[0] += 1
-        return collision_free(cand, actions, cover, exhaustive=deletion_exhaustive)
+        return collision_free(cand, actions, cover, exhaustive=deletion_exhaustive,
+                              kernel=kernel)
 
     print(f"{cid} ({WORKLOAD} c{CAND}): {n} actions, C_total={cost.sum():.0f}, "
           f"budget={BUDGET_S:.0f}s, LP_WORKERS={LP_WORKERS}, "
-          f"DELETION_MODE={DELETION_MODE}", flush=True)
+          f"DELETION_MODE={DELETION_MODE}, USE_KERNEL={USE_KERNEL}", flush=True)
     t0 = time.perf_counter()
     # the initial full-registry certification is a genuine absence -> exhaustive
     if not collision_free(cand, actions, set(range(n)), exhaustive=True):
@@ -166,6 +177,7 @@ def main():
         "oracle_calls": calls[0], "margin_k": MARGIN_K, "feas_tol": FEAS_TOL,
         "lp_workers": os.environ.get("CERTITHERM_LP_WORKERS"),
         "deletion_mode": DELETION_MODE,
+        "use_kernel": USE_KERNEL,
     }
     mpath = OUTPUT / f"upper_bound_{WORKLOAD}_c{CAND}.json"
     mpath.write_text(json.dumps(manifest, indent=2))
