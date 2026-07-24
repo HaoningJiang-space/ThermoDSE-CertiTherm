@@ -172,14 +172,30 @@ tracked tree; only compact TSV/CSV/NPZ/Markdown manifests under `experiments/` a
 - Units: HotSpot temperatures are Kelvin (`_k` suffix in field names), power is watts
   (`_w`), matching the sibling `ChipletThermalEnvelope` project's SI-suffix convention.
 - `origin` is a **public** GitHub repo. The initial commit had live tokens in
-  `.claude/settings.json` (a GitHub PAT and an Anthropic/proxy token). Both were confirmed
-  revoked at the source, then the entire history was rewritten with `git-filter-repo` and
+  `.claude/settings.json` (a GitHub PAT and an Anthropic/proxy token), which were reported
+  revoked at the source. The history was then rewritten with `git-filter-repo` and
   force-pushed once (`0ff5f96` in the current log is itself the post-rewrite hash) — the
   project's only force-push to date, done only after archiving and re-verifying the
   pre-rewrite state. `origin`'s push URL now uses a dedicated deploy key (`github-certitherm`
-  host alias). Never re-add `.claude/settings.json` (or any credential-bearing file) to the
-  index. If a token-shaped string shows up in chat, refuse to store or embed it and tell the
-  user to verify revocation at the provider — this has already happened at least twice with
-  the same leaked PAT being pasted again well after it was supposedly dead.
+  host alias).
+
+  **The rewrite did NOT cover every remote (verified 2026-07-24).** The pre-rewrite commit
+  `9b38cad`, which contains `.claude/settings.json`, is *not* an ancestor of `origin/master`
+  and is not reachable from any `origin/*` ref — the public side is clean. It IS still
+  reachable from three branches on the internal `moe` mirror:
+  `moe/round/certitherm-git-governance`, `moe/round/g2-soundness-replay`,
+  `moe/round/g3-evidence-repair`. All three are superseded G1–G4 work already archived under
+  the `legacy-g1-g4-archived` tag, and they were missed when the history was rewritten.
+  Deleting them is the remaining cleanup; it is an owner decision, not something to do
+  unprompted. Do not read or print the blob's contents in the course of checking this —
+  reachability is establishable from object and ref names alone
+  (`git rev-list --objects --all`, `git branch -r --contains`).
+
+  Revocation is the owner's to confirm at the provider; the project ledger still records it
+  as unconfirmed, so treat both tokens as live until the owner says otherwise. Never re-add
+  `.claude/settings.json` (or any credential-bearing file) to the index. If a token-shaped
+  string shows up in chat, refuse to store or embed it and tell the user to verify revocation
+  at the provider — this has already happened at least twice with the same leaked PAT being
+  pasted again well after it was supposedly dead.
   See `.claude/skills/certitherm-git-haoning/SKILL.md` for the runnable incident playbook and
   `.claude/skills/moe-server-remote/SKILL.md` for the remote-execution workflow.
