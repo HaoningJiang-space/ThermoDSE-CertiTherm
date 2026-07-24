@@ -217,11 +217,69 @@ time-to-same-bound. At 1.1–1.3x it is an engineering backend, not a paper cont
 Only after C passes. Only if BOTH reduce oracle work does the global margin warm start get
 added and the combination measured.
 
+## Gate A — RESULT: PASS (moe-server, fresh clone, `d69d53b`)
+
+Fresh `git clone --recurse-submodules` + `make bootstrap` +
+`pip install -r requirements-bnc.txt`, run at a committed revision.
+
+| run | verdict |
+| --- | --- |
+| A1 correct locks, presolve on | **PASS** — three-way agreement, separation fired, ledger verified, `L <= C*` |
+| A2 correct locks, presolve off | **PASS** — identical numbers to A1 |
+| A3 reversed locks | **failed the gate, as required** |
+
+A1/A2: brute force `C* = 3` via `S=(0,1,2)`; outer IHS `C* = 3` in 4 rounds / 3 MILP
+solves; lazy B&C `C* = 3`, `enfolp=1 check=10 separations=4 cached=7 cuts_added=3`;
+independent cut re-derivation PASS; `solver_asserted_dual = 3.0`;
+`certified_lower_bound = 3` (lattice-lifted 3).
+
+### A3 is the load-bearing result
+
+With reversed locks SCIP returned `status=optimal` and `obj=8` — the true optimum is 3 —
+having fired the enforcement callback **zero** times and added **zero** cuts. No error, no
+warning. And:
+
+    solver_asserted_dual = 8.0     <-- EXCEEDS the true C* = 3
+    certified_lower_bound = 3      <-- correct, did not follow
+
+**Had SCIP's dual bound been published as `L`, this run would have emitted a false
+certificate.** The independent exact-Fraction Lagrangian over the archived cuts was
+unaffected because it does not depend on the solver's search being correct. This is
+empirical confirmation of the "two different lower bounds" rule above, not merely a
+theoretical argument for it.
+
+### Defect found by the gate itself
+
+The first A1 run failed on `separator inside the selected set`. A selected action's LP
+constraint is `|d_i'z| <= tau_i`, but the returned point satisfies it only to solver
+tolerance and sat a few ulps outside, so a strict comparison classified it as a separator
+of the collision it forbids. Fixed with the guard band described above (`d69d53b`). This
+also explains why the production `_cut_from_pair` receives the cover — that parameter is
+not gratuitous, it hides this numerical problem.
+
+### NOT covered — stated explicitly
+
+- **`consenfops` was never invoked** (`enfops=0` under both presolve settings). The
+  pseudo-solution path is implemented but **untested**; this instance always has an LP.
+  It must not be reported as verified. Gate C needs a case that exercises it, or an
+  explicit argument that the path is unreachable in the production configuration.
+- Restart, cutoff, and multi-node paths are not exercised: A1 solves in a single node.
+- Heuristic-supplied solutions are only observed indirectly via `check=10`; callback
+  counts are not yet asserted per callback type.
+
+### Early signal, not a conclusion
+
+Persistent B&C performed **4 separations** against the outer loop's **4 rounds** — no
+reduction in oracle calls on this instance. A 5-action instance cannot support any
+extrapolation, and the hypothesis is about degenerate equal-cost faces which do not arise
+here. Recorded because it is the first data point and points the same way as the Gate B/C
+concern, not because it decides anything.
+
 ## Status
 
 | gate | state |
 | --- | --- |
-| A | implemented, not yet executed on moe-server |
+| A | **PASS** (`d69d53b`), with `consenfops` coverage explicitly outstanding |
 | B | not started |
 | C | not started |
 | D | not started |
