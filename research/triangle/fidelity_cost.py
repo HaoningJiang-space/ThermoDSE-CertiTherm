@@ -6,10 +6,13 @@ that cheap analysis should be preferred over expensive analysis is currently
 unquantified -- and so is the "real report cost vs 1/2/4/8" ablation.
 
 This measures the cheapest real data point available without any new
-infrastructure: wall time of a single HotSpot steady solve at each registered
-model fidelity, on a REAL candidate's floorplan, plus the cost of building the
-full linear operator at that fidelity (one solve per block, which is what
-CertiTherm actually pays).
+infrastructure: wall time of a single HotSpot steady solve at each
+registered model fidelity, on a REAL candidate's floorplan.
+
+It deliberately does NOT estimate operator-build cost. An earlier version multiplied
+the solve time by the unit count and was wrong by ~84x, because grid operator
+construction reuses one RC factorisation across right-hand sides and runs threaded,
+and because the frozen configuration builds grid operators on the GPU.
 
 What it establishes: the RATIO between fidelity levels. That ratio is what decides
 whether "only refine when the winner could change" has any system value -- if the
@@ -96,25 +99,29 @@ def main():
             rows.append({"model": mid, "status": "UNRESOLVED"})
             continue
         t = np.array(times)
-        # CertiTherm builds a LINEAR OPERATOR: one solve per block, plus ambient.
-        operator_s = float(t.mean()) * (n + 1)
+        # NOT an operator-build estimate. A previous version multiplied the solve
+        # time by (n+1) and was wrong by ~84x: measured CPU operator construction is
+        # 22.2157 s at grid64 where this predicted 1868 s. Grid operator construction
+        # is NOT one full solve per block -- the RC assembly and factorisation are
+        # done once and reused across right-hand sides, and build_operator also runs
+        # a ThreadPoolExecutor over units. The production path additionally builds
+        # grid operators on the GPU when CERTITHERM_GPU_HOTSPOT=1. Operator cost must
+        # be measured by instrumenting build_family(), never extrapolated from here.
         rows.append({"model": mid, "status": "OK", "reps": REPS,
                      "solve_median_s": float(np.median(t)),
-                     "solve_min_s": float(t.min()), "solve_max_s": float(t.max()),
-                     "operator_build_s_est": operator_s})
+                     "solve_min_s": float(t.min()), "solve_max_s": float(t.max())})
         print(f"  {mid:12s} solve median={np.median(t):.3f}s "
-              f"[{t.min():.3f}-{t.max():.3f}]  -> operator build est "
-              f"{operator_s:.0f}s ({operator_s/60:.1f} min)", flush=True)
+              f"[{t.min():.3f}-{t.max():.3f}]", flush=True)
 
     ok = [r for r in rows if r.get("status") == "OK"]
     if len(ok) >= 2:
         base = ok[0]["solve_median_s"]
-        print("\n  fidelity ladder cost RATIO (relative to the coarsest working model):")
+        print("\n  SOLVE-LEVEL cost ratio (relative to the coarsest working model):")
         for r in ok:
-            print(f"    {r['model']:12s} {r['solve_median_s']/base:8.2f}x  "
-                  f"(operator {r['operator_build_s_est']/ok[0]['operator_build_s_est']:.2f}x)")
-        print("\n  A narrow ratio means 'refine only when the winner could change' has "
-              "little to save; a wide one is what gives the methodology system value.")
+            print(f"    {r['model']:12s} {r['solve_median_s']/base:8.2f}x")
+        print("\n  This is per-solve WORK, not elapsed operator or pipeline cost. A wide "
+              "span makes selective fidelity activation worth studying; it does not say "
+              "what the production path costs -- instrument build_family() for that.")
 
     out = OUTPUT / f"fidelity_cost_{WORKLOAD}_c{CAND}.json"
     out.write_text(json.dumps({"candidate": a0["architecture_id"], "workload": WORKLOAD,
