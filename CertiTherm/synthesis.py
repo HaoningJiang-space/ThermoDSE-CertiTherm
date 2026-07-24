@@ -497,6 +497,17 @@ def _collision_search_kernelized(
     remaining = specs[1:]
     if not remaining:
         return None
+    # item-2 prototype: CERTITHERM_ORACLE_BACKEND=thread shares the matrices with no
+    # process spawn/pickle (review's preferred candidate at ~48 cells). Both backends
+    # return the FIRST collision in canonical spec order (never completion order).
+    if os.environ.get("CERTITHERM_ORACLE_BACKEND", "process") == "thread":
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            for item in pool.map(lambda s: _solve_collision_spec(problem, s), remaining):
+                validated = _validated(item)
+                if validated is not None:
+                    return validated
+        return None
     with ProcessPoolExecutor(
         max_workers=worker_count, mp_context=get_context("spawn"),
         initializer=_initialize_collision_worker, initargs=(problem,),
