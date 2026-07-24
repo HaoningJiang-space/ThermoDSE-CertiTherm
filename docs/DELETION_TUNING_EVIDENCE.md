@@ -18,17 +18,26 @@ deletion with the thread backend.
 | 48 | 1 | 74 s | 1091 | 143 |
 | 32 | 2 | 68 s | 1091 | 143 |
 
-**Adding cores makes it slower.** The standing assumption — that only 16 of 52 cores were
-used and a sweep would buy parallel speedup — is false. Once the thermal-frontier kernel
-reduces a scan from ~681 to ~48 LPs, 48 workers spend more on scheduling than they recover.
-`kernel built in 17s` is itself a third of the 56 s total at the optimum.
+**On this candidate, under these conditions, 16 workers beat 32 and 48.** The standing
+assumption — that a sweep would obviously buy parallel speedup — is not supported here.
+This is NOT a claim that 16 is optimal or that no parallel headroom exists: the sweep is one
+candidate, one run per point, no repetitions or error bars, on a loaded shared host, and it
+never tested 4/12/20/24. The 8-worker point was also lost to output filtering. Kernel
+compression varies strongly by candidate (16.4x / 2.43x / 1.51x / 1.16x measured
+previously), so a candidate whose scan stays near ~580 LPs could well use more workers.
+
+A plausible mechanism, untested: once the thermal-frontier kernel reduces a scan from ~681
+to ~48 LPs, high worker counts may spend more on scheduling than they recover. `kernel built
+in 17s` is a third of the 56 s total at the best point, which is an Amdahl limit for an
+instance this small but not necessarily for longer deletion workloads.
 
 Every worker count returns the **identical** cover (143 actions, `U = 1091`, 73.6% of the
-1482 full registry), which is the expected invariance: parallelism changes speed, not
-answers.
+1482 full registry). That shows determinism under parallelism; it says nothing about which
+worker count is best.
 
-Consequence: **16 workers is the tuned baseline**, and it is the number any new solver has
-to beat. There is no parallel headroom left to harvest here.
+Consequence: **16 workers is the tuned baseline for this candidate**, and it is the number
+a new solver has to beat here. Whether parallel headroom remains on low-compression
+candidates is untested.
 
 ## 2. Deletion order — the spectrum used to drive, not describe
 
@@ -49,17 +58,35 @@ Single run, `resnet50 c1` (arch_c), 16 workers:
 | cost | 1091 | 143 | 224 | 52 | 60 s |
 | spectral | 1091 | 143 | **199** (−11%) | **25** (−52%) | **46 s** (−23%) |
 
-`U` is unchanged, so on this instance the inclusion-minimal cover is reached either way and
-ordering buys speed, not quality. The halving of full scans is the substantive part: a full
-scan is the expensive path, and the spectral order reaches a refutation on the kernel more
-often.
+`U` is unchanged — but **the covers are NOT the same set**. Comparing the manifest
+`cover_action_ids` directly on `resnet50 c1`: both orders return 143 actions at `U = 1091`,
+yet **8 actions differ in each direction** (`cost` keeps `module::mtxu`,
+`post_route::ibuf_12`, `post_route::io_0_0`...; `spectral` keeps `module::vecu`,
+`post_route::ibuf_15`, `post_route::io_3_13`...).
+
+So the earlier reading — "the inclusion-minimal cover is unique, ordering only buys speed" —
+was wrong. These are two DISTINCT equal-cost inclusion-minimal covers, which is direct
+evidence that the optimal cost face is degenerate. That degeneracy was previously only
+inferred indirectly from the MaxHS plateau at `L=1256`; here it is exhibited.
+
+The substantive speed evidence is the DETERMINISTIC counters, not wall time: oracle queries
+and `POOL_REACHED` are exact counts unaffected by host load, and they drop consistently
+(224->199, 276->257, 283->259; 52->25, 64->39, 55->39). Wall time on a host at load 6.8-9.8
+is the weaker signal and should not lead.
 
 Channel leverage spans roughly 100x on this candidate (`min 9.87e-04`, `median 4.51e-03`,
 `max 9.23e-02`), which is why the ordering has anything to work with.
 
-**Status: one run on a shared host — not yet trustworthy.** A replicated A/B
-(`research/triangle/deletion_order_ab.sh`, 4 candidates x 2 orders x 3 reps) is required
-before this number is quotable, and is what the accompanying run produces.
+**Status: not yet quotable.** Two defects in the current A/B design:
+
+1. **Not counterbalanced.** The script runs all `cost` candidates and then all `spectral`
+   candidates within each repetition, so `spectral` is always later in wall-clock time and
+   is confounded with drifting host load, thermal state and cache warmth. Order must
+   alternate (AB/BA) per candidate and repetition.
+2. **One repetition so far**, no confidence intervals, no per-run resource telemetry.
+
+The deterministic query/scan counts are far more robust to both defects than the wall-time
+deltas, and are what should carry the claim if they persist across repetitions.
 
 ## 3. What this does and does not support
 
@@ -68,6 +95,7 @@ it costs nothing in soundness. This matters more under a transient formulation, 
 REJECT cell set grows from `(model, point)` to `(model, point, time)` and LP-count
 reduction moves from an optimisation to a feasibility prerequisite.
 
-Does not support: any claim about `U` quality (unchanged here), any claim about candidates
-other than arch_c until the replicated A/B lands, or any general statement about
-parallelism on other machines.
+Does not support: any claim about `U` quality (unchanged, though the cover CHANGES); any
+claim about candidates other than arch_c until the counterbalanced replicated A/B lands; any
+general statement about parallelism on other machines or other candidates; and no wall-time
+speedup figure at all until the A/B is counterbalanced and repeated.
