@@ -1,0 +1,15 @@
+# Diagnostic-only dependency for the persistent lazy branch-and-cut KILL EXPERIMENT
+# (docs/LAZY_BNC_GATES.md). Deliberately NOT merged into requirements.lock: the
+# method has not passed its own gate, and adding it would change the fresh-clone
+# contract and CI for an unproven path. Install explicitly:
+#
+#     .venv/bin/pip install -r requirements-bnc.txt
+#
+# Nothing in the pinned stack can do user lazy-constraint enforcement:
+# scipy.optimize.milp exposes no callback API, and HiGHS/highspy exposes
+# MIP-solution/interrupt/cut-pool callbacks but no SCIP-style constraint handler.
+#
+# wheel  pyscipopt-6.2.1-cp38-cp38-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+# sha256 6fa61eacb71c9dab8393cbbf245379b4a78b72721c9465fc3fb18f94d7c0a7d6
+# bundled SCIP 10.0 (no system install, no sudo, no compilation)
+pyscipopt==6.2.1
