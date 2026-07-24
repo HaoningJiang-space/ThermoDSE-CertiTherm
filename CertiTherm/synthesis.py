@@ -464,8 +464,9 @@ def _collision_search_kernelized(
         # as a kernel fault (degrade to baseline), not a fail-closed UNRESOLVED.
         raise KernelValidationError("kernel has no reject specs to separate")
     worker_count = min(_configured_workers(workers), len(specs))
+    objective = np.zeros(2 * n)
     problem = _CollisionProblem(
-        n=n, objective=np.zeros(2 * n), common_a_ub=common_a_ub, common_b_ub=common_b_ub,
+        n=n, objective=objective, common_a_ub=common_a_ub, common_b_ub=common_b_ub,
         a_eq=a_eq, b_eq=b_eq, bounds=bounds, response=thermal.response_k_per_w,
         ambient=thermal.ambient_k, error_k=thermal.error_k, limit_k=thermal.limit_k,
         margin_k=margin_k, feasibility_tolerance=feasibility_tolerance,
@@ -502,6 +503,17 @@ def _collision_search_kernelized(
     # return the FIRST collision in canonical spec order (never completion order).
     if os.environ.get("CERTITHERM_ORACLE_BACKEND", "process") == "thread":
         from concurrent.futures import ThreadPoolExecutor
+        # THREAD-SAFETY (review): threads share `problem` read-only.
+        # `_solve_collision_spec` was audited reentrant -- it only READS problem.*
+        # and builds fresh local arrays (concatenate/vstack/append/.copy()), never
+        # mutating shared state, and returns None ONLY for a proved-infeasible status
+        # (2), raising on any numerical/limit failure (no false None). As
+        # defence-in-depth, mark the shared arrays non-writable so an accidental
+        # in-place mutation (or a native call handed a writable buffer) fails loudly
+        # instead of silently corrupting a concurrent solve. Process workers get
+        # pickled COPIES, so this is only needed here.
+        for _arr in (objective, common_a_ub, common_b_ub, a_eq, b_eq):
+            _arr.flags.writeable = False
         with ThreadPoolExecutor(max_workers=worker_count) as pool:
             for item in pool.map(lambda s: _solve_collision_spec(problem, s), remaining):
                 validated = _validated(item)

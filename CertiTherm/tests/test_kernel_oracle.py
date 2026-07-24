@@ -95,6 +95,48 @@ def test_fallback_rematerializes_selected_generator():
     assert res is None                                       # degraded to baseline verdict
 
 
+def _power2():
+    return PowerPolytope(
+        lower_w=np.zeros(2), upper_w=np.full(2, 20.0),
+        a_eq=np.empty((0, 2)), b_eq=np.empty(0),
+        a_ub=np.empty((0, 2)), b_ub=np.empty(0))
+
+
+def _thermal2():
+    # 1 model, 2 points; point q responds only to block q (independent hot spots).
+    response = np.array([[[10.0, 0.0], [0.0, 10.0]]])
+    return ThermalFamily(model_ids=("m",), response_k_per_w=response,
+                         ambient_k=np.array([0.0]), limit_k=100.0)
+
+
+def _actions2():
+    return (MeasurementAction("b0", np.array([1.0, 0.0]), tolerance=1e-6),
+            MeasurementAction("b1", np.array([0.0, 1.0]), tolerance=1e-6))
+
+
+@pytest.mark.parametrize("sel", [(), (0,), (1,), (0, 1)])
+def test_thread_backend_matches_sequential(monkeypatch, sel):
+    """Differential test (thread review): the threaded backend (workers=2, so the
+    parallel path is taken) must agree with the sequential ground truth (workers=1)
+    on BOTH collision existence AND the canonical colliding spec, for every
+    selection -- not just the final U/cover. Two surviving reject cells ensure the
+    pool path (map over remaining specs) is exercised."""
+    k = build_kernel(_power2(), _thermal2(), MARGIN, TOL)
+    assert len(k.reject_specs) == 2                       # both hot spots survive
+
+    def call(workers, backend):
+        monkeypatch.setenv("CERTITHERM_ORACLE_BACKEND", backend)
+        return first_collision(_power2(), _thermal2(), _actions2(), sel,
+                               MARGIN, TOL, workers, k)
+
+    seq = call(1, "process")                              # sequential ground truth
+    thr = call(2, "thread")                               # threaded parallel path
+    assert (seq is None) == (thr is None)                 # same existence
+    if seq is not None:
+        assert seq.unsafe_point == thr.unsafe_point       # same canonical spec
+        assert seq.unsafe_model_id == thr.unsafe_model_id
+
+
 def test_full_safe_satisfied_helper():
     # a world within all ceilings passes; one exceeding a ceiling fails
     ok = np.array([9.0, 0.0, 0.0])             # 10*9=90 <= 99

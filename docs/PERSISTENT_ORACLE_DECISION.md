@@ -115,3 +115,36 @@ U/cover (sound). HiGHS releases the GIL enough that threads win at ~48 cells.
   the kernel lever. A no-kernel+thread config (the review's config 3) would
   separate the two; the thread backend is currently only in the kernelized sibling,
   not the frozen baseline path.
+
+## Thread-backend review — soundness fixes applied
+
+Peer review (2026-07-24) confirmed the ordered `Executor.map` returns the canonical
+first collision, exception propagation to the fallback works, and the 21x arithmetic
+is honest as "combined kernel+thread vs no-kernel-process". It said thread soundness
+hinges on reentrancy of the concurrent solve, not on ordering. Applied:
+
+- **Reentrancy audit (the crux):** `_solve_collision_spec` only READS `problem.*`
+  and builds fresh local arrays (concatenate/vstack/append/.copy()); it never
+  mutates shared state and passes arrays to the pure `scipy.linprog`. Documented in
+  the thread branch.
+- **False-None already prevented:** it returns None ONLY for a proved-infeasible
+  status (2) and RAISES on any other status (numerical/iteration/limit) -- so a
+  numerical failure degrades to baseline, never a silent SAFE verdict.
+- **Read-only shared arrays (defence-in-depth):** the thread branch marks
+  objective/common_a_ub/common_b_ub/a_eq/b_eq non-writable so an accidental in-place
+  mutation fails loudly. Scoped to the thread path (process workers get pickled
+  copies, so shared mutation cannot occur there).
+- **Differential test (stronger than U/cover):** thread backend (workers=2) vs the
+  sequential ground truth (workers=1) must agree on existence AND the canonical
+  colliding spec, for every selection, on a 2-hot-spot instance that exercises the
+  pool path. `test_thread_backend_matches_sequential`, 4 selections, green.
+- **Claim wording** kept to the review-approved form: "~21x combined kernel+thread
+  vs the no-kernel process baseline" -- NOT "threading gives 21x".
+
+### Qualification still owed before a publication claim / full production
+- Pin HiGHS to 1 internal thread and benchmark outer×inner (16×1 / 8×2 / 4×4);
+  determinism must come from strict status handling + witness validation, not
+  byte-identical witnesses.
+- Repeated trials with variance; pinned hardware/software.
+- Optional decomposition (no-kernel+thread) for clean factorial attribution.
+- Keep the thread backend OPT-IN (env-gated) until the above closes.
