@@ -183,6 +183,13 @@ def main():
     mpath.write_text(json.dumps(manifest, indent=2))
     print(f"manifest -> {mpath}")
 
+    if USE_KERNEL and not deletion_exhaustive:
+        s = syn.kernel_oracle_stats()
+        n_pool = s["pool_reached"]
+        print(f"item-2 gate: kernelized queries={s['queries']} probe_resolved="
+              f"{s['probe_resolved']} POOL_REACHED(N)={n_pool} seq={s['sequential']}"
+              f"  -> persistent oracle worth it iff N>=2 ({'YES' if n_pool >= 2 else 'NO'})")
+
 
 if __name__ == "__main__":
     main()

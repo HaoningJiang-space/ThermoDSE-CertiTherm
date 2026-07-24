@@ -378,6 +378,21 @@ def _collision_search(
     return tuple(collisions)
 
 
+# Instrumentation for the item-2 gate: how many kernelized queries reach the pool
+# (a NEGATIVE first-cell probe) vs resolve at the probe. Persistence only helps the
+# pool-reaching ones. Additive; does not affect the frozen oracle or any verdict.
+_KERNEL_ORACLE_STATS = {"queries": 0, "probe_resolved": 0, "pool_reached": 0, "sequential": 0}
+
+
+def kernel_oracle_stats() -> dict:
+    return dict(_KERNEL_ORACLE_STATS)
+
+
+def reset_kernel_oracle_stats() -> None:
+    for key in _KERNEL_ORACLE_STATS:
+        _KERNEL_ORACLE_STATS[key] = 0
+
+
 class KernelValidationError(Exception):
     """A kernelized collision witness failed validation against the FULL SAFE rows,
     so the kernel result cannot be trusted. The caller must re-run the authoritative
@@ -465,7 +480,9 @@ def _collision_search_kernelized(
                 "kernel collision witness violates a full SAFE row; use the baseline")
         return pair
 
+    _KERNEL_ORACLE_STATS["queries"] += 1
     if worker_count == 1:
+        _KERNEL_ORACLE_STATS["sequential"] += 1
         for spec in specs:
             pair = _validated(_solve_collision_spec(problem, spec))
             if pair is not None:
@@ -474,7 +491,9 @@ def _collision_search_kernelized(
 
     probe = _validated(_solve_collision_spec(problem, specs[0]))
     if probe is not None:
+        _KERNEL_ORACLE_STATS["probe_resolved"] += 1     # resolved without the pool
         return probe
+    _KERNEL_ORACLE_STATS["pool_reached"] += 1           # a pool-using query (item-2 N)
     remaining = specs[1:]
     if not remaining:
         return None
