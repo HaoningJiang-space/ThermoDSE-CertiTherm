@@ -40,16 +40,29 @@ from research.triangle.order_trace_probe import monitor_snapshot
 from research.triangle.route_event_probe import capture_route_events
 
 
-OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/v6complete")
-WORKLOAD = sys.argv[2] if len(sys.argv) > 2 else "resnet50"
-ARCH_ID = sys.argv[3] if len(sys.argv) > 3 else "arch_c"
-IO_ASPECT_RATIO = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0
+# Parse argv ONLY when run as a script. Reading sys.argv at module level made this module
+# unsafe to import: a caller with its own arguments had them reinterpreted as this probe's,
+# and `float(sys.argv[4])` died on the importer's workload name. capture_frozen_inputs() is
+# imported by the factorial driver, so import must have no side effects on argv.
+_AS_SCRIPT = __name__ == "__main__"
+
+
+def _arg(index: int, default, cast=str):
+    if not _AS_SCRIPT or len(sys.argv) <= index:
+        return default
+    return cast(sys.argv[index])
+
+
+OUTPUT = _arg(1, Path("artifacts/v6complete"), Path)
+WORKLOAD = _arg(2, "resnet50")
+ARCH_ID = _arg(3, "arch_c")
+IO_ASPECT_RATIO = _arg(4, 1.0, float)
 # Optional comma-separated component mask over {core,noc,nop,dram} for V6.1 causal
 # isolation. Absent means the full trace, i.e. the existing behaviour. The mask is
 # encoded in the emitted filenames so an ablation cannot overwrite the full-trace
 # evidence, and it is recorded in the JSON receipt.
-COMPONENTS = (tuple(sys.argv[5].split(",")) if len(sys.argv) > 5 and sys.argv[5]
-              else None)
+COMPONENTS = (tuple(sys.argv[5].split(","))
+              if _AS_SCRIPT and len(sys.argv) > 5 and sys.argv[5] else None)
 SUFFIX = "" if COMPONENTS is None else "_" + "-".join(sorted(COMPONENTS))
 
 

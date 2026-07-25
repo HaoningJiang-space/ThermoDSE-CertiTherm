@@ -180,3 +180,24 @@ def test_manifest_write_is_atomic(tmp_path):
     F.write_json(dest, {"a": np.float64(1.0)})
     assert json.loads(dest.read_text()) == {"a": 1.0}
     assert not list(tmp_path.glob("*.tmp")), "no temporary file may survive"
+
+
+# --- import safety: module-level argv parsing ---------------------------------------
+
+def test_importing_the_probe_does_not_reinterpret_the_callers_argv():
+    """The shipped crash: complete_trace_probe parsed sys.argv at module level, so importing
+    it from the factorial driver made `float(sys.argv[4])` read the driver's workload name
+    and die with "could not convert string to float: 'transformer'". Import must be free of
+    argv side effects."""
+    import importlib
+    saved = sys.argv
+    try:
+        sys.argv = ["driver", "out", "grid64-max", "0.5", "transformer", "arch_b"]
+        mod = importlib.import_module("research.triangle.complete_trace_probe")
+        importlib.reload(mod)                     # re-execute module level under this argv
+        assert mod.IO_ASPECT_RATIO == 1.0, "must keep its default, not parse the caller's argv"
+        assert mod.WORKLOAD == "resnet50"
+        assert mod.COMPONENTS is None
+        assert callable(mod.capture_frozen_inputs)
+    finally:
+        sys.argv = saved
