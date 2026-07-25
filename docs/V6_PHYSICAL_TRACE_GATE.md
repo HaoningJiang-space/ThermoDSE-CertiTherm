@@ -1,8 +1,8 @@
 # V6 physical-trace gate — one route ledger now drives energy, latency, and heat
 
-Status: **PARTIALLY CLOSED / complete trace 6/6; grid transient convergence open**
+Status: **PHYSICAL TRACE CLOSED / broad transient claim rejected; one HotSpot-converged grid-max boundary counterexample**
 Tier: NON-CLAIM diagnostic  
-Revision: through `c325cf3`
+Revision: through `6191d84` plus the registered grid-max convergence runs
 Host: `moe-server`, clean remote clone  
 Commands:
 
@@ -21,8 +21,16 @@ spatial power trace that is meaningful to replay through HotSpot transient?
 
 The original ThermoDSE thermal path still answers **no**: it omits or misplaces too much
 external energy. The new physical-ledger path answers **yes for trace construction** on all
-six registered workload/candidate cases. It does not yet answer whether transient
-temperature changes a design decision; grid-model and cross-candidate replay remain open.
+six registered workload/candidate cases.
+
+The first decision result is deliberately narrower than the original transient motivation.
+Under both block and `grid64-avg`, periodic time structure changes no feasibility decision,
+thermal ordering, or selected architecture in the registered 2-workload x 3-candidate
+matrix. Spatial model choice is larger than temporal uplift in every one of those cases.
+One boundary case, Transformer/`arch_b` under grid-max, does cross 330 K from
+time-mean steady to periodic replay. The flip survives time-step refinement and
+`grid64-max` to `grid128-max` refinement. It is a HotSpot-model counterexample, not an
+external signoff result.
 
 ## Current closure update
 
@@ -91,6 +99,76 @@ For `arch_c/ResNet-50` under the block model:
 Eight cycles made the final two observed block-temperature cycles indistinguishable at
 0.01 K. The 5.93 K cold-versus-periodic gap proves initialization is material. It does not
 yet validate grid discretization or establish a decision flip.
+
+### Registered 2 x 3 decision matrix
+
+All six block and all six `grid64-avg` cases were replayed for up to eight cycles from the
+same mean-steady initialization. Every case converged at the observable 0.01 K precision.
+
+| workload | candidate | block mean / periodic (K) | grid64-avg mean / periodic (K) |
+|---|---:|---:|---:|
+| ResNet-50 | arch_a | 325.861 / 325.92 | 324.878 / 324.92 |
+| ResNet-50 | arch_b | 327.615 / 327.70 | 326.987 / 327.01 |
+| ResNet-50 | arch_c | 325.338 / 325.43 | 324.578 / 324.61 |
+| Transformer | arch_a | 327.158 / 327.22 | 326.342 / 326.44 |
+| Transformer | arch_b | 330.796 / 330.94 | 329.459 / 329.51 |
+| Transformer | arch_c | 327.853 / 327.87 | 326.913 / 326.94 |
+
+Within either model, there is no mean-to-periodic feasibility flip, thermal-ranking flip,
+or selection regret. The maximum temporal uplift is 0.144 K. By contrast, the smallest
+absolute block-versus-grid periodic difference is 0.69 K. Model fidelity therefore
+dominates temporal detail on this small registered matrix.
+
+The model choice itself changes the Transformer decision at 330 K: block declares
+`arch_b` infeasible and selects `arch_c`, while `grid64-avg` declares `arch_b` feasible
+and selects it. Using the corrected physical-time EDYP objective, the block choice has
+2.54252 absolute regret, or 33.01%, relative to the grid choice. This is evidence that
+spatial/model refinement matters; it is not evidence that averaging is a safe signoff
+operator.
+
+### Grid-max boundary case
+
+`grid64-max` is used here because a safety decision cannot be justified from cell averages.
+For Transformer/`arch_b`, its time-mean steady peak is 329.904867 K at `mtxu_16`, while
+the 0.5 us periodic replay reaches 330.19 K at the same location. Thus the same registered
+HotSpot model contains a mean-to-periodic feasibility flip at the declared 330 K boundary.
+Time-step convergence is exact at HotSpot's output precision:
+
+| model | max step | actual step | cycles | mean steady | periodic | boundary residual |
+|---|---:|---:|---:|---:|---:|---:|
+| grid64-max | 1.0 us | 0.997677 us | 16 | 329.904867 K | 330.19 K | 0.01 K |
+| grid64-max | 0.5 us | 0.499453 us | 16 | 329.904867 K | 330.19 K | 0.01 K |
+| grid64-max | 0.25 us | 0.249881 us | 16 | 329.904867 K | 330.19 K | 0.01 K |
+
+All three runs identify `mtxu_16`. Spatial-grid refinement gives:
+
+| model | actual step | cycles | mean steady | periodic | boundary residual |
+|---|---:|---:|---:|---:|---:|
+| grid64-max | 0.499453 us | 16 | 329.904867 K (`mtxu_16`) | 330.19 K (`mtxu_16`) | 0.01 K |
+| grid128-max | 0.499453 us | 16 | 329.918874 K (`ubuf_13`) | 330.20 K (`ubuf_16`) | 0.01 K |
+
+The grid-refined periodic peaks differ by 0.01 K and both cross 330 K. Local hotspot
+identity changes, so `grid64-max` is not a claim about exact hotspot ownership, but the
+feasibility flip is invariant. This closes the registered HotSpot time/grid convergence
+gate positively.
+
+The comparison is threshold-sensitive: the observed uplift is only 0.285 K and HotSpot
+serializes transient output to 0.01 K. It proves neither silicon temperature nor general
+prevalence. It does show the correct possible role for transient analysis: a late,
+margin-triggered refinement after source, route, geometry, and spatial-max semantics have
+already been validated.
+
+For the non-boundary `arch_c`/ResNet-50 case, `grid64-max` is stable at 325.30 K. Varying
+the uncharacterized DRAM aspect ratio over 0.5, 1, and 2 changes its periodic peak only
+from 325.27 K to 325.30 K (0.04 K span). This closes that limited geometry sensitivity;
+it does not calibrate DRAM/package geometry to a manufactured system.
+
+### Route correction changes objective magnitudes, not this small ranking
+
+Replacing the aliased legacy route accounting with the physical ledger changes physical-time
+EDYP by 6.57%–13.13% on ResNet-50 and 2.09%–6.59% on Transformer. The registered order
+remains `arch_b`, `arch_c`, `arch_a` for both workloads. Deterministic event and hop
+receipts, rather than shared-host wall time, are the leading evidence.
 
 ## What now works
 
@@ -203,14 +281,19 @@ named DRAM/IO geometry before they become a thermal power vector.
 
 ## Gate consequence
 
-Do not cite the original ptrace or the rejected mixed-topology correction. The physical
-trace may now be used for the remaining non-claim transient gate. Before a paper claim:
+Do not cite the original ptrace, the rejected mixed-topology correction, or a universal
+“transient matters” claim. The evidence supports a different fidelity order:
 
-1. close block-vs-grid transient convergence;
-2. run both workloads by all three candidates at periodic state;
-3. report margin, ranking, flip/regret, and initialization sensitivity;
-4. vary the uncharacterized DRAM aspect ratio/side placement;
-5. rerun any DSE ranking whose objective came from the old aliased route model.
+1. validate workload energy, route semantics, and named physical placement;
+2. refine spatial peak fidelity and reject unsafe average-only decisions;
+3. use cheap steady analysis when its certified margin dominates model/error bounds;
+4. invoke periodic transient only for unresolved near-boundary candidates;
+5. abstain or escalate to an independent signoff model when the registered models disagree.
+
+Before a paper claim, repeat this policy on a true top-K frontier, measure its production
+cost, and validate all escalated decisions with an independent 3D-ICE/FEM-class model.
+The current two-workload, three-candidate HotSpot study is a mechanism and falsification
+study, not enough breadth or external validity for DAC/ICCAD.
 
 ## Dissent ledger
 
@@ -219,6 +302,7 @@ trace may now be used for the remaining non-claim transient gate. Before a paper
 | Critical | The original HotSpot input is not an energy-conserving representation of the execution. | Per-source/per-order source energy equals HotSpot-admitted energy. | **CLOSED for physical path, 6/6; original path invalid** |
 | Critical | Latency, energy, and heat use inconsistent aliased or invented routes. | One unaliased ledger drives contention, energy, and placement; independent parity. | **CLOSED, 6/6 at hop ratio 1.0** |
 | Critical | No physical DRAM blocks exist despite material DRAM energy. | Explicit geometry, area/placement receipt, and 100% energy admission. | **CLOSED under square-die assumption; sensitivity OPEN** |
-| Major | A cold one-cycle replay stands in for repeated operation. | Fixed-initial and periodic replay with observable convergence tolerance. | **CLOSED for one block case; effect 5.93 K** |
-| Major | Block discretization may hide or mis-rank grid-local peaks. | Grid transient convergence and cross-candidate comparison. | **OPEN** |
-| Major | Correcting the route ledger may change the DSE objective ranking. | Regenerate and compare old/new candidate objectives. | **OPEN** |
+| Major | A cold one-cycle replay stands in for repeated operation. | Fixed-initial and periodic replay with observable convergence tolerance. | **CLOSED, all 12 block/grid-avg cases; cold-start bias is material** |
+| Major | Block discretization may hide or mis-rank grid-local peaks. | Grid transient convergence and cross-candidate comparison. | **CLOSED negatively for grid-avg as signoff; one grid-max flip survives grid/time refinement** |
+| Major | Correcting the route ledger may change the DSE objective ranking. | Regenerate and compare old/new candidate objectives. | **CLOSED on registered 2 x 3: magnitude changes, order does not** |
+| Major | A HotSpot-only boundary flip may be numerical or model-specific. | Time-step and grid convergence plus independent 3D-ICE/FEM replay. | **HotSpot convergence CLOSED; external validation OPEN** |
