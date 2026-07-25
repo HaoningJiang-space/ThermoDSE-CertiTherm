@@ -114,10 +114,10 @@ def main() -> None:
         powers_w=routed.trace.powers_w,
         source_energy_j=np.asarray(routed.source_energy_j),
         route_energy_j=np.asarray(routed.route_energy_j),
-        legacy_source_energy_j=np.asarray(routed.legacy_source_energy_j),
-        legacy_route_energy_j=np.asarray(routed.legacy_route_energy_j),
+        monitor_source_energy_j=np.asarray(routed.monitor_source_energy_j),
+        monitor_route_energy_j=np.asarray(routed.monitor_route_energy_j),
         physical_channel_hops=np.asarray(routed.physical_channel_hops),
-        legacy_channel_hops=np.asarray(routed.legacy_channel_hops),
+        monitor_channel_hops=np.asarray(routed.monitor_channel_hops),
         io_die_area_each_m2=np.asarray(augmented.io_die_area_each_m2),
         io_die_aspect_ratio=np.asarray(augmented.io_die_aspect_ratio),
     )
@@ -138,20 +138,21 @@ def main() -> None:
         f"corrected route channels={routed.route_energy_j * 1e3:.6f} mJ"
     )
     print(
-        f"  legacy monitor source={routed.legacy_source_energy_j * 1e3:.6f} mJ; "
-        f"legacy route channels={routed.legacy_route_energy_j * 1e3:.6f} mJ; "
-        f"correction={(routed.source_energy_j-routed.legacy_source_energy_j) * 1e3:.6f} mJ"
+        f"  monitor source={routed.monitor_source_energy_j * 1e3:.6f} mJ; "
+        f"monitor route channels={routed.monitor_route_energy_j * 1e3:.6f} mJ; "
+        f"reconciliation delta="
+        f"{(routed.source_energy_j-routed.monitor_source_energy_j) * 1e3:.6f} mJ"
     )
     physical_hops = sum(routed.physical_channel_hops)
-    legacy_hops = sum(routed.legacy_channel_hops)
+    monitor_hops = sum(routed.monitor_channel_hops)
     print(
         f"  internal hops physical={physical_hops:.6e} "
         f"(NoC={routed.physical_channel_hops[0]:.6e}, "
         f"NoP={routed.physical_channel_hops[1]:.6e}); "
-        f"legacy={legacy_hops:.6e} "
-        f"(NoC={routed.legacy_channel_hops[0]:.6e}, "
-        f"NoP={routed.legacy_channel_hops[1]:.6e}); "
-        f"total ratio={physical_hops/legacy_hops:.9f}"
+        f"monitor={monitor_hops:.6e} "
+        f"(NoC={routed.monitor_channel_hops[0]:.6e}, "
+        f"NoP={routed.monitor_channel_hops[1]:.6e}); "
+        f"total ratio={physical_hops/monitor_hops:.9f}"
     )
     print(
         f"  IO geometry: {len(augmented.dram_blocks)} square dies, "
@@ -172,17 +173,17 @@ def main() -> None:
         "thermal_source_energy_mj": routed.source_energy_j * 1e3,
         "integrated_trace_energy_mj": integrated_j * 1e3,
         "route_energy_mj": routed.route_energy_j * 1e3,
-        "legacy_monitor_source_energy_mj": routed.legacy_source_energy_j * 1e3,
-        "legacy_route_energy_mj": routed.legacy_route_energy_j * 1e3,
-        "physical_energy_correction_mj": (
-            routed.source_energy_j - routed.legacy_source_energy_j
+        "monitor_source_energy_mj": routed.monitor_source_energy_j * 1e3,
+        "monitor_route_energy_mj": routed.monitor_route_energy_j * 1e3,
+        "physical_monitor_reconciliation_delta_mj": (
+            routed.source_energy_j - routed.monitor_source_energy_j
         )
         * 1e3,
         "noc_hop_cost_pj": float(evaluator.noc_cost),
         "nop_hop_cost_pj": float(evaluator.nop_cost),
         "physical_channel_hops": list(routed.physical_channel_hops),
-        "legacy_channel_hops": list(routed.legacy_channel_hops),
-        "physical_to_legacy_total_hop_ratio": physical_hops / legacy_hops,
+        "monitor_channel_hops": list(routed.monitor_channel_hops),
+        "physical_to_monitor_total_hop_ratio": physical_hops / monitor_hops,
         "batch_factor": batch_factor,
         "events": len(events),
         "io_die_area_each_m2": augmented.io_die_area_each_m2,

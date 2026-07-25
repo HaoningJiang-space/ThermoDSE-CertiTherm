@@ -9,8 +9,7 @@ Placement contract
 * Core component energy retains the exact ThermoDSE floorplan block mapping.
 * A deterministic XY union tree supplies the physical edges for each event.  NoC/NoP
   energy is recomputed from event volume, explicit edge class, and the evaluator's
-  per-hop costs.  The legacy counters remain an audited input ledger, not physical truth:
-  ThermoDSE misclassifies adjacent chiplet-boundary edges as NoC.
+  per-hop costs, then reconciled against the physical evaluator's monitor counters.
 * Same-chiplet NoC energy is split between the two facing ``io_*`` endpoint blocks.
 * Cross-chiplet NoP energy is placed on the intervening ``blockX_*``/``blockY_*`` block.
 * ThermoDSE deliberately excludes the external DRAM edge from NoP hop energy.  No energy
@@ -396,17 +395,17 @@ class RoutedThermoDSETrace:
     trace: PhaseTrace
     source_energy_j: float
     route_energy_j: float
-    legacy_source_energy_j: float
-    legacy_route_energy_j: float
+    monitor_source_energy_j: float
+    monitor_route_energy_j: float
     physical_channel_hops: Tuple[float, float]
-    legacy_channel_hops: Tuple[float, float]
+    monitor_channel_hops: Tuple[float, float]
 
     def __post_init__(self) -> None:
         if self.trace.dimension != len(self.floorplan.block_ids):
             raise ValueError("trace and augmented floorplan dimensions differ")
         if (
             len(self.physical_channel_hops) != 2
-            or len(self.legacy_channel_hops) != 2
+            or len(self.monitor_channel_hops) != 2
         ):
             raise ValueError("channel-hop receipts must contain NoC and NoP")
         if not np.isclose(
@@ -419,17 +418,17 @@ class RoutedThermoDSETrace:
         values = (
             self.source_energy_j,
             self.route_energy_j,
-            self.legacy_source_energy_j,
-            self.legacy_route_energy_j,
+            self.monitor_source_energy_j,
+            self.monitor_route_energy_j,
             *self.physical_channel_hops,
-            *self.legacy_channel_hops,
+            *self.monitor_channel_hops,
         )
         if any(not np.isfinite(value) or value < 0.0 for value in values):
             raise ValueError("routed trace energy receipts must be finite and non-negative")
         object.__setattr__(
             self, "physical_channel_hops", tuple(self.physical_channel_hops)
         )
-        object.__setattr__(self, "legacy_channel_hops", tuple(self.legacy_channel_hops))
+        object.__setattr__(self, "monitor_channel_hops", tuple(self.monitor_channel_hops))
 
 
 def lower_routed_trace(
@@ -445,9 +444,9 @@ def lower_routed_trace(
 ) -> RoutedThermoDSETrace:
     """Combine exact core energy with physically reclassified communication energy.
 
-    The captured legacy counters are still reconciled per order before use.  They are not
-    used as the routed NoC/NoP heat source because their boundary classifier is known to
-    label some physical NoP edges as NoC.
+    Captured monitor counters and independently lowered physical edges must reconcile for
+    every order.  This makes routing, performance/energy accounting, and heat placement
+    share one fact source.
     """
 
     nx, ny = int(compute_shape[0]), int(compute_shape[1])
@@ -466,9 +465,10 @@ def lower_routed_trace(
     for old_column, name in enumerate(core.block_ids):
         energy_j[:, index[name]] = core_energy[:, old_column]
 
-    legacy_external_by_order_j = np.zeros((core.trace.n_phases, 3), dtype=float)
+    monitor_external_by_order_j = np.zeros((core.trace.n_phases, 3), dtype=float)
+    physical_external_by_order_j = np.zeros((core.trace.n_phases, 3), dtype=float)
     physical_channel_hops = np.zeros(2, dtype=float)
-    legacy_channel_hops = np.zeros(2, dtype=float)
+    monitor_channel_hops = np.zeros(2, dtype=float)
     route_total_j = 0.0
     for event in events:
         order = int(event["order"])
@@ -479,11 +479,11 @@ def lower_routed_trace(
         if not np.isfinite(volume) or volume < 0.0:
             raise ValueError("communication event volume must be finite and non-negative")
         for channel_column, channel in enumerate(("noc", "nop")):
-            legacy_j = (
+            monitor_j = (
                 float(event[f"{channel}_energy_pj"]) * batch_factor * 1e-12
             )
-            legacy_external_by_order_j[order, channel_column] += legacy_j
-            legacy_channel_hops[channel_column] += legacy_j / (
+            monitor_external_by_order_j[order, channel_column] += monitor_j
+            monitor_channel_hops[channel_column] += monitor_j / (
                 costs_pj[channel] * 1e-12
             )
             selected = {
@@ -501,6 +501,7 @@ def lower_routed_trace(
                     * 1e-12
                 )
                 route_total_j += edge_j
+                physical_external_by_order_j[order, channel_column] += edge_j
                 _place_edge_energy(
                     energy_j[order],
                     edge=edge,
@@ -513,7 +514,8 @@ def lower_routed_trace(
                 )
 
         dram_j = float(event["dram_energy_pj"]) * batch_factor * 1e-12
-        legacy_external_by_order_j[order, 2] += dram_j
+        monitor_external_by_order_j[order, 2] += dram_j
+        physical_external_by_order_j[order, 2] += dram_j
         route_total_j += dram_j
         if dram_j:
             locations = tuple(
@@ -529,12 +531,21 @@ def lower_routed_trace(
                 energy_j[order, index[name]] += dram_j / len(locations)
 
     if not np.allclose(
-        legacy_external_by_order_j,
+        monitor_external_by_order_j,
         core.unplaced_energy_j,
         rtol=1e-11,
         atol=1e-18,
     ):
-        raise ValueError("route events do not reconcile with per-order external energy")
+        raise ValueError("route events do not reconcile with per-order monitor energy")
+    if not np.allclose(
+        physical_external_by_order_j,
+        core.unplaced_energy_j,
+        rtol=1e-11,
+        atol=1e-18,
+    ):
+        raise ValueError(
+            "physical route energy does not reconcile with per-order monitor energy"
+        )
     powers_w = energy_j / core.trace.durations_s[:, None]
     trace = PhaseTrace(core.trace.durations_s, powers_w)
     source_energy_j = core.represented_energy_j + route_total_j
@@ -543,8 +554,8 @@ def lower_routed_trace(
         trace=trace,
         source_energy_j=source_energy_j,
         route_energy_j=route_total_j,
-        legacy_source_energy_j=core.thermal_energy_j,
-        legacy_route_energy_j=core.residual_energy_j,
+        monitor_source_energy_j=core.thermal_energy_j,
+        monitor_route_energy_j=core.residual_energy_j,
         physical_channel_hops=tuple(float(value) for value in physical_channel_hops),
-        legacy_channel_hops=tuple(float(value) for value in legacy_channel_hops),
+        monitor_channel_hops=tuple(float(value) for value in monitor_channel_hops),
     )

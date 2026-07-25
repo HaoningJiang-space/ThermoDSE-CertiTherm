@@ -135,15 +135,15 @@ def test_cross_chiplet_nop_energy_goes_to_gap_block():
 
 
 def test_dram_read_places_access_energy_and_conserves_all_sources():
-    core = _core_lowering([0.0, 4.0, 10.0])
+    core = _core_lowering([4.0, 0.0, 10.0])
     event = {
         "order": 0,
         "kind": "dram_read",
         "destinations": [[0, 0]],
         "dram_locations": [[0, 0], [3, 0]],
         "volume": 4.0,
-        "noc_energy_pj": 0.0,
-        "nop_energy_pj": 4.0,
+        "noc_energy_pj": 4.0,
+        "nop_energy_pj": 0.0,
         "dram_energy_pj": 10.0,
     }
     routed = _lower(core, event, (1, 1))
@@ -181,7 +181,7 @@ def test_event_ledger_mismatch_fails_closed():
         )
 
 
-def test_legacy_boundary_noc_is_reclassified_as_physical_nop():
+def test_legacy_boundary_channel_mismatch_fails_closed():
     core = _core_lowering([6.0, 0.0, 0.0])
     event = {
         "order": 0,
@@ -196,20 +196,13 @@ def test_legacy_boundary_noc_is_reclassified_as_physical_nop():
         "nop_energy_pj": 0.0,
         "dram_energy_pj": 0.0,
     }
-    routed = lower_routed_trace(
-        core,
-        floorplan=_augmented(),
-        events=(event,),
-        compute_shape=(2, 1),
-        chiplet_cuts=(2, 1),
-        noc_hop_cost_pj=2.0,
-        nop_hop_cost_pj=5.0,
-    )
-    energy = routed.trace.energy_j()
-    index = {name: i for i, name in enumerate(routed.floorplan.block_ids)}
-    assert energy[index["blockX_0"]] == pytest.approx(15e-12)
-    assert routed.legacy_route_energy_j == pytest.approx(6e-12)
-    assert routed.route_energy_j == pytest.approx(15e-12)
-    assert routed.legacy_channel_hops == pytest.approx((3.0, 0.0))
-    assert routed.physical_channel_hops == pytest.approx((0.0, 3.0))
-    assert routed.source_energy_j - routed.legacy_source_energy_j == pytest.approx(9e-12)
+    with pytest.raises(ValueError, match="physical route energy"):
+        lower_routed_trace(
+            core,
+            floorplan=_augmented(),
+            events=(event,),
+            compute_shape=(2, 1),
+            chiplet_cuts=(2, 1),
+            noc_hop_cost_pj=2.0,
+            nop_hop_cost_pj=5.0,
+        )
