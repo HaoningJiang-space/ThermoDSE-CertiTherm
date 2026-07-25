@@ -11,8 +11,18 @@ Inside ThermoDSE, `statistic.py:221` collapses the temporal axis the same way:
 
     avg_p = np.sum(self.core_dict[nn][:, idx, m]) * 1e-12 / latency    # sum over ALL orders
 
-WHAT SURVIVES. `chiplet_evaluator.monitor` is an instance attribute, so it outlives
-`evaluate()` -- unlike the `Evaluator` object, which is a local and gets `.clear()`ed. On it:
+WHAT SURVIVES, AND WHAT DOES NOT. `chiplet_evaluator.monitor` is an instance attribute, so
+the OBJECT outlives `evaluate()` -- unlike the `Evaluator`, which is a local and gets
+`.clear()`ed. But its CONTENTS do not: `chiplet_eva.py:239` calls `self.monitor.clear()` on
+the line before `return`. The first version of this probe fail-closed on exactly that, which
+is the intended behaviour.
+
+The data is still complete at `chiplet_eva.py:231`, where `gen_all_ptrace_3D` writes the
+averaged ptrace. So the adapter intercepts `monitor.clear` and snapshots first. That is a
+READ-ONLY adapter -- the pinned submodule is untouched -- and it follows a pattern already
+used in `experiments.py::_hotspot_disabled`, which monkeypatches `run_hotspot` the same way.
+
+On the monitor:
 
     monitor.latency_dict[nn][order]           per-order latency, in CYCLES
     monitor.core_dict[nn][order, core, 7]     per-order per-core component energy, pJ
@@ -48,9 +58,42 @@ import numpy as np
 
 sys.path.insert(0, ".")
 
+from contextlib import contextmanager
+
 from CertiTherm.experiments import (
     ROOT, _prepare_thermodse_sim, _registry_split, _rows, _thermodse_evaluator,
 )
+
+DICTS = ("core_dict", "latency_dict", "noc_dict", "nop_dict", "dram_dict", "core_utl_dict")
+
+
+@contextmanager
+def monitor_snapshot(evaluator):
+    """Capture the monitor's per-order data before ThermoDSE clears it.
+
+    `chiplet_eva.py` calls `monitor.clear()` immediately before returning, so reading
+    the dicts after `evaluate()` yields nothing. This wraps `clear` to deep-copy first.
+    Read-only with respect to the pinned submodule: nothing on disk is modified and the
+    original method is restored on exit.
+    """
+    mon = evaluator.monitor
+    original = mon.clear
+    box = {}
+
+    def clear_after_snapshot(*args, **kwargs):
+        if not box:                                  # keep the FIRST (complete) state
+            for name in DICTS:
+                d = getattr(mon, name, None)
+                if isinstance(d, dict):
+                    box[name] = {k: np.array(v, dtype=float, copy=True)
+                                 for k, v in d.items()}
+        return original(*args, **kwargs)
+
+    mon.clear = clear_after_snapshot
+    try:
+        yield box
+    finally:
+        mon.clear = original
 
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/v6probe")
 WORKLOAD = sys.argv[2] if len(sys.argv) > 2 else "resnet50"
@@ -74,18 +117,20 @@ def main():
     sim = _prepare_thermodse_sim(arch, wl, pkg, OUTPUT, allow_hotspot=True)
     ev = _thermodse_evaluator(arch, wl, sim)
     ev.generate_hardware()
-    latency, energy, die_yield = ev.evaluate()
-    print(f"{ARCH_ID} / {WORKLOAD}: endpoints latency={latency:.6f} ms "
-          f"energy={energy:.6f} mJ yield={die_yield:.4f}")
-
     mon = getattr(ev, "monitor", None)
     if mon is None:
         print("FAIL: evaluator has no `monitor`; the internals are not reachable this way")
         sys.exit(2)
-    names = sorted(getattr(mon, "core_dict", {}).keys())
-    if not names:
-        print("FAIL: monitor.core_dict is empty after evaluate(); nothing survived")
+    with monitor_snapshot(ev) as snap:
+        latency, energy, die_yield = ev.evaluate()
+    print(f"{ARCH_ID} / {WORKLOAD}: endpoints latency={latency:.6f} ms "
+          f"energy={energy:.6f} mJ yield={die_yield:.4f}")
+
+    if "core_dict" not in snap or not snap["core_dict"]:
+        print("FAIL: the snapshot captured no core_dict; monitor.clear was never reached "
+              "or the attribute names have changed")
         sys.exit(2)
+    names = sorted(snap["core_dict"].keys())
     clk = float(getattr(mon, "clk_freq"))
     print(f"  networks recorded: {names}   clk_freq={clk:.3e} Hz")
 
@@ -96,11 +141,11 @@ def main():
     lat_cycles_all = 0.0
     e_true_pj_all = 0.0
     for nn in names:
-        core = np.asarray(mon.core_dict[nn], dtype=float)          # (orders, cores, 7)
-        lat = np.asarray(mon.latency_dict[nn], dtype=float)        # (orders,) cycles
-        noc = np.asarray(mon.noc_dict[nn], dtype=float)
-        nop = np.asarray(mon.nop_dict[nn], dtype=float)
-        dram = np.asarray(mon.dram_dict[nn], dtype=float)
+        core = snap["core_dict"][nn]                               # (orders, cores, 7)
+        lat = snap["latency_dict"][nn]                             # (orders,) cycles
+        noc = snap["noc_dict"][nn]
+        nop = snap["nop_dict"][nn]
+        dram = snap["dram_dict"][nn]
         n_ord, n_core, n_comp = core.shape
         print(f"\n  [{nn}] orders={n_ord} cores={n_core} components={n_comp}")
 
