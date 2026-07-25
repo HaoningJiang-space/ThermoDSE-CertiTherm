@@ -14,6 +14,12 @@ because phases are split across bins rather than rounded to whole steps), a comm
 initial state, automatic convergence by cycle doubling, a mean-steady reference, and a guard
 refusing any convergence claim finer than HotSpot's 0.01 K output resolution.
 
+CORRECTION to an earlier claim of mine. I wrote that the old runner "validated energy before
+serialisation instead of after", implying the engine validates after. It does NOT:
+`resample_uniform` checks the in-memory array and `_write_ptrace` then rounds to `%.12g`. The
+serialised file is never re-integrated. That statement was false. This script therefore does
+the post-serialisation check itself, on the traces it constructs, and reports the residual.
+
 WHAT THIS SCRIPT STILL DOES ITSELF, because it is the genuinely new part: extract CORE-ONLY
 per-order power vectors using ThermoDSE's OWN `gen_all_ptrace_3D` by source and order
 isolation, then align them to the floorplan and PROVE the alignment discards no heat.
@@ -68,7 +74,7 @@ from CertiTherm.experiments import (
     _rows, _thermodse_evaluator,
 )
 from CertiTherm.phase_trace import PhaseTrace
-from CertiTherm.trace_runner import floorplan_units
+from CertiTherm.trace_runner import floorplan_units, unplaced_power
 from CertiTherm.transient import replay_periodic
 
 import importlib.util as _ilu
@@ -170,7 +176,11 @@ def main():
                 if key == nn and v.shape[0] > k:
                     z[k] = v[k]
                 iso["core_dict"][key] = z
-            _, vk = generate(mon, iso, work / "ord")
+            cols_k, vk = generate(mon, iso, work / "ord")
+            if cols_k != cols:
+                print(f"FAIL: order {k} changed the generator header; rows would be "
+                      f"assigned positionally against a different column order")
+                sys.exit(2)
             rows[k] = vk
         sup_err = float(np.abs(rows.sum(axis=0) - ref).max())
         print(f"  per-order superposition error {sup_err:.3e} W "
@@ -178,6 +188,21 @@ def main():
         if sup_err >= 5e-3:
             sys.exit(3)
         p_ord = rows * (t_total / dur[:, None])     # rows[k] = E_k/T_total
+        # #2: the rescaling above ASSUMES the generator divides by the total latency and
+        # that the source arrays are energies. Superposition proves neither. Check the
+        # per-order identity directly against the source ledger: the power integrated over
+        # the order's own duration must equal that order's core energy.
+        e_src_pj = np.array([snap["core_dict"][nn][k].sum() for k in range(n_ord)])
+        e_trace_pj = (p_ord.sum(axis=1) * dur) * 1e12
+        rel = np.abs(e_trace_pj - e_src_pj) / np.maximum(e_src_pj, 1.0)
+        worst = int(rel.argmax())
+        print(f"  per-order energy identity vs the source ledger: worst relative error "
+              f"{rel[worst]:.3e} at order {worst} "
+              f"({e_trace_pj[worst]:.4e} vs {e_src_pj[worst]:.4e} pJ)")
+        if rel.max() > 1e-3:
+            print(f"FAIL: the per-order rescaling does not reproduce source energy; the "
+                  f"denominator or the array semantics are not what is assumed")
+            sys.exit(3)
 
         # ---- align to the floorplan and PROVE no heat is discarded --------------
         floorplan = Path(sim) / "floorplan" / "output_3D.flp"
@@ -186,15 +211,26 @@ def main():
         absent = [n for n in units if n not in idx]
         if absent:
             print(f"FAIL: {len(absent)} floorplan units absent from the header"); sys.exit(2)
-        unplaced = [j for j, n in enumerate(cols) if n not in set(units)]
-        leak = float(np.abs(p_ord[:, unplaced]).max()) if unplaced else 0.0
-        if leak > 0.0:
-            print(f"FAIL: {leak:.6f} W sits in columns with no floorplan unit; the trace "
-                  f"is not core-only and the comparison is void"); sys.exit(3)
+        if len(set(cols)) != len(cols) or len(set(units)) != len(units):
+            print("FAIL: duplicate names in the generator header or the floorplan; the "
+                  "column mapping would silently keep only the last occurrence")
+            sys.exit(2)
+        # Reuse the SHARED fail-closed helper rather than re-deriving the rule here. It
+        # takes the worst magnitude over all rows, which is what a multi-row trace needs.
+        probe = work / "unplaced-probe.ptrace"
+        with probe.open("w") as fh:
+            fh.write("\t".join(cols) + "\n")
+            for row in p_ord:
+                fh.write("\t".join(f"{v:.12g}" for v in row) + "\n")
+        dropped = unplaced_power(probe, floorplan)
+        if dropped:
+            print(f"FAIL: {sum(dropped.values()):.6f} W sits in columns with no floorplan "
+                  f"unit ({sorted(dropped)[:4]}); the trace is not core-only and the "
+                  f"comparison is void"); sys.exit(3)
         take = [idx[n] for n in units]
         p_aligned = p_ord[:, take]
-        print(f"  aligned onto {len(units)} floorplan units, discarding "
-              f"{len(unplaced)} provably-zero columns")
+        print(f"  aligned onto {len(units)} floorplan units; shared unplaced-power check "
+              f"reports nothing discarded")
 
         # ---- the two traces: identical per-block energy, identical duration -----
         scheduled = PhaseTrace(dur, p_aligned)
@@ -259,31 +295,44 @@ def main():
             # be read at all; the frozen 0.01 K band is a STEADY-STATE linearisation
             # bound and does not cover transient discretisation, so it is a floor here,
             # not a certified error contract.
-            noise = max(resolution, s.peak_residual_k, f.peak_residual_k,
-                        s.boundary_residual_k, f.boundary_residual_k)
+            # #6: this is an OBSERVED DIAGNOSTIC, not an error bound. A last-cycle
+            # residual does not bound the distance to the limiting orbit without a
+            # contraction rate, and the uncertainty of a DIFFERENCE of two quantities
+            # combines by sum, not by max -- so the per-trace residuals are added and the
+            # output quantisation counted for both values.
+            noise = (2.0 * resolution
+                     + s.peak_residual_k + f.peak_residual_k
+                     + s.boundary_residual_k + f.boundary_residual_k)
             print(f"\n  [{model_id}] SHAPE EFFECT (scheduled - flat) = {gap:+.4f} K")
-            print(f"    largest residual / output resolution = {noise:.4f} K "
-                  f"-> effect is {abs(gap) / noise:.2f}x it")
+            print(f"    observed numerical diagnostic (summed, NOT an error bound) = "
+                  f"{noise:.4f} K -> effect is {abs(gap) / noise:.2f}x it")
             if abs(gap) <= noise:
                 verdict = "INDETERMINATE"
                 print(f"    INDETERMINATE: the difference does not exceed the numerical "
                       f"floor; core schedule shape is not resolvable here.")
             else:
-                verdict = "RESOLVED"
+                verdict = "ABOVE_DIAGNOSTIC"      # NOT "resolved": no error contract yet
             # `>=` on both sides so the exactly-at-limit case cannot fall through into a
             # spurious disagreement, which a strict < / > pair does.
             s_safe = s.periodic_peak_k < THERMAL_LIMIT_K
             f_safe = f.periodic_peak_k < THERMAL_LIMIT_K
             if s_safe == f_safe:
-                feas = "both SAFE" if s_safe else "both REJECT"
+                feas = ("both below limit (point estimates)" if s_safe
+                        else "both at/above limit (point estimates)")
             else:
-                feas = "DISAGREE (point estimate only)"
+                feas = "opposite sides (point estimates)"
             print(f"    margins: scheduled {THERMAL_LIMIT_K - s.periodic_peak_k:+.4f} K, "
                   f"flat {THERMAL_LIMIT_K - f.periodic_peak_k:+.4f} K -> {feas}")
+            # #13: argmax returns one block; two within the diagnostic band can alternate
+            # without physical movement. Only a peak gap exceeding the band makes the
+            # identity meaningful at all, so movement is reported as UNRESOLVABLE below it.
             same_hot = s.periodic_hottest_block == f.periodic_hottest_block
-            print(f"    hottest block: {'unchanged' if same_hot else 'MOVED'} "
+            hot_note = ("unchanged" if same_hot
+                        else ("MOVED" if abs(gap) > noise
+                              else "differs, but within the diagnostic band -> UNRESOLVABLE"))
+            print(f"    hottest block: {hot_note} "
                   f"({s.periodic_hottest_block} vs {f.periodic_hottest_block})")
-            if feas.startswith("DISAGREE"):
+            if feas.startswith("opposite"):
                 print(f"    A point-estimate disagreement is NOT a certified flip: that "
                       f"needs non-overlapping intervals under a transient error contract, "
                       f"which does not exist yet.")
@@ -299,8 +348,17 @@ def main():
             }
         print(f"\n  BOUNDARY: compute-domain core-only. No DRAM (40.56% of dissipated "
               f"energy), no NoP (10.90%), no NoC.")
-        (OUTPUT / f"core_flip_{WORKLOAD}_{ARCH_ID}.json").write_text(
-            json.dumps(report, indent=2, default=str))
+        # #10: the old fixed filename let the 1.0/0.5/0.25 us runs overwrite one another,
+        # destroying convergence evidence while leaving a plausible JSON behind.
+        tag = f"{'-'.join(MODELS)}_{STEP_US:g}us"
+        dest = OUTPUT / f"core_flip_{WORKLOAD}_{ARCH_ID}_{tag}.json"
+        if dest.exists():
+            print(f"FAIL: {dest} already exists; refusing to overwrite evidence")
+            sys.exit(2)
+        report["requested_max_step_us"] = STEP_US
+        report["models_requested"] = list(MODELS)
+        dest.write_text(json.dumps(report, indent=2, default=str))
+        print(f"  wrote {dest}")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
