@@ -64,7 +64,7 @@ def main() -> None:
 
     with capture_route_events(Nop) as events:
         with monitor_snapshot(evaluator) as snapshot:
-            endpoint_latency_ms, endpoint_energy_mj, _ = evaluator.evaluate()
+            endpoint_latency_ms, endpoint_energy_mj, die_yield = evaluator.evaluate()
     if len(snapshot["core_dict"]) != 1:
         raise RuntimeError("complete trace probe requires exactly one captured network")
     network = next(iter(snapshot["core_dict"]))
@@ -170,6 +170,10 @@ def main() -> None:
         "physical_latency_ms": physical_latency_ms,
         "legacy_endpoint_latency_ms": float(endpoint_latency_ms),
         "optimization_energy_mj": float(endpoint_energy_mj),
+        "die_yield": float(die_yield),
+        "optimization_edyp": (
+            float(endpoint_latency_ms) * float(endpoint_energy_mj) / float(die_yield)
+        ),
         "thermal_source_energy_mj": routed.source_energy_j * 1e3,
         "integrated_trace_energy_mj": integrated_j * 1e3,
         "route_energy_mj": routed.route_energy_j * 1e3,
