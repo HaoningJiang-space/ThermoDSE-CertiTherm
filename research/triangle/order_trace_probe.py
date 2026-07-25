@@ -50,10 +50,12 @@ equality:
 A thermal trace must be built from the second. This probe reports both and the gap between
 them, and never treats a mismatch as an error to be reconciled away.
 
-WHAT THIS PROBE CAN AND CANNOT DECIDE. It reports the SCALAR total power per order. That is
-enough to show availability and conservation, and enough to show that variation EXISTS. It is
-NOT enough to decide the transient direction, and an earlier version of this docstring
-wrongly claimed it was.
+WHAT THIS PROBE CAN AND CANNOT DECIDE. It reports the SCALAR total power per order and now
+also lowers per-core component energy into an exact FLOORPLAN-ALIGNED CORE VECTOR. The vector
+is enough to measure genuine spatial redistribution in the placed compute/memory blocks. It
+is still NOT a complete thermal trace: NoC, NoP, and DRAM survive only as aggregate
+per-order energies, so their locations cannot be reconstructed from the monitor. They remain
+an explicit unplaced-energy residual and block thermal replay.
 
 The reason is first-principles: temperature responds to a SPATIAL power vector,
 
@@ -62,8 +64,9 @@ The reason is first-principles: temperature responds to a SPATIAL power vector,
 so a flat scalar total is fully compatible with a hotspot MIGRATING between chiplets from
 order to order, which changes peak temperature through diffusion, adjacency and history. The
 inference "scalar total is flat, therefore no phase structure to exploit" is invalid in both
-directions and is withdrawn. Only a floorplan-aligned per-order power VECTOR can decide it;
-that is the successor probe.
+directions and is withdrawn. The partial vector here can establish spatial variation in the
+exactly placed core portion. It cannot establish a thermal decision flip until the external
+residual is placed or bounded.
 
 NON-CLAIM diagnostic. Usage:
     python research/triangle/order_trace_probe.py <out> <workload> <arch_id>
@@ -83,7 +86,7 @@ from contextlib import contextmanager
 from CertiTherm.experiments import (
     ROOT, _prepare_thermodse_sim, _registry_split, _rows, _thermodse_evaluator,
 )
-from CertiTherm.thermodse_trace import lower_monitor_trace
+from CertiTherm.thermodse_trace import lower_monitor_trace, spatial_variation
 from CertiTherm.trace_runner import floorplan_units
 
 DICTS = ("core_dict", "latency_dict", "noc_dict", "nop_dict", "dram_dict", "core_utl_dict")
@@ -236,6 +239,10 @@ def main():
         print(f"    spatial     : represented={lowered.represented_energy_j:.6e} J  "
               f"unplaced={lowered.residual_energy_j:.6e} J  "
               f"represented_fraction={lowered.represented_fraction:.4f}")
+        variation = spatial_variation(lowered)
+        print(f"                 spatial-TV time-weighted="
+              f"{variation.time_weighted_tv:.4f}  max={variation.max_tv:.4f}  "
+              f"unique hottest blocks={len(variation.unique_hottest_block_ids)}")
         print(f"                 wrote {vector_out}")
         if not lowered.is_complete:
             print("                 INCOMPLETE FOR THERMAL REPLAY: NoC/NoP/DRAM have "
@@ -256,24 +263,30 @@ def main():
             "unplaced_energy_j": lowered.residual_energy_j,
             "represented_fraction": lowered.represented_fraction,
             "complete_for_thermal_replay": lowered.is_complete,
+            "spatial_tv_time_weighted": variation.time_weighted_tv,
+            "spatial_tv_max": variation.max_tv,
+            "unique_hottest_blocks": variation.unique_hottest_block_ids,
         }
 
     # --- reconcile against the endpoints CertiTherm already trusts ---------------
     lat_s = lat_cycles_all / clk
     print(f"\n  RECONCILIATION")
-    print(f"    sum(per-order duration) = {lat_s * 1e3:.6f} ms   "
-          f"endpoint latency = {latency:.6f} ms   "
-          f"ratio = {lat_s * 1e3 / latency if latency else float('nan'):.4f}")
+    print(f"    cycle-derived physical latency = {lat_s * 1e3:.6f} ms   "
+          f"returned endpoint labelled latency_ms = {latency:.6f} ms")
+    print(f"    endpoint / physical = "
+          f"{latency / (lat_s * 1e3) if lat_s else float('nan'):.4f} "
+          f"(known units defect: returned cycles/1e6 assumes 1 GHz; configured clock "
+          f"is {clk / 1e9:.1f} GHz)")
     e_true_mj = e_true_pj_all * 1e-9
     print(f"    sum(per-order TRUE energy) = {e_true_mj:.6f} mJ   "
           f"endpoint energy = {energy:.6f} mJ   "
           f"ratio = {e_true_mj / energy if energy else float('nan'):.4f}")
-    print(f"    A latency ratio far from 1.0 means the per-order durations do not tile the "
-          f"run (batching, multi-network accumulation, or an unaccounted phase), and a "
-          f"trace built from them would not be replayable.")
     report["reconciliation"] = {
         "per_order_latency_ms": float(lat_s * 1e3),
-        "latency_ratio": float(lat_s * 1e3 / latency) if latency else None,
+        "returned_endpoint_latency_ms": float(latency),
+        "endpoint_over_physical_latency": (
+            float(latency / (lat_s * 1e3)) if lat_s else None
+        ),
         "per_order_true_energy_mj": float(e_true_mj),
         "energy_ratio": float(e_true_mj / energy) if energy else None,
     }

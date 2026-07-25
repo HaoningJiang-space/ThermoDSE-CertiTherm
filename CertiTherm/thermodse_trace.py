@@ -75,6 +75,47 @@ class ThermoDSETraceLowering:
         return bool(np.all(self.unplaced_energy_j == 0.0))
 
 
+@dataclass(frozen=True)
+class SpatialVariation:
+    """Power-location variation after removing scalar total-power amplitude."""
+
+    time_weighted_tv: float
+    max_tv: float
+    unique_hottest_block_ids: Tuple[str, ...]
+
+
+def spatial_variation(lowering: ThermoDSETraceLowering) -> SpatialVariation:
+    """Measure how much the represented power distribution moves between phases.
+
+    Each phase power vector is normalized to unit total power before comparison with
+    the time-weighted mean distribution.  Total variation is therefore insensitive to
+    scalar power amplitude: zero means every phase has the same spatial distribution,
+    while one means disjoint support.  Idle phases are ignored rather than assigned an
+    arbitrary distribution.
+    """
+
+    powers = lowering.trace.powers_w
+    totals = powers.sum(axis=1)
+    active = totals > 0.0
+    if not np.any(active):
+        return SpatialVariation(0.0, 0.0, ())
+    mean = lowering.trace.mean_power_w
+    mean_total = float(mean.sum())
+    if mean_total <= 0.0:
+        return SpatialVariation(0.0, 0.0, ())
+    distributions = np.zeros_like(powers)
+    distributions[active] = powers[active] / totals[active, None]
+    mean_distribution = mean / mean_total
+    tv = 0.5 * np.abs(distributions[active] - mean_distribution).sum(axis=1)
+    active_durations = lowering.trace.durations_s[active]
+    weighted = float(active_durations @ tv / active_durations.sum())
+    hottest_columns = np.argmax(powers[active], axis=1)
+    hottest = tuple(
+        sorted({lowering.block_ids[int(column)] for column in hottest_columns})
+    )
+    return SpatialVariation(weighted, float(tv.max()), hottest)
+
+
 def lower_monitor_trace(
     *,
     block_ids: Sequence[str],

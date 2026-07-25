@@ -8,6 +8,7 @@ import pytest
 from CertiTherm.thermodse_trace import (
     THERMODSE_COMPONENTS,
     lower_monitor_trace,
+    spatial_variation,
 )
 
 
@@ -78,6 +79,43 @@ def test_external_energy_stays_explicit_and_blocks_complete_replay():
     assert lowered.residual_energy_j > 0.0
     assert not lowered.is_complete
     assert 0.0 < lowered.represented_fraction < 1.0
+
+
+def test_spatial_variation_removes_scalar_amplitude():
+    core = np.zeros((2, 1, 7))
+    core[0, 0, 0] = 1.0
+    core[0, 0, 1] = 3.0
+    core[1] = core[0] * 2.0
+    lowered = _lower(
+        block_ids=_blocks(1),
+        latency_cycles=np.array([1.0, 1.0]),
+        core_energy_pj=core,
+        noc_energy_pj=np.zeros(2),
+        nop_energy_pj=np.zeros(2),
+        dram_energy_pj=np.zeros(2),
+    )
+    metric = spatial_variation(lowered)
+    assert metric.time_weighted_tv == pytest.approx(0.0)
+    assert metric.max_tv == pytest.approx(0.0)
+    assert metric.unique_hottest_block_ids == ("vecu_0",)
+
+
+def test_spatial_variation_detects_migrating_power():
+    core = np.zeros((2, 1, 7))
+    core[0, 0, 0] = 4.0
+    core[1, 0, 1] = 4.0
+    lowered = _lower(
+        block_ids=_blocks(1),
+        latency_cycles=np.array([1.0, 1.0]),
+        core_energy_pj=core,
+        noc_energy_pj=np.zeros(2),
+        nop_energy_pj=np.zeros(2),
+        dram_energy_pj=np.zeros(2),
+    )
+    metric = spatial_variation(lowered)
+    assert metric.time_weighted_tv == pytest.approx(0.5)
+    assert metric.max_tv == pytest.approx(0.5)
+    assert metric.unique_hottest_block_ids == ("mtxu_0", "vecu_0")
 
 
 def test_missing_or_extra_core_blocks_fail_closed():
