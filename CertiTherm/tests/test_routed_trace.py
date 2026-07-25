@@ -210,4 +210,6 @@ def test_legacy_boundary_noc_is_reclassified_as_physical_nop():
     assert energy[index["blockX_0"]] == pytest.approx(15e-12)
     assert routed.legacy_route_energy_j == pytest.approx(6e-12)
     assert routed.route_energy_j == pytest.approx(15e-12)
+    assert routed.legacy_channel_hops == pytest.approx((3.0, 0.0))
+    assert routed.physical_channel_hops == pytest.approx((0.0, 3.0))
     assert routed.source_energy_j - routed.legacy_source_energy_j == pytest.approx(9e-12)

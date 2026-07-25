@@ -398,10 +398,17 @@ class RoutedThermoDSETrace:
     route_energy_j: float
     legacy_source_energy_j: float
     legacy_route_energy_j: float
+    physical_channel_hops: Tuple[float, float]
+    legacy_channel_hops: Tuple[float, float]
 
     def __post_init__(self) -> None:
         if self.trace.dimension != len(self.floorplan.block_ids):
             raise ValueError("trace and augmented floorplan dimensions differ")
+        if (
+            len(self.physical_channel_hops) != 2
+            or len(self.legacy_channel_hops) != 2
+        ):
+            raise ValueError("channel-hop receipts must contain NoC and NoP")
         if not np.isclose(
             float(self.trace.energy_j().sum()),
             float(self.source_energy_j),
@@ -414,9 +421,15 @@ class RoutedThermoDSETrace:
             self.route_energy_j,
             self.legacy_source_energy_j,
             self.legacy_route_energy_j,
+            *self.physical_channel_hops,
+            *self.legacy_channel_hops,
         )
         if any(not np.isfinite(value) or value < 0.0 for value in values):
             raise ValueError("routed trace energy receipts must be finite and non-negative")
+        object.__setattr__(
+            self, "physical_channel_hops", tuple(self.physical_channel_hops)
+        )
+        object.__setattr__(self, "legacy_channel_hops", tuple(self.legacy_channel_hops))
 
 
 def lower_routed_trace(
@@ -454,6 +467,8 @@ def lower_routed_trace(
         energy_j[:, index[name]] = core_energy[:, old_column]
 
     legacy_external_by_order_j = np.zeros((core.trace.n_phases, 3), dtype=float)
+    physical_channel_hops = np.zeros(2, dtype=float)
+    legacy_channel_hops = np.zeros(2, dtype=float)
     route_total_j = 0.0
     for event in events:
         order = int(event["order"])
@@ -468,6 +483,9 @@ def lower_routed_trace(
                 float(event[f"{channel}_energy_pj"]) * batch_factor * 1e-12
             )
             legacy_external_by_order_j[order, channel_column] += legacy_j
+            legacy_channel_hops[channel_column] += legacy_j / (
+                costs_pj[channel] * 1e-12
+            )
             selected = {
                 edge: weight
                 for edge, weight in weights.items()
@@ -475,11 +493,11 @@ def lower_routed_trace(
                 and not _is_external_edge(edge, nx)
             }
             for edge, weight in selected.items():
+                edge_hops = volume * float(weight) * batch_factor
+                physical_channel_hops[channel_column] += edge_hops
                 edge_j = (
-                    volume
-                    * float(weight)
+                    edge_hops
                     * costs_pj[channel]
-                    * batch_factor
                     * 1e-12
                 )
                 route_total_j += edge_j
@@ -527,4 +545,6 @@ def lower_routed_trace(
         route_energy_j=route_total_j,
         legacy_source_energy_j=core.thermal_energy_j,
         legacy_route_energy_j=core.residual_energy_j,
+        physical_channel_hops=tuple(float(value) for value in physical_channel_hops),
+        legacy_channel_hops=tuple(float(value) for value in legacy_channel_hops),
     )
