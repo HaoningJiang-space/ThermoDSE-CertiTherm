@@ -60,6 +60,8 @@ def main():
         "fixed_initial_k": 318.15,
         "fixed_initial_peak_k": result.fixed_initial_peak_k,
         "fixed_initial_hottest_block": result.fixed_initial_hottest_block,
+        "mean_steady_peak_k": result.mean_steady_peak_k,
+        "mean_steady_hottest_block": result.mean_steady_hottest_block,
         "temperature_output_resolution_k": result.temperature_output_resolution_k,
     }
     OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -80,6 +82,11 @@ def main():
     print(
         f"  fixed-318.15K one-cycle peak={result.fixed_initial_peak_k:.6f} K "
         f"at {result.fixed_initial_hottest_block}"
+    )
+    print(
+        f"  time-mean steady peak={result.mean_steady_peak_k:.6f} K "
+        f"at {result.mean_steady_hottest_block}; "
+        f"periodic uplift={result.periodic_peak_k-result.mean_steady_peak_k:.6f} K"
     )
     print(f"  wrote {report_path}")
     print(

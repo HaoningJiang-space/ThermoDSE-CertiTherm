@@ -73,6 +73,25 @@ def _parse_ttrace(path: Path, block_ids: Sequence[str]) -> np.ndarray:
     return values
 
 
+def _parse_steady(path: Path, block_ids: Sequence[str]) -> np.ndarray:
+    values = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        try:
+            values[fields[0]] = float(fields[1])
+        except ValueError:
+            continue
+    missing = [name for name in block_ids if name not in values]
+    if missing:
+        raise RuntimeError(f"HotSpot steady output misses {len(missing)} blocks")
+    output = np.asarray([values[name] for name in block_ids])
+    if not np.all(np.isfinite(output)):
+        raise RuntimeError("HotSpot steady output contains non-finite temperature")
+    return output
+
+
 def _run_hotspot(
     *,
     binary: Path,
@@ -144,6 +163,8 @@ class PeriodicTransientResult:
     periodic_hottest_block: str
     fixed_initial_peak_k: float
     fixed_initial_hottest_block: str
+    mean_steady_peak_k: float
+    mean_steady_hottest_block: str
     temperature_output_resolution_k: float = 0.01
 
 
@@ -199,6 +220,7 @@ def replay_periodic(
         ptrace=mean_ptrace,
         steady=mean_steady,
     )
+    mean_temperatures = _parse_steady(mean_steady, block_ids)
 
     one_cycle = workspace / "one-cycle.ptrace"
     fixed_ttrace = workspace / "fixed-initial.ttrace"
@@ -258,6 +280,7 @@ def replay_periodic(
 
     periodic_flat = int(np.argmax(last))
     fixed_flat = int(np.argmax(fixed))
+    mean_flat = int(np.argmax(mean_temperatures))
     return PeriodicTransientResult(
         step_s=step_s,
         samples_per_cycle=len(samples),
@@ -268,4 +291,6 @@ def replay_periodic(
         periodic_hottest_block=str(block_ids[periodic_flat % len(block_ids)]),
         fixed_initial_peak_k=float(fixed.flat[fixed_flat]),
         fixed_initial_hottest_block=str(block_ids[fixed_flat % len(block_ids)]),
+        mean_steady_peak_k=float(mean_temperatures[mean_flat]),
+        mean_steady_hottest_block=str(block_ids[mean_flat]),
     )

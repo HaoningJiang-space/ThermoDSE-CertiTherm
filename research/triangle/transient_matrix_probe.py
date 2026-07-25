@@ -48,6 +48,7 @@ def main():
                 if line.startswith(f"{MODEL}:")
                 or line.strip().startswith("periodic peak=")
                 or line.strip().startswith("fixed-318.15K")
+                or line.strip().startswith("time-mean steady")
             ]
             print(f"{workload}/{arch}")
             for line in summary:

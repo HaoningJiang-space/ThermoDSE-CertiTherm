@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from CertiTherm.phase_trace import PhaseTrace
-from CertiTherm.transient import replay_periodic, resample_uniform
+from CertiTherm.transient import _parse_steady, replay_periodic, resample_uniform
 
 
 def test_uniform_resampling_preserves_each_block_energy():
@@ -42,3 +42,9 @@ def test_periodic_replay_rejects_subresolution_convergence(tmp_path):
             fixed_initial_k=318.15,
             tolerance_k=0.001,
         )
+
+
+def test_steady_parser_aligns_by_block_name(tmp_path):
+    path = tmp_path / "mean.steady"
+    path.write_text("internal_0 999\nb 322.5\na 321.0\n", encoding="utf-8")
+    assert _parse_steady(path, ("a", "b")) == pytest.approx([321.0, 322.5])
