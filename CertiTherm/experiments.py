@@ -418,12 +418,20 @@ def _prepare_thermodse_sim(
     _configure(TEMPLATE / "example.config", sim / "example.config", package)
     if allow_hotspot:
         runner = ROOT / "CertiTherm" / "trace_runner.py"
+        # --allow-unplaced is a DECLARED BOUNDARY, not a convenience. ThermoDSE emits an
+        # `interposer` column holding all NoP power and no floorplan unit is named
+        # `interposer`, so name alignment cannot place it: 10.90% of the dissipated energy
+        # does not reach HotSpot. That was silent until `align_trace` was made fail-closed;
+        # passing the flag here keeps the existing pipeline's boundary UNCHANGED while making
+        # it visible in every run log, instead of relaxing the check for future work.
+        # See docs/THERMODSE_ENDPOINT_AUDIT.md; removing the omission means placing NoP
+        # power on real floorplan units, which changes the frozen thermal inputs.
         wrapper = (
             "#!/bin/sh\nexec "
             + shlex.quote(sys.executable)
             + " "
             + shlex.quote(str(runner))
-            + ' "$@" --hotspot '
+            + ' "$@" --allow-unplaced --hotspot '
             + shlex.quote(str(HOTSPOT))
             + "\n"
         )
