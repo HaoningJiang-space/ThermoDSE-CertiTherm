@@ -70,6 +70,18 @@ GATE = {"workload": "transformer", "arch": "arch_b", "model": "grid64-max",
         "io_aspect_ratio": 1.0, "thermal_limit_k": 330.0,
         "mean_steady_peak_k": 329.904867, "periodic_peak_k": 330.19,
         "hottest": "mtxu_16",
+        # The gate binds NAMES and TEMPERATURES only. It deliberately does NOT bind a
+        # canonical trace or input hash, because none has been preregistered: the registered
+        # values in docs/V6_PHYSICAL_TRACE_GATE.md were produced before this pipeline existed
+        # and no hash of that run's inputs survives. So the gate verifies THE PHENOMENON --
+        # that this pipeline reproduces the documented crossing at the documented location --
+        # and NOT that the underlying registry, power trace or routing are unchanged. A
+        # changed registry with the same workload/arch names could still pass. Closing that
+        # requires preregistering canonical_trace_sha256 and input hashes from a run that is
+        # itself claim-grade, which is a later step and is recorded here as an open gap.
+        "binds_instance_hashes": False,
+        "canonical_trace_sha256": None,
+        "canonical_input_hashes": None,
         # Deliberately NOT a numeric-equality tolerance on the steady value: 1e-6 K was
         # invented, is not tied to a documented output quantum, and has no repeatability
         # evidence behind it. The gate enforces the DECISION plus agreement of the periodic
@@ -126,7 +138,13 @@ def stage_inputs(paths: dict, staging: Path) -> tuple:
     for name, src in paths.items():
         dst = staging / f"{name}{Path(src).suffix}"
         shutil.copy2(src, dst)
-        os.chmod(dst, 0o444)                       # read-only: accidents become errors
+        # Data is read-only so accidents become errors; an EXECUTABLE must stay executable.
+        # A uniform 0o444 here made the staged HotSpot binary unrunnable, which would have
+        # killed the first replay with Permission denied.
+        executable = os.access(src, os.X_OK)
+        os.chmod(dst, 0o555 if executable else 0o444)
+        if executable and not os.access(dst, os.X_OK):
+            raise RuntimeError(f"staged executable {name} is not executable")
         staged[name] = dst
         hashes[name] = sha256(dst)
     return staged, hashes
@@ -349,10 +367,17 @@ def main() -> None:
         print(f"    location  {full['periodic_hottest_block']} vs {GATE['hottest']} : {loc_ok}")
         print(f"    steady delta {steady_delta:.6f} K (reported, NOT gated)")
         if not ok:
-            manifest["summary"] = "SUPPRESSED: the gate did not reproduce the registered "\
-                                  "counterexample, so no row may be read"
+            # summary is NULL, not a string. A consumer that merely checks for the key
+            # would otherwise read a failure as a success -- which is exactly the wrong
+            # judgement I previously described as a guarantee.
+            manifest["summary"] = None
+            manifest["suppression_reason"] = (
+                "the gate did not reproduce the registered counterexample, so no row may "
+                "be read")
+            manifest["complete"] = False
             write_json(OUT / "v61_manifest.json", manifest)
-            print("  no summary emitted."); sys.exit(4)
+            print("  GATE FAILED: summary is null, complete=false. Read NO row.")
+            sys.exit(4)
     else:
         manifest["gate"] = {"registered_tuple": GATE, "passed": None,
                             "note": f"UNGATED EXPLORATORY RUN: {WORKLOAD}/{ARCH}/{MODEL}/"
@@ -428,8 +453,30 @@ def main() -> None:
         "argv": list(sys.argv), "schema_version": SCHEMA_VERSION,
         "staged_inputs": {k: str(v) for k, v in staged.items()},
     }
+    # Re-verify provenance at the END: recording only the start state would miss a commit
+    # or working-tree change made while the run was in flight.
+    end_commit, end_dirty, end_diff = git_state()
+    manifest["provenance_end"] = {"commit": end_commit, "dirty": end_dirty,
+                                  "diff_sha256": end_diff}
+    stable = (end_commit == commit and end_dirty == dirty and end_diff == diff_sha)
+    manifest["provenance_stable"] = bool(stable)
+    verify_staged(staged, input_hashes)          # and the inputs one final time
+    if not stable:
+        manifest["summary"] = None
+        manifest["suppression_reason"] = (
+            f"git state changed during the run ({commit[:8]}/{len(dirty)} dirty -> "
+            f"{end_commit[:8]}/{len(end_dirty)} dirty); rows are not attributable to one "
+            f"revision")
+        manifest["complete"] = False
+        write_json(OUT / "v61_manifest.json", manifest)
+        print("  PROVENANCE CHANGED MID-RUN: summary is null, complete=false.")
+        sys.exit(5)
+    manifest["complete"] = True
     write_json(OUT / "v61_manifest.json", manifest)
-    print(f"\n  wrote {OUT / 'v61_manifest.json'}")
+    print(f"\n  wrote {OUT / 'v61_manifest.json'}  (complete=true, "
+          f"gate.passed={manifest['gate'].get('passed')})")
+    print("  A CONSUMER MUST CHECK complete is true AND gate.passed is true. Neither alone "
+          "is sufficient.")
     print("  Conclusions are bounded to THIS candidate, threshold, HotSpot model and "
           "discretisation. No independent signoff model has validated them.")
 
