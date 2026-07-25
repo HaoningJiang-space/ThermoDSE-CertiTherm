@@ -2,7 +2,7 @@
 
 Usage:
     python research/triangle/transient_decision_report.py \
-        <complete-root> <transient-root> [limit-k]
+        <route-objective-root> <transient-root> [limit-k]
 """
 
 from __future__ import annotations
@@ -12,23 +12,23 @@ import sys
 from pathlib import Path
 
 
-COMPLETE = Path(sys.argv[1])
+OBJECTIVES = Path(sys.argv[1])
 TRANSIENT = Path(sys.argv[2])
 LIMIT_K = float(sys.argv[3]) if len(sys.argv) > 3 else 330.0
 
 
 def load_case(workload, arch):
-    complete_path = (
-        COMPLETE
-        / f"{workload}-{arch}"
-        / f"complete_trace_{workload}_{arch}.json"
+    objective_path = (
+        OBJECTIVES
+        / f"{workload}-{arch}-physical"
+        / f"route_objective_{workload}_{arch}_physical.json"
     )
     transient_path = TRANSIENT / f"{workload}-{arch}" / "transient_report.json"
-    complete = json.loads(complete_path.read_text(encoding="utf-8"))
+    objective = json.loads(objective_path.read_text(encoding="utf-8"))
     transient = json.loads(transient_path.read_text(encoding="utf-8"))
     return {
         "arch": arch,
-        "objective": float(complete["optimization_edyp"]),
+        "objective": float(objective["physical_time_edyp"]),
         "mean_peak_k": float(transient["mean_steady_peak_k"]),
         "periodic_peak_k": float(transient["periodic_peak_k"]),
         "uplift_k": float(transient["periodic_peak_k"])
