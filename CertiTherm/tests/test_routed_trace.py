@@ -225,3 +225,113 @@ def test_legacy_boundary_channel_mismatch_fails_closed():
             noc_hop_cost_pj=2.0,
             nop_hop_cost_pj=5.0,
         )
+
+
+# --- component masking for causal isolation ---------------------------------------
+# The V6.1 gate needs to attribute one grid-max transient counterexample to a power
+# source. Masking gates DEPOSITION only: every route reconciliation receipt is still
+# enforced against the full ledger, so a masked run cannot pass on inputs an unmasked
+# run would reject.
+
+
+def _dram_event():
+    return {
+        "order": 0,
+        "kind": "dram_read",
+        "destinations": [[0, 0]],
+        "dram_locations": [[0, 0], [3, 0]],
+        "volume": 4.0,
+        "noc_energy_pj": 4.0,
+        "nop_energy_pj": 0.0,
+        "dram_energy_pj": 10.0,
+    }
+
+
+def _lower_masked(components):
+    return lower_routed_trace(
+        _core_lowering([4.0, 0.0, 10.0]),
+        floorplan=_augmented(),
+        events=(_dram_event(),),
+        compute_shape=(2, 1),
+        chiplet_cuts=(1, 1),
+        noc_hop_cost_pj=2.0,
+        nop_hop_cost_pj=2.0,
+        components=components,
+    )
+
+
+def test_component_split_covers_every_source_and_sums_to_the_full_energy():
+    routed = _lower_masked(None)
+    assert set(routed.component_energy_j) == {"core", "noc", "nop", "dram"}
+    assert routed.component_energy_j["core"] == pytest.approx(5e-12)
+    assert routed.component_energy_j["noc"] == pytest.approx(4e-12)
+    assert routed.component_energy_j["nop"] == pytest.approx(0.0)
+    assert routed.component_energy_j["dram"] == pytest.approx(10e-12)
+    assert sum(routed.component_energy_j.values()) == pytest.approx(19e-12)
+    assert routed.full_source_energy_j == pytest.approx(19e-12)
+
+
+def test_unmasked_lowering_is_unchanged_by_the_new_parameter():
+    """components=None must reproduce today's behaviour exactly."""
+    default = _lower_masked(None)
+    explicit = _lower_masked(("core", "noc", "nop", "dram"))
+    assert default.retained_components == ("core", "noc", "nop", "dram")
+    assert default.source_energy_j == pytest.approx(19e-12)
+    assert np.array_equal(default.trace.energy_j(), explicit.trace.energy_j())
+    assert default.source_energy_j == pytest.approx(explicit.source_energy_j)
+
+
+@pytest.mark.parametrize(
+    "components,expected_pj",
+    [
+        (("core",), 5.0),
+        (("core", "noc"), 9.0),
+        (("core", "dram"), 15.0),
+        (("core", "noc", "nop"), 9.0),          # nop is zero in this event
+        (("dram",), 10.0),
+    ],
+)
+def test_masked_lowering_conserves_only_the_retained_energy(components, expected_pj):
+    routed = _lower_masked(components)
+    assert routed.source_energy_j == pytest.approx(expected_pj * 1e-12)
+    # the emitted trace must integrate to the RETAINED energy, which is what makes a
+    # masked trace replayable; __post_init__ enforces this too
+    assert routed.trace.energy_j().sum() == pytest.approx(expected_pj * 1e-12)
+    # the full ledger is still reported, so a masked run is comparable with a full one
+    assert routed.full_source_energy_j == pytest.approx(19e-12)
+    assert sum(routed.component_energy_j.values()) == pytest.approx(19e-12)
+
+
+def test_masking_a_component_removes_exactly_its_placement():
+    """Deposition is gated per component and nothing else moves."""
+    full = _lower_masked(None).trace.energy_j()
+    no_dram = _lower_masked(("core", "noc", "nop")).trace.energy_j()
+    index = {n: i for i, n in enumerate(_lower_masked(None).floorplan.block_ids)}
+    assert no_dram[index["dram_x0_y0"]] == pytest.approx(0.0)
+    assert no_dram[index["dram_x3_y0"]] == pytest.approx(0.0)
+    # every non-DRAM column is untouched
+    others = [i for n, i in index.items() if not n.startswith("dram_")]
+    assert np.allclose(full[others], no_dram[others])
+
+
+def test_unknown_or_empty_component_mask_fails_closed():
+    with pytest.raises(ValueError, match="unknown power components"):
+        _lower_masked(("core", "leakage"))
+    with pytest.raises(ValueError, match="at least one component"):
+        _lower_masked(())
+
+
+def test_masking_still_enforces_the_route_reconciliation():
+    """A mask must not become a way to skip the receipts that validate the lowering."""
+    bad = dict(_dram_event(), noc_energy_pj=99.0)      # disagrees with the monitor ledger
+    with pytest.raises(ValueError, match="reconcile"):
+        lower_routed_trace(
+            _core_lowering([4.0, 0.0, 10.0]),
+            floorplan=_augmented(),
+            events=(bad,),
+            compute_shape=(2, 1),
+            chiplet_cuts=(1, 1),
+            noc_hop_cost_pj=2.0,
+            nop_hop_cost_pj=2.0,
+            components=("core",),                      # NoC masked out, still must fail
+        )

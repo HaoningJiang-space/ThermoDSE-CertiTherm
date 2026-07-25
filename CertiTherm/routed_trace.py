@@ -26,7 +26,7 @@ discovered fact.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import sqrt
 from types import MappingProxyType
 from typing import Dict, Iterable, Mapping, Sequence, Tuple
@@ -396,6 +396,23 @@ def _is_external_edge(edge: Edge, nx: int) -> bool:
     return any(coord[0] in (0, nx + 1) for coord in edge)
 
 
+COMPONENTS: Tuple[str, ...] = ("core", "noc", "nop", "dram")
+
+
+def _resolved_components(components) -> frozenset:
+    """Validate a component mask. `None` means every component, i.e. today's behaviour."""
+
+    if components is None:
+        return frozenset(COMPONENTS)
+    resolved = frozenset(str(name) for name in components)
+    unknown = resolved - frozenset(COMPONENTS)
+    if unknown:
+        raise ValueError(f"unknown power components: {sorted(unknown)}")
+    if not resolved:
+        raise ValueError("a component mask must retain at least one component")
+    return resolved
+
+
 @dataclass(frozen=True)
 class RoutedThermoDSETrace:
     floorplan: AugmentedFloorplan
@@ -406,6 +423,14 @@ class RoutedThermoDSETrace:
     monitor_route_energy_j: float
     physical_channel_hops: Tuple[float, float]
     monitor_channel_hops: Tuple[float, float]
+    # Component attribution. `component_energy_j` is the FULL per-component ledger and is
+    # populated identically whether or not a mask is applied, so a masked run can be
+    # checked against an unmasked one. `retained_components` records what the emitted
+    # trace actually deposits; `source_energy_j` is the RETAINED source energy, because
+    # the conservation identity below is what makes a masked trace replayable at all.
+    component_energy_j: Mapping[str, float] = field(default_factory=dict)
+    retained_components: Tuple[str, ...] = COMPONENTS
+    full_source_energy_j: float = 0.0
 
     def __post_init__(self) -> None:
         if self.trace.dimension != len(self.floorplan.block_ids):
@@ -432,10 +457,30 @@ class RoutedThermoDSETrace:
         )
         if any(not np.isfinite(value) or value < 0.0 for value in values):
             raise ValueError("routed trace energy receipts must be finite and non-negative")
+        retained = _resolved_components(self.retained_components)
+        split = dict(self.component_energy_j)
+        if split:
+            if frozenset(split) != frozenset(COMPONENTS):
+                raise ValueError("component_energy_j must cover every component")
+            if any(not np.isfinite(v) or v < 0.0 for v in split.values()):
+                raise ValueError("component energies must be finite and non-negative")
+            # The retained components must account for the emitted trace exactly, and the
+            # full split must account for the full source. Checking both is what lets a
+            # masked run be compared against an unmasked one.
+            if not np.isclose(sum(split[name] for name in retained),
+                              float(self.source_energy_j), rtol=1e-11, atol=1e-18):
+                raise ValueError("retained component energies do not match source_energy_j")
+            if self.full_source_energy_j and not np.isclose(
+                sum(split.values()), float(self.full_source_energy_j),
+                rtol=1e-11, atol=1e-18):
+                raise ValueError("component split does not match full_source_energy_j")
         object.__setattr__(
             self, "physical_channel_hops", tuple(self.physical_channel_hops)
         )
         object.__setattr__(self, "monitor_channel_hops", tuple(self.monitor_channel_hops))
+        object.__setattr__(self, "component_energy_j", MappingProxyType(split))
+        object.__setattr__(self, "retained_components",
+                           tuple(name for name in COMPONENTS if name in retained))
 
 
 def lower_routed_trace(
@@ -448,13 +493,23 @@ def lower_routed_trace(
     noc_hop_cost_pj: float,
     nop_hop_cost_pj: float,
     batch_factor: int = 1,
+    components=None,
 ) -> RoutedThermoDSETrace:
     """Combine exact core energy with physically reclassified communication energy.
 
     Captured monitor counters and independently lowered physical edges must reconcile for
     every order.  This makes routing, performance/energy accounting, and heat placement
     share one fact source.
+
+    `components` optionally restricts which sources are DEPOSITED into the trace, for
+    causal isolation of a thermal result. `None` reproduces the unmasked behaviour exactly.
+    Masking gates deposition ONLY: every route reconciliation receipt is still computed and
+    enforced against the full ledger, because those receipts validate the route lowering
+    itself and are independent of which sources are placed. A mask that skipped them would
+    be testing a different, unverified lowering.
     """
+
+    retained = _resolved_components(components)
 
     nx, ny = int(compute_shape[0]), int(compute_shape[1])
     cut_x, cut_y = int(chiplet_cuts[0]), int(chiplet_cuts[1])
@@ -469,8 +524,11 @@ def lower_routed_trace(
 
     energy_j = np.zeros((core.trace.n_phases, len(floorplan.block_ids)), dtype=float)
     core_energy = core.trace.powers_w * core.trace.durations_s[:, None]
-    for old_column, name in enumerate(core.block_ids):
-        energy_j[:, index[name]] = core_energy[:, old_column]
+    if "core" in retained:
+        for old_column, name in enumerate(core.block_ids):
+            energy_j[:, index[name]] = core_energy[:, old_column]
+    component_energy_j = {name: 0.0 for name in COMPONENTS}
+    component_energy_j["core"] = float(core.represented_energy_j)
 
     monitor_external_by_order_j = np.zeros((core.trace.n_phases, 3), dtype=float)
     physical_external_by_order_j = np.zeros((core.trace.n_phases, 3), dtype=float)
@@ -509,21 +567,24 @@ def lower_routed_trace(
                 )
                 route_total_j += edge_j
                 physical_external_by_order_j[order, channel_column] += edge_j
-                _place_edge_energy(
-                    energy_j[order],
-                    edge=edge,
-                    energy_j=edge_j,
-                    channel=channel,
-                    floorplan=floorplan,
-                    block_index=index,
-                    nx=nx,
-                    ny=ny,
-                )
+                component_energy_j[channel] += edge_j
+                if channel in retained:
+                    _place_edge_energy(
+                        energy_j[order],
+                        edge=edge,
+                        energy_j=edge_j,
+                        channel=channel,
+                        floorplan=floorplan,
+                        block_index=index,
+                        nx=nx,
+                        ny=ny,
+                    )
 
         dram_j = float(event["dram_energy_pj"]) * batch_factor * 1e-12
         monitor_external_by_order_j[order, 2] += dram_j
         physical_external_by_order_j[order, 2] += dram_j
         route_total_j += dram_j
+        component_energy_j["dram"] += dram_j
         if dram_j:
             locations = tuple(
                 (int(value[0]), int(value[1]))
@@ -531,11 +592,14 @@ def lower_routed_trace(
             )
             if not locations:
                 raise ValueError("positive DRAM energy has no DRAM location")
+            # The location check runs even when DRAM is masked out, so a masked run cannot
+            # pass on inputs an unmasked run would reject.
             for location in locations:
                 name = floorplan.dram_blocks.get(location)
                 if name is None:
                     raise ValueError(f"DRAM location is absent: {location}")
-                energy_j[order, index[name]] += dram_j / len(locations)
+                if "dram" in retained:
+                    energy_j[order, index[name]] += dram_j / len(locations)
 
     if not np.allclose(
         monitor_external_by_order_j,
@@ -555,7 +619,8 @@ def lower_routed_trace(
         )
     powers_w = energy_j / core.trace.durations_s[:, None]
     trace = PhaseTrace(core.trace.durations_s, powers_w)
-    source_energy_j = core.represented_energy_j + route_total_j
+    full_source_energy_j = core.represented_energy_j + route_total_j
+    source_energy_j = sum(component_energy_j[name] for name in retained)
     return RoutedThermoDSETrace(
         floorplan=floorplan,
         trace=trace,
@@ -565,4 +630,7 @@ def lower_routed_trace(
         monitor_route_energy_j=core.residual_energy_j,
         physical_channel_hops=tuple(float(value) for value in physical_channel_hops),
         monitor_channel_hops=tuple(float(value) for value in monitor_channel_hops),
+        component_energy_j=component_energy_j,
+        retained_components=tuple(name for name in COMPONENTS if name in retained),
+        full_source_energy_j=full_source_energy_j,
     )
