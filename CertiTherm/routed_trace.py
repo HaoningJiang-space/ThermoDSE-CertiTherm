@@ -222,6 +222,18 @@ def augment_floorplan_with_dram(
         (name, width, height, x + side, y)
         for name, width, height, x, y in rows
     )
+    for index_a, row_a in enumerate(augmented_rows):
+        _, width_a, height_a, x_a, y_a = row_a
+        if x_a < -1e-15 or y_a < -1e-15:
+            raise ValueError("augmented floorplan has a negative coordinate")
+        for row_b in augmented_rows[index_a + 1 :]:
+            _, width_b, height_b, x_b, y_b = row_b
+            overlap_x = min(x_a + width_a, x_b + width_b) - max(x_a, x_b)
+            overlap_y = min(y_a + height_a, y_b + height_b) - max(y_a, y_b)
+            if overlap_x > 1e-12 and overlap_y > 1e-12:
+                raise ValueError(
+                    f"augmented floorplan blocks overlap: {row_a[0]} and {row_b[0]}"
+                )
     text = "".join(
         f"{name}\t{width:.12g}\t{height:.12g}\t{x:.12g}\t{y:.12g}\n"
         for name, width, height, x, y in augmented_rows
