@@ -86,10 +86,10 @@ def test_reachable_set_is_strictly_tighter_than_the_box():
     assert rep["reachable_total_w"] == pytest.approx(10.0)
 
 
-def test_reachable_polytope_contains_every_reachable_point():
+def test_structural_envelope_contains_every_reachable_point():
     """Soundness of the over-approximation: nothing physical is excluded."""
     space = ScheduleSpace(_tasks())
-    poly = space.reachable_polytope()
+    poly = space.structural_envelope()
     for row in space.reachable_points_w():
         assert np.all(row >= poly.lower_w - 1e-12)
         assert np.all(row <= poly.upper_w + 1e-12)

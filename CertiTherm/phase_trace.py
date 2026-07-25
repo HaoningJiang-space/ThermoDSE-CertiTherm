@@ -11,15 +11,28 @@ built from the structure a DSE already has: tasks with power signatures, a prece
 and resource capacity.
 
     TaskSpec      one schedulable unit: per-block power while it runs, and a duration
-    ScheduleSpace tasks + precedence + capacity == the space of LEGAL executions
+    ScheduleSpace tasks + precedence + capacity -- a PERMISSIVE superset of legal executions
     PhaseTrace    one concrete execution: a sequence of (duration, power) phases
 
-APPROXIMATION DIRECTION, stated once and deliberately. The exact set of instantaneous power
-vectors is FINITE -- one point per legal concurrent task set. `reachable_polytope()` returns
-its convex hull, which CONTAINS the true set. For DSOS that is the conservative direction: a
-larger set can only invent collisions that are not physically reachable, so it can only ask
-for MORE observations than necessary, never fewer. It cannot produce a false certificate.
-The tightening is therefore sound but not tight, and the gap is reported, never hidden.
+APPROXIMATION DIRECTION, and exactly which conclusions transfer. The exact set of
+instantaneous power vectors is FINITE -- one point per legal concurrent task set.
+`structural_envelope()` returns a BOUNDING RELAXATION of it (per-block bounds plus one
+total-power inequality), which is looser than the convex hull and looser still than the true
+finite set, but contains both.
+
+Only POSITIVE certificates transfer. A cover that removes every ambiguity over the envelope
+also removes it over the true set, so a verified feasible cover is a sound upper bound `U`
+on the true minimum observation cost. NEGATIVE outcomes do NOT transfer:
+
+  * a lower bound computed on the relaxation bounds the RELAXED problem, and since the true
+    world set is smaller the true optimum can be lower -- so it is not a valid `L`;
+  * `UNSYNTHESIZABLE` on the relaxation is not physical unsynthesizability, because the
+    surviving ambiguity may live entirely on unreachable power vectors. It must be reported
+    as "unsynthesizable UNDER THIS ABSTRACTION".
+
+For TRANSIENT use a set of instantaneous points is not enough on its own: legal sequences,
+durations and history matter, and independent per-instant envelopes admit power sequences no
+schedule can produce.
 
 Units follow the project convention: `_w` watts, `_s` seconds.
 """
@@ -28,6 +41,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import combinations
+from types import MappingProxyType
 from typing import Dict, FrozenSet, Iterable, Iterator, Optional, Sequence, Tuple
 
 import numpy as np
@@ -65,19 +79,24 @@ class TaskSpec:
             raise ValueError(f"{self.task_id}: duration_s must be finite and positive")
         if not self.task_id or not self.resource:
             raise ValueError("task_id and resource must be non-empty")
+        power.setflags(write=False)          # frozen must mean frozen for proof artifacts
         object.__setattr__(self, "power_w", power)
 
 
 @dataclass(frozen=True)
 class ScheduleSpace:
-    """The set of LEGAL executions: tasks, precedence, and resource capacity.
+    """A permissive superset of the legal executions: tasks, precedence, capacity.
 
     `precedence` holds (before, after) task-id pairs. `capacity` caps how many tasks
     may occupy one resource at once (1 == exclusive, the usual case).
 
-    This is deliberately the smallest structure that already excludes the physically
+    Deliberately the smallest structure that already excludes some of the physically
     impossible: a task cannot run before its predecessor, and a resource cannot host
-    more than its capacity. It is not a scheduler and does not pick an execution.
+    more than its capacity. It is NOT a scheduler, does not pick an execution, and does
+    not model release times, deadlines, non-preemption, communication occupancy or
+    transition overhead -- so it admits executions a real scheduler would not emit. That
+    keeps it conservative but means it cannot be cited as the legal-execution set of a
+    real DSE until it is fed by one.
     """
 
     tasks: Tuple[TaskSpec, ...]
@@ -105,7 +124,7 @@ class ScheduleSpace:
                 raise ValueError(f"capacity[{res}] must be a positive integer")
         object.__setattr__(self, "tasks", tuple(self.tasks))
         object.__setattr__(self, "precedence", tuple(self.precedence))
-        object.__setattr__(self, "capacity", cap)
+        object.__setattr__(self, "capacity", MappingProxyType(cap))
         if self._has_cycle():
             raise ValueError("precedence contains a cycle; no legal execution exists")
 
@@ -134,7 +153,14 @@ class ScheduleSpace:
         return int((self.capacity or {}).get(resource, 1))
 
     def concurrent_sets(self) -> Iterator[FrozenSet[str]]:
-        """Every set of tasks that may run SIMULTANEOUSLY.
+        """Every set of tasks that may run simultaneously UNDER THESE SEMANTICS.
+
+        "These semantics" is precedence plus per-resource capacity, and nothing else.
+        Release times, deadlines, non-preemption, communication occupancy,
+        work-conserving rules and transition overheads are all absent, so this is
+        permissive -- a superset of what a real scheduler emits, which keeps it on
+        the conservative side but means it must not be described as the exact set of
+        legal executions.
 
         Legal iff (a) no two members are precedence-related -- a successor cannot
         overlap its predecessor -- and (b) no resource is oversubscribed. The empty
@@ -181,7 +207,8 @@ class ScheduleSpace:
                 yield frozenset(combo)
 
     def reachable_points_w(self) -> np.ndarray:
-        """The EXACT finite set of instantaneous power vectors, one per concurrent set."""
+        """Instantaneous power vectors, one per concurrent set -- exact for the
+        permissive semantics of `concurrent_sets`, a superset of a real scheduler's."""
         by_id = {t.task_id: t for t in self.tasks}
         rows = []
         for cs in self.concurrent_sets():
@@ -191,17 +218,20 @@ class ScheduleSpace:
             rows.append(total)
         return np.unique(np.asarray(rows, dtype=float), axis=0)
 
-    def reachable_polytope(self) -> PowerPolytope:
-        """Convex hull of the reachable points, as a `PowerPolytope`.
+    def structural_envelope(self) -> PowerPolytope:
+        """A BOUNDING RELAXATION of the reachable set -- not its convex hull.
 
-        OVER-APPROXIMATION, in the conservative direction (see the module docstring):
-        the hull contains the true finite set, so it can only invent unreachable
-        collisions and ask for more observations, never certify falsely.
+        Exactly: the per-block min/max attained over reachable points, plus one
+        total-power upper bound at the largest reachable concurrent total. That
+        contains the convex hull and therefore the true finite set, but is strictly
+        looser than the hull: it admits per-block combinations no single concurrent
+        set produces, as long as they respect the bounds and the total.
 
-        The returned polytope keeps the exact per-block bounds of the reachable set
-        plus one total-power upper bound. That is already much tighter than a box
-        over independent maxima, because no legal execution attains every block
-        maximum at once unless some concurrent set actually does.
+        It is still much tighter than `box_polytope`, because no legal execution
+        attains every block maximum at once unless some concurrent set actually does.
+
+        See the module docstring for which conclusions transfer: positive certificates
+        do, lower bounds and UNSYNTHESIZABLE do not.
         """
         pts = self.reachable_points_w()
         lower = pts.min(axis=0)
@@ -236,6 +266,8 @@ class PhaseTrace:
             raise ValueError("powers_w must be a finite (phases, blocks) matrix")
         if np.any(p < 0.0):
             raise ValueError("powers_w must be non-negative")
+        d.setflags(write=False)
+        p.setflags(write=False)
         object.__setattr__(self, "durations_s", d)
         object.__setattr__(self, "powers_w", p)
 
