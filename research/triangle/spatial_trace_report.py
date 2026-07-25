@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, ".")
 
 from CertiTherm.phase_trace import PhaseTrace
 from CertiTherm.thermodse_trace import (
