@@ -29,6 +29,25 @@ BOUNDARY, repeated in every line of output. Compute-domain, core-only. No DRAM (
 dissipated energy), no NoP (10.90%), no NoC. A difference here supports "under this boundary
 core schedule shape does / does not move the peak" and nothing about a physical package.
 
+HOW FAR A CORE-ONLY RESULT TRANSFERS, derived rather than assumed. The model is linear and
+passive, so temperature superposes -- but `peak()` is a max and does NOT. Writing the
+background sources as a per-unit offset `B(u)` and noting that a constant-power trace's
+periodic temperature is constant in time:
+
+    Delta = max_{u,t}[S(u) + ripple(u,t)] - max_u[S(u)],     S(u) = T_flat(u) + B(u)
+
+so which unit wins depends on `B`, and a core-only Delta does NOT extrapolate directly.
+There is, however, a bound independent of `B`:
+
+    Delta_full <= max_u max_t ripple(u,t)
+
+Hence core-only is CONCLUSIVE IN THE NEGATIVE DIRECTION -- if the largest ripple is under the
+numerical floor, core schedule shape cannot move the peak under ANY background -- while in the
+positive direction it is only a LOWER bound, because a background can move the ripple onto a
+hotter unit. Reporting that bound needs the per-unit temperature matrix, which
+`PeriodicTransientResult` does not expose (scalars only), so it is recorded as a gap rather
+than claimed.
+
 NON-CLAIM diagnostic. Usage:
     python research/triangle/core_transient_flip.py <out> <workload> <arch_id> [models] [step_us]
 """
@@ -211,6 +230,28 @@ def main():
                       f"{r.mean_steady_peak_k:.4f} K at {r.mean_steady_hottest_block}")
 
             s, f = res["scheduled"], res["flat"]
+
+            # FREE CROSS-CHECK on the engine and on this usage. The flat trace holds
+            # constant power, so its periodic orbit IS its steady state: the two peaks
+            # must agree to the output resolution. A mismatch means the periodic solve,
+            # the resampling, or the block-id ordering is wrong -- and would otherwise
+            # show up only as a plausible-looking shape effect.
+            flat_self = abs(f.periodic_peak_k - f.mean_steady_peak_k)
+            ok_flat = flat_self <= f.temperature_output_resolution_k + 1e-9
+            print(f"    consistency: flat periodic {f.periodic_peak_k:.4f} vs its own "
+                  f"mean-steady {f.mean_steady_peak_k:.4f} K -> diff {flat_self:.4f} K "
+                  f"{'OK' if ok_flat else 'MISMATCH'}")
+            if not ok_flat:
+                print(f"    FAIL: a constant-power trace must reach its steady state; "
+                      f"the periodic solve or the column ordering is wrong, so the shape "
+                      f"effect below cannot be trusted")
+                sys.exit(3)
+            if f.periodic_hottest_block != f.mean_steady_hottest_block:
+                print(f"    FAIL: flat's periodic hottest block "
+                      f"{f.periodic_hottest_block} != its steady hottest block "
+                      f"{f.mean_steady_hottest_block}")
+                sys.exit(3)
+
             gap = s.periodic_peak_k - f.periodic_peak_k
             resolution = max(s.temperature_output_resolution_k,
                              f.temperature_output_resolution_k)
@@ -248,6 +289,7 @@ def main():
                       f"which does not exist yet.")
             report["models"][model_id] = {
                 "shape_effect_k": gap, "numerical_floor_k": noise, "verdict": verdict,
+                "flat_self_consistency_k": flat_self,
                 "feasibility": feas, "hottest_block_moved": not same_hot,
                 **{f"{n}_{k}": getattr(r, k) for n, r in res.items()
                    for k in ("periodic_peak_k", "periodic_hottest_block", "cycles",
