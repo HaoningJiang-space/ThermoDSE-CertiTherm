@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from CertiTherm.hotspot import HotSpotModel
 from CertiTherm.phase_trace import PhaseTrace
 from CertiTherm.transient import (
     _parse_steady,
@@ -58,3 +59,10 @@ def test_steady_parser_aligns_by_block_name(tmp_path):
 def test_decimal_output_resolution_has_only_numeric_slack():
     assert _within_output_tolerance(0.010000000000047748, 0.01)
     assert not _within_output_tolerance(0.01001, 0.01)
+
+
+def test_grid_max_model_is_explicit_not_an_implicit_avg():
+    model = HotSpotModel.parse("grid64-max")
+    assert model.model_type == "grid"
+    assert model.grid_rows == model.grid_cols == 64
+    assert model.grid_map_mode == "max"

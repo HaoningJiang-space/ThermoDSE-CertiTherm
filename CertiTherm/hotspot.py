@@ -27,11 +27,15 @@ class HotSpotModel:
     def parse(cls, text: str) -> "HotSpotModel":
         if text == "block":
             return cls("block", "block")
-        if text.startswith("grid") and text.endswith("-avg"):
-            size = int(text[4:-4])
+        suffix = next(
+            (candidate for candidate in ("-avg", "-max") if text.endswith(candidate)),
+            None,
+        )
+        if text.startswith("grid") and suffix is not None:
+            size = int(text[4 : -len(suffix)])
             if size <= 0:
                 raise ValueError("grid size must be positive")
-            return cls(text, "grid", size, size, "avg")
+            return cls(text, "grid", size, size, suffix[1:])
         raise ValueError(f"unsupported registered HotSpot model: {text}")
 
 
