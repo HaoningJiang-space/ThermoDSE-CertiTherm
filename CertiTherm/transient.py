@@ -92,6 +92,12 @@ def _parse_steady(path: Path, block_ids: Sequence[str]) -> np.ndarray:
     return output
 
 
+def _within_output_tolerance(residual_k: float, tolerance_k: float) -> bool:
+    """Compare decimal HotSpot output with only a binary-roundoff allowance."""
+
+    return residual_k <= tolerance_k + 1e-9
+
+
 def _run_hotspot(
     *,
     binary: Path,
@@ -269,7 +275,11 @@ def replay_periodic(
             )
         )
         peak_residual = abs(float(last.max()) - float(previous.max()))
-        if max(boundary_residual, peak_residual) <= tolerance_k:
+        # Decimal ttrace values such as 0.01 can round a few ulps above their
+        # registered output-resolution threshold in binary floating point.
+        if _within_output_tolerance(
+            max(boundary_residual, peak_residual), tolerance_k
+        ):
             break
         if cycles >= max_cycles:
             raise RuntimeError(
