@@ -1,4 +1,24 @@
-"""V6.1 causal isolation: does CORE schedule shape alone move the peak? (NON-CLAIM)
+"""LEGACY PATH ONLY -- this path drops 51.46% of dissipated energy. NOT evidence for any
+decision claim. See docs/V6_DIRECTION_DECISION.md.
+
+Retained solely as the reproducible attachment for docs/THERMODSE_ENDPOINT_AUDIT.md, which
+this script produced: the fail-closed `align_trace` guard, the exact zero-residual
+decomposition of the 2.0000x gap, and the measurement that DRAM (40.56% of source energy)
+is never written while NoP (10.90%) is written and then silently dropped by name alignment.
+
+WHY IT IS OFF-PATH. It builds core-only traces from the ORIGINAL ThermoDSE ptrace path.
+`docs/V6_DIRECTION_DECISION.md` records that path as invalid: a 25-50% net source mismatch
+across the six registered cases, NoP addressed to a floorplan name that does not exist, and
+DRAM heat absent. The corrected path is `CertiTherm/routed_trace.py` +
+`CertiTherm/physical_nop.py`, which places every joule on a named block including four DRAM
+dies. Causal isolation therefore runs there -- see `research/triangle/v61_causal_isolation.sh`
+and the `components` mask on `lower_routed_trace` -- and NOT here.
+
+Do not extend this script, and do not quote a temperature from it.
+
+--- original documentation follows ---
+
+V6.1 causal isolation: does CORE schedule shape alone move the peak? (NON-CLAIM)
 
 Rewritten to use `CertiTherm.transient.replay_periodic`. The first version shipped its own
 transient runner and resampler, which was duplication of already-verified infrastructure and

@@ -187,6 +187,15 @@ condition for the commit, not an extra review stage. It exists because a publish
 extrapolation was wrong by ~84x while the contradicting measurement sat in a document cited
 by the same commit.
 
+**Before writing a new script, grep the repository for the capability.** Four duplications
+of existing verified code happened in a single round: a transient runner and resampler that
+`CertiTherm/transient.py` already provided, a trace-alignment rule `trace_runner.py` already
+provided, and an energy-boundary investigation that re-derived facts
+`docs/V6_DIRECTION_DECISION.md` already stated. A second implementation cannot be its own
+oracle — it can reproduce the original's bug and still agree — and one of these duplicates
+carried defects the existing engine did not have. Check `research/triangle/`, `CertiTherm/`,
+and the newest `docs/*.md` before starting, not after.
+
 **Review is triggered by risk, not by commit count.**
 
 | tier | examples | review |

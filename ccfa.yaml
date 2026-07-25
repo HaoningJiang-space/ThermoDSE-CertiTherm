@@ -8,10 +8,18 @@ target_venue:
   year: "TBD"
   mode: "research"
 stage:
-  current: "heldout_v3_dev_rehearsal"
+  current: "v6_1_transient_causal_isolation"
   gate: "in_progress"
-  updated_at: "2026-07-22"
-active_contract: "docs/INFORMATION_THEORETIC_METHOD.md"
+  updated_at: "2026-07-25"
+active_contract: "docs/V6_DIRECTION_DECISION.md"
+# V6 closed the physical-trace gate and REJECTED the broad transient claim: under block and
+# grid64-avg, periodic time structure changes no feasibility decision, thermal ordering or
+# selected architecture across the 2x3 matrix (largest uplift 0.144 K), while spatial model
+# choice exceeds temporal uplift in all six comparisons and yields a 33.01% decision-regret
+# case. Exactly one converged counterexample survives -- Transformer/arch_b under grid-max,
+# 329.904867 K time-mean vs 330.19 K periodic at mtxu_16 -- and V6.1 exists to attribute it
+# to a power component before any corrected top-K frontier is attempted.
+# The legacy ThermoDSE ptrace path is NOT valid evidence: see docs/THERMODSE_ENDPOINT_AUDIT.md.
 
 # Why this file exists. A ccf-integrity-auditor pass on 2026-07-22 marked a
 # large fraction of this project's claims "unsupported" -- not because the
