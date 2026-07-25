@@ -105,10 +105,20 @@ def test_gate_declares_that_it_does_not_bind_the_registered_instance():
 
 
 def test_gate_steady_tolerance_is_not_invented():
-    """1e-6 K was invented and is no longer enforced anywhere."""
+    """1e-6 K was invented and must gate nothing.
+
+    An earlier version of this test grepped the source for "1e-6" and failed on
+    `max_step_s = STEP_US * 1e-6`, a microsecond-to-second conversion with nothing to do
+    with tolerances. Assert on BEHAVIOUR: the gate carries no steady tolerance, and the
+    steady value is reported rather than enforced.
+    """
     assert F.GATE["steady_tolerance_k"] is None
     src = (ROOT / "research/triangle/v61_frozen_factorial.py").read_text()
-    assert "1e-6" not in src, "no invented numeric tolerance may gate the steady value"
+    # the steady value must be reported, and explicitly marked as not enforced
+    assert '"steady_gated": False' in src
+    assert "steady_delta_k" in src
+    # and no comparison may gate it
+    assert "mean_steady_peak_k\"] - GATE[\"mean_steady_peak_k\"]) <= " not in src
 
 
 # --- reuse validation ---------------------------------------------------------------
