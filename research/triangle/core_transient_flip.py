@@ -52,6 +52,7 @@ from CertiTherm.experiments import (
     HOTSPOT, ROOT, TEMPLATE, THERMAL_LIMIT_K, _prepare_thermodse_sim, _registry_split,
     _rows, _thermodse_evaluator,
 )
+from CertiTherm.trace_runner import floorplan_units
 
 import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("_otp", "research/triangle/order_trace_probe.py")
@@ -211,20 +212,39 @@ def main():
         floorplan = Path(sim) / "floorplan" / "output_3D.flp"
         config = Path(sim) / "example.config"
         materials = TEMPLATE / "example.materials"
+
+        # HotSpot requires exactly the floorplan's units. Align by NAME, and PROVE the
+        # alignment discards no heat rather than assuming it: core-only power lives
+        # entirely in columns that are floorplan units, so every dropped column must be
+        # identically zero across every step. If that ever fails, the trace is not
+        # core-only and the comparison is void.
+        units = floorplan_units(floorplan)
+        idx = {n: j for j, n in enumerate(cols)}
+        absent = [n for n in units if n not in idx]
+        if absent:
+            print(f"FAIL: {len(absent)} floorplan units absent from the ptrace header "
+                  f"(e.g. {absent[:3]})"); sys.exit(2)
+        unplaced_cols = [j for j, n in enumerate(cols) if n not in set(units)]
+        take = [idx[n] for n in units]
         res = {}
         for name, tr in (("scheduled", sched), ("flat", flat)):
-            body = np.tile(tr, (PASSES, 1))
-            temps = hotspot_transient(config, floorplan, materials, cols, body, dt,
+            leak = float(np.abs(tr[:, unplaced_cols]).max()) if unplaced_cols else 0.0
+            if leak > 0.0:
+                print(f"FAIL: {name} carries {leak:.6f} W in columns with no floorplan "
+                      f"unit; aligning would discard heat and void the comparison")
+                sys.exit(3)
+            body = np.tile(tr[:, take], (PASSES, 1))
+            temps = hotspot_transient(config, floorplan, materials, units, body, dt,
                                       work, name)
-            if temps.shape[1] != len(cols):
-                print(f"FAIL: {temps.shape[1]} output columns for {len(cols)} units")
+            if temps.shape[1] != len(units):
+                print(f"FAIL: {temps.shape[1]} output columns for {len(units)} units")
                 sys.exit(2)
             per = n_steps
             last = temps[-per:]
             drift = (float(np.abs(last - temps[-2 * per:-per]).max())
                      if temps.shape[0] >= 2 * per else float("nan"))
             hot = int(last.max(axis=0).argmax())
-            res[name] = {"peak_k": float(last.max()), "peak_unit": cols[hot],
+            res[name] = {"peak_k": float(last.max()), "peak_unit": units[hot],
                          "hot_unit_ripple_k": float(last[:, hot].max() - last[:, hot].min()),
                          "final_mean_k": float(last.mean()),
                          "pass_drift_k": drift, "steps": int(temps.shape[0])}
@@ -252,7 +272,8 @@ def main():
         (OUTPUT / f"core_flip_{WORKLOAD}_{ARCH_ID}.json").write_text(json.dumps({
             "arch": ARCH_ID, "workload": WORKLOAD, "orders": n_ord, "passes": PASSES,
             "dt_s": dt, "steps_per_pass": n_steps, "physical_latency_ms": t_total * 1e3,
-            "core_only_columns": int(keep.size), "superposition_err_w": sup_err,
+            "core_only_columns": int(keep.size), "floorplan_units": len(units),
+            "superposition_err_w": sup_err,
             "resample_energy_err_j": e_err, "timing_distortion_frac": timing_err,
             "results": res, "shape_effect_k": gap, "thermal_limit_k": THERMAL_LIMIT_K,
             "boundary": "compute-domain core-only; DRAM/NoP/NoC excluded",
