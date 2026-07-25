@@ -53,25 +53,39 @@ COMPONENTS = (tuple(sys.argv[5].split(",")) if len(sys.argv) > 5 and sys.argv[5]
 SUFFIX = "" if COMPONENTS is None else "_" + "-".join(sorted(COMPONENTS))
 
 
-def main() -> None:
+def capture_frozen_inputs(output: Path, workload_id: str, arch_id: str,
+                          io_aspect_ratio: float = 1.0):
+    """Run ThermoDSE ONCE and freeze everything the lowering needs.
+
+    Extracted so a factorial can capture once and compose every source subset from the
+    SAME frozen objects. The previous factorial invoked this module 15 times, which meant
+    15 independent ThermoDSE evaluations each rewriting the shared floorplan and sim
+    workspace -- a latent contamination hazard, and a concurrency race when two drivers ran
+    against one output directory. Measured artifacts happened to stay consistent (subset
+    powers were exactly the sum of singletons), but the reports never recorded the hashes
+    read at run time, so a race could not be ruled out and the results are diagnostic only.
+
+    Returns everything by value; the caller may lower any number of component subsets from
+    it without re-entering ThermoDSE.
+    """
     reg = _registry_split("dev_v3")
     arch = next(
         row
         for row in _rows(ROOT / "experiments" / "architectures.tsv")
-        if row["split"] == reg and row["architecture_id"] == ARCH_ID
+        if row["split"] == reg and row["architecture_id"] == arch_id
     )
     workload = next(
         row
         for row in _rows(ROOT / "experiments" / "workloads.tsv")
-        if row["split"] == reg and row["workload_id"] == WORKLOAD
+        if row["split"] == reg and row["workload_id"] == workload_id
     )
     package = next(
         row
         for row in _rows(ROOT / "experiments" / "packages.tsv")
         if row["package_id"] == "default"
     )
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    sim = _prepare_thermodse_sim(arch, workload, package, OUTPUT, allow_hotspot=True)
+    output.mkdir(parents=True, exist_ok=True)
+    sim = _prepare_thermodse_sim(arch, workload, package, output, allow_hotspot=True)
     evaluator = _thermodse_evaluator(arch, workload, sim, physical_nop=True)
     evaluator.generate_hardware()
     # Capture the exact class installed into the evaluator, not the pinned legacy base.
@@ -106,17 +120,44 @@ def main() -> None:
         io_die_area_each_m2=float(evaluator.IO_die_area_each),
         dram_locations=dram_locations,
         compute_shape=shape,
-        io_die_aspect_ratio=IO_ASPECT_RATIO,
+        io_die_aspect_ratio=io_aspect_ratio,
     )
     batch_factor = int(workload["b_tot"]) // int(workload["b_exe"])
+    return {
+        "sim": sim, "core": core, "augmented": augmented, "events": events,
+        "shape": shape, "cuts": cuts, "batch_factor": batch_factor,
+        "noc_hop_cost_pj": float(evaluator.noc_cost),
+        "nop_hop_cost_pj": float(evaluator.nop_cost),
+        "endpoint_latency_ms": endpoint_latency_ms,
+        "endpoint_energy_mj": endpoint_energy_mj,
+        "die_yield": die_yield,
+        "clock_hz": clock_hz, "network": network,
+        "old_blocks": old_blocks, "arch": arch, "workload": workload,
+    }
+
+
+def main() -> None:
+    frozen = capture_frozen_inputs(OUTPUT, WORKLOAD, ARCH_ID, IO_ASPECT_RATIO)
+    sim = frozen["sim"]
+    core = frozen["core"]
+    augmented = frozen["augmented"]
+    events = frozen["events"]
+    shape, cuts = frozen["shape"], frozen["cuts"]
+    batch_factor = frozen["batch_factor"]
+    endpoint_latency_ms = frozen["endpoint_latency_ms"]
+    endpoint_energy_mj = frozen["endpoint_energy_mj"]
+    die_yield = frozen["die_yield"]
+    clock_hz, network = frozen["clock_hz"], frozen["network"]
+    old_blocks = frozen["old_blocks"]
+    arch, workload = frozen["arch"], frozen["workload"]
     routed = lower_routed_trace(
         core,
         floorplan=augmented,
         events=events,
         compute_shape=shape,
         chiplet_cuts=cuts,
-        noc_hop_cost_pj=float(evaluator.noc_cost),
-        nop_hop_cost_pj=float(evaluator.nop_cost),
+        noc_hop_cost_pj=frozen["noc_hop_cost_pj"],
+        nop_hop_cost_pj=frozen["nop_hop_cost_pj"],
         batch_factor=batch_factor,
         components=COMPONENTS,
     )
@@ -205,8 +246,8 @@ def main() -> None:
             routed.source_energy_j - routed.monitor_source_energy_j
         )
         * 1e3,
-        "noc_hop_cost_pj": float(evaluator.noc_cost),
-        "nop_hop_cost_pj": float(evaluator.nop_cost),
+        "noc_hop_cost_pj": frozen["noc_hop_cost_pj"],
+        "nop_hop_cost_pj": frozen["nop_hop_cost_pj"],
         "physical_channel_hops": list(routed.physical_channel_hops),
         "monitor_channel_hops": list(routed.monitor_channel_hops),
         "physical_to_monitor_total_hop_ratio": physical_hops / monitor_hops,
