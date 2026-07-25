@@ -57,9 +57,10 @@ def main() -> None:
     )
     OUTPUT.mkdir(parents=True, exist_ok=True)
     sim = _prepare_thermodse_sim(arch, workload, package, OUTPUT, allow_hotspot=True)
-    evaluator = _thermodse_evaluator(arch, workload, sim)
+    evaluator = _thermodse_evaluator(arch, workload, sim, physical_nop=True)
     evaluator.generate_hardware()
-    from core.nop import Nop  # type: ignore
+    # Capture the exact class installed into the evaluator, not the pinned legacy base.
+    from core.chiplet_eva import Nop  # type: ignore
 
     with capture_route_events(Nop) as events:
         with monitor_snapshot(evaluator) as snapshot:

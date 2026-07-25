@@ -444,6 +444,8 @@ def _thermodse_evaluator(
     arch: dict[str, str],
     workload: dict[str, str],
     sim: Path,
+    *,
+    physical_nop: bool = False,
 ):
     """Build the pinned evaluator after installing narrow API shims."""
 
@@ -453,6 +455,10 @@ def _thermodse_evaluator(
     from core.chiplet_eva import chiplet_evaluator  # type: ignore
 
     _install_thermodse_compatibility()
+    if physical_nop:
+        from .physical_nop import install_physical_nop
+
+        install_physical_nop()
 
     evaluator = chiplet_evaluator(
         hotspot_path=str(HOTSPOT.parent),
