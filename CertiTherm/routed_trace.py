@@ -18,8 +18,9 @@ Placement contract
   ``unicast_dram``/``unicast_to_dram`` convention.
 
 ThermoDSE specifies IO-die area and corner coordinates but no aspect ratio.  The augmented
-floorplan therefore uses equal-area square dies (the minimum-perimeter neutral choice) and
-records that assumption explicitly.  It is a sensitivity parameter, not a discovered fact.
+floorplan defaults to equal-area square dies (the minimum-perimeter neutral choice) and
+records the chosen width/height aspect ratio. It is a sensitivity parameter, not a
+discovered fact.
 """
 
 from __future__ import annotations
@@ -114,7 +115,7 @@ def _parse_floorplan(text: str) -> Tuple[Tuple[str, float, float, float, float],
 
 @dataclass(frozen=True)
 class AugmentedFloorplan:
-    """Original compute floorplan plus explicit square DRAM dies and side filler."""
+    """Original compute floorplan plus explicit DRAM dies and side filler."""
 
     text: str
     block_ids: Tuple[str, ...]
@@ -134,7 +135,8 @@ class AugmentedFloorplan:
         if (
             not np.isfinite(self.io_die_area_each_m2)
             or self.io_die_area_each_m2 <= 0.0
-            or self.io_die_aspect_ratio != 1.0
+            or not np.isfinite(self.io_die_aspect_ratio)
+            or self.io_die_aspect_ratio <= 0.0
         ):
             raise ValueError("IO-die geometry receipt is invalid")
         object.__setattr__(self, "block_ids", blocks)
@@ -148,8 +150,9 @@ def augment_floorplan_with_dram(
     io_die_area_each_m2: float,
     dram_locations: Sequence[Coord],
     compute_shape: Tuple[int, int],
+    io_die_aspect_ratio: float = 1.0,
 ) -> AugmentedFloorplan:
-    """Add square DRAM dies at the external coordinates specified by ThermoDSE."""
+    """Add equal-area DRAM dies at the external coordinates specified by ThermoDSE."""
 
     rows = _parse_floorplan(floorplan_text)
     locations = tuple((int(x), int(y)) for x, y in dram_locations)
@@ -162,12 +165,15 @@ def augment_floorplan_with_dram(
         raise ValueError("DRAM coordinates must sit in the two external columns")
     if not np.isfinite(io_die_area_each_m2) or io_die_area_each_m2 <= 0.0:
         raise ValueError("io_die_area_each_m2 must be finite and positive")
+    if not np.isfinite(io_die_aspect_ratio) or io_die_aspect_ratio <= 0.0:
+        raise ValueError("io_die_aspect_ratio must be finite and positive")
 
     old_width = max(x + width for _, width, _, x, _ in rows)
     old_height = max(y + height for _, _, height, _, y in rows)
-    side = sqrt(float(io_die_area_each_m2))
-    if side > old_height:
-        raise ValueError("square IO die is taller than the package floorplan")
+    die_width = sqrt(float(io_die_area_each_m2) * float(io_die_aspect_ratio))
+    die_height = sqrt(float(io_die_area_each_m2) / float(io_die_aspect_ratio))
+    if die_height > old_height:
+        raise ValueError("IO die is taller than the package floorplan")
 
     augmented_rows = []
     dram_blocks: Dict[Coord, str] = {}
@@ -175,21 +181,21 @@ def augment_floorplan_with_dram(
     for x, y in locations:
         side_name = "left" if x == 0 else "right"
         if ny == 1:
-            bottom = 0.5 * (old_height - side)
+            bottom = 0.5 * (old_height - die_height)
         else:
-            bottom = (float(y) / float(ny - 1)) * (old_height - side)
-        left = 0.0 if side_name == "left" else side + old_width
+            bottom = (float(y) / float(ny - 1)) * (old_height - die_height)
+        left = 0.0 if side_name == "left" else die_width + old_width
         name = f"dram_x{x}_y{y}"
         dram_blocks[(x, y)] = name
-        intervals_by_side[side_name].append((bottom, bottom + side))
-        augmented_rows.append((name, side, side, left, bottom))
+        intervals_by_side[side_name].append((bottom, bottom + die_height))
+        augmented_rows.append((name, die_width, die_height, left, bottom))
 
     # The side strips must not overlap.  Fill uncovered intervals with zero-power
     # package blocks so the augmented floorplan remains a rectangular tiling.
     for side_name, intervals in intervals_by_side.items():
         intervals.sort()
         cursor = 0.0
-        left = 0.0 if side_name == "left" else side + old_width
+        left = 0.0 if side_name == "left" else die_width + old_width
         fill_index = 0
         for bottom, top in intervals:
             if bottom < cursor - 1e-12:
@@ -198,7 +204,7 @@ def augment_floorplan_with_dram(
                 augmented_rows.append(
                     (
                         f"io_fill_{side_name}_{fill_index}",
-                        side,
+                        die_width,
                         bottom - cursor,
                         left,
                         cursor,
@@ -210,7 +216,7 @@ def augment_floorplan_with_dram(
             augmented_rows.append(
                 (
                     f"io_fill_{side_name}_{fill_index}",
-                    side,
+                    die_width,
                     old_height - cursor,
                     left,
                     cursor,
@@ -220,7 +226,7 @@ def augment_floorplan_with_dram(
     # Preserve every original block identity and relative coordinate, shifting it
     # between the newly added left/right IO strips.
     augmented_rows.extend(
-        (name, width, height, x + side, y)
+        (name, width, height, x + die_width, y)
         for name, width, height, x, y in rows
     )
     for index_a, row_a in enumerate(augmented_rows):
@@ -245,6 +251,7 @@ def augment_floorplan_with_dram(
         original_block_ids=tuple(row[0] for row in rows),
         dram_blocks=dram_blocks,
         io_die_area_each_m2=float(io_die_area_each_m2),
+        io_die_aspect_ratio=float(io_die_aspect_ratio),
     )
 
 

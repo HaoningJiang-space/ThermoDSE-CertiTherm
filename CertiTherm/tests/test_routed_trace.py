@@ -83,6 +83,25 @@ def test_augmentation_preserves_names_and_io_die_area():
     assert rows["mtxu_0"][2] == pytest.approx(0.1)
 
 
+def test_augmentation_exposes_equal_area_aspect_ratio_sensitivity():
+    augmented = augment_floorplan_with_dram(
+        _floorplan_2x1(),
+        io_die_area_each_m2=0.01,
+        dram_locations=((0, 0), (3, 0)),
+        compute_shape=(2, 1),
+        io_die_aspect_ratio=4.0,
+    )
+    rows = {
+        fields[0]: tuple(float(value) for value in fields[1:5])
+        for line in augmented.text.splitlines()
+        if (fields := line.split())
+    }
+    width, height, _, _ = rows["dram_x0_y0"]
+    assert width / height == pytest.approx(4.0)
+    assert width * height == pytest.approx(0.01)
+    assert augmented.io_die_aspect_ratio == pytest.approx(4.0)
+
+
 def test_augmentation_rejects_overlapping_source_floorplan():
     bad = _floorplan_2x1() + "overlap 0.1 0.1 0.05 0.05\n"
     with pytest.raises(ValueError, match="overlap"):

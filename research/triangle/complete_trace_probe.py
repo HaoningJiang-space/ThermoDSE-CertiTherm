@@ -36,6 +36,7 @@ from research.triangle.route_event_probe import capture_route_events
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/v6complete")
 WORKLOAD = sys.argv[2] if len(sys.argv) > 2 else "resnet50"
 ARCH_ID = sys.argv[3] if len(sys.argv) > 3 else "arch_c"
+IO_ASPECT_RATIO = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0
 
 
 def main() -> None:
@@ -91,6 +92,7 @@ def main() -> None:
         io_die_area_each_m2=float(evaluator.IO_die_area_each),
         dram_locations=dram_locations,
         compute_shape=shape,
+        io_die_aspect_ratio=IO_ASPECT_RATIO,
     )
     batch_factor = int(workload["b_tot"]) // int(workload["b_exe"])
     routed = lower_routed_trace(
@@ -155,8 +157,9 @@ def main() -> None:
         f"total ratio={physical_hops/monitor_hops:.9f}"
     )
     print(
-        f"  IO geometry: {len(augmented.dram_blocks)} square dies, "
-        f"{augmented.io_die_area_each_m2 * 1e6:.3f} mm^2 each"
+        f"  IO geometry: {len(augmented.dram_blocks)} dies, "
+        f"{augmented.io_die_area_each_m2 * 1e6:.3f} mm^2 each, "
+        f"width/height={augmented.io_die_aspect_ratio:.3f}"
     )
     print(f"  wrote {floorplan_out}")
     print(f"  wrote {trace_out}")
