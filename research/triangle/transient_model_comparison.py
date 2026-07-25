@@ -2,7 +2,7 @@
 
 Usage:
     python research/triangle/transient_model_comparison.py \
-        <block-root> <grid-root> [limit-k]
+        <block-root> <grid-root> <route-objective-root> [limit-k]
 """
 
 from __future__ import annotations
@@ -14,12 +14,22 @@ from pathlib import Path
 
 BLOCK = Path(sys.argv[1])
 GRID = Path(sys.argv[2])
-LIMIT_K = float(sys.argv[3]) if len(sys.argv) > 3 else 330.0
+OBJECTIVES = Path(sys.argv[3])
+LIMIT_K = float(sys.argv[4]) if len(sys.argv) > 4 else 330.0
 
 
 def load(root, workload, arch):
     path = root / f"{workload}-{arch}" / "transient_report.json"
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def objective(workload, arch):
+    path = (
+        OBJECTIVES
+        / f"{workload}-{arch}-physical"
+        / f"route_objective_{workload}_{arch}_physical.json"
+    )
+    return float(json.loads(path.read_text(encoding="utf-8"))["physical_time_edyp"])
 
 
 def main():
@@ -32,6 +42,7 @@ def main():
             grid = load(GRID, workload, arch)
             item = {
                 "arch": arch,
+                "objective": objective(workload, arch),
                 "block_mean_k": float(block["mean_steady_peak_k"]),
                 "block_periodic_k": float(block["periodic_peak_k"]),
                 "block_uplift_k": float(block["periodic_peak_k"])
@@ -73,17 +84,40 @@ def main():
             for item in cases
             if item["block_feasible"] != item["grid_feasible"]
         ]
+        block_eligible = [item for item in cases if item["block_feasible"]]
+        grid_eligible = [item for item in cases if item["grid_feasible"]]
+        block_choice = min(
+            block_eligible, key=lambda item: (item["objective"], item["arch"])
+        )
+        grid_choice = min(
+            grid_eligible, key=lambda item: (item["objective"], item["arch"])
+        )
+        if not block_choice["grid_feasible"]:
+            coarse_regret = "infeasible"
+            relative_regret = None
+        else:
+            coarse_regret = block_choice["objective"] - grid_choice["objective"]
+            relative_regret = coarse_regret / grid_choice["objective"]
         report["workloads"][workload] = {
             "cases": cases,
             "block_order": block_order,
             "grid_order": grid_order,
             "model_ranking_flip": block_order != grid_order,
             "model_feasibility_flips": model_feasibility_flips,
+            "block_selected": block_choice["arch"],
+            "grid_selected": grid_choice["arch"],
+            "coarse_decision_regret_edyp": coarse_regret,
+            "coarse_relative_regret": relative_regret,
         }
         print(
             f"  ranking block={block_order}, grid={grid_order}, "
             f"flip={block_order != grid_order}; "
             f"feasibility flips={model_feasibility_flips}"
+        )
+        print(
+            f"  block-selected={block_choice['arch']}, "
+            f"grid-selected={grid_choice['arch']}, "
+            f"coarse regret={coarse_regret}, relative={relative_regret}"
         )
 
     maximum_temporal_uplift = max(
