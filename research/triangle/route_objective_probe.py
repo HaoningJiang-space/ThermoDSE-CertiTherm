@@ -59,6 +59,9 @@ def main():
     # The endpoint objective is independent of the legacy steady thermal side effect.
     # Suppress that call narrowly; this probe makes no temperature claim.
     evaluator.flp_generator.run_hotspot = lambda *args, **kwargs: None
+    from core import chiplet_eva  # type: ignore
+
+    chiplet_eva.find_hotpoint = lambda *args, **kwargs: float("nan")
     with monitor_snapshot(evaluator) as snapshot:
         endpoint_latency_ms, endpoint_energy_mj, die_yield = evaluator.evaluate()
     network = next(iter(snapshot["latency_dict"]))
