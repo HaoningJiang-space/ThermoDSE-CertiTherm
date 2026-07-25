@@ -39,7 +39,7 @@ def resample_uniform(
                 (overlap_end - cursor) / step_s
             ) * trace.powers_w[phase]
             cursor = overlap_end
-    source_j = trace.energy_j().sum(axis=0)
+    source_j = trace.energy_j()
     resampled_j = output.sum(axis=0) * step_s
     if not np.allclose(resampled_j, source_j, rtol=1e-11, atol=1e-18):
         raise RuntimeError("uniform resampling did not conserve per-block energy")
