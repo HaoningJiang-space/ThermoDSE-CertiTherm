@@ -10,9 +10,11 @@ infrastructure: wall time of a single HotSpot steady solve at each
 registered model fidelity, on a REAL candidate's floorplan.
 
 It deliberately does NOT estimate operator-build cost. An earlier version multiplied
-the solve time by the unit count and was wrong by ~84x, because grid operator
-construction reuses one RC factorisation across right-hand sides and runs threaded,
-and because the frozen configuration builds grid operators on the GPU.
+the solve time by the unit count and contradicted measured data by ~84x. The reason
+is NOT established -- see docs/FIDELITY_COST_EVIDENCE.md. A first attempt to explain
+it (RC factorisation reused across right-hand sides) was itself wrong, since
+build_operator spawns a fresh subprocess per impulse, and 16-way concurrency leaves
+~6.6x unexplained. Operator cost must be measured by instrumenting build_family().
 
 What it establishes: the RATIO between fidelity levels. That ratio is what decides
 whether "only refine when the winner could change" has any system value -- if the
@@ -99,14 +101,10 @@ def main():
             rows.append({"model": mid, "status": "UNRESOLVED"})
             continue
         t = np.array(times)
-        # NOT an operator-build estimate. A previous version multiplied the solve
-        # time by (n+1) and was wrong by ~84x: measured CPU operator construction is
-        # 22.2157 s at grid64 where this predicted 1868 s. Grid operator construction
-        # is NOT one full solve per block -- the RC assembly and factorisation are
-        # done once and reused across right-hand sides, and build_operator also runs
-        # a ThreadPoolExecutor over units. The production path additionally builds
-        # grid operators on the GPU when CERTITHERM_GPU_HOTSPOT=1. Operator cost must
-        # be measured by instrumenting build_family(), never extrapolated from here.
+        # NOT an operator-build estimate. Multiplying this by (n+1) contradicted the
+        # measured 22.2157 s at grid64 by ~84x. The mechanism is UNRESOLVED: a fresh
+        # subprocess per impulse rules out factorisation reuse, and 16-way concurrency
+        # still leaves ~6.6x unaccounted for. Never extrapolate operator cost here.
         rows.append({"model": mid, "status": "OK", "reps": REPS,
                      "solve_median_s": float(np.median(t)),
                      "solve_min_s": float(t.min()), "solve_max_s": float(t.max())})
