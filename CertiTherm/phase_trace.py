@@ -318,7 +318,7 @@ def tightening_report(space: ScheduleSpace) -> Dict[str, float]:
     """
     pts = space.reachable_points_w()
     box = box_polytope(space)
-    reach = space.reachable_polytope()
+    reach = space.structural_envelope()
     box_total = float(box.upper_w.sum())
     reach_total = float(reach.b_ub[0])
     return {

@@ -32,18 +32,38 @@ On the monitor:
 So no change to the pinned ThermoDSE submodule is needed: this reads the monitor after the
 existing CertiTherm invocation path runs.
 
-CONSERVATION, and one known defect it must not launder. `get_nn_cost` returns
+CONSERVATION, and TWO ENERGIES THAT MUST NOT BE CONFLATED. `get_nn_cost` returns
 
     e_tot = e_nop + e_noc + e_dram + e_core - e_comp
 
-which SUBTRACTS compute energy ("since they are always fixed") -- the defect recorded in the
-workspace contract at `core/statistic.py:200`. A trace built from per-order energy must
-reconcile against the TRUE sum, and the gap to the reported endpoint has to be shown, not
-silently inherited.
+excluding compute energy on the stated grounds that it is fixed across ThermoDSE's design
+space. Read as a single "total energy" that is a defect, and the workspace contract records
+it at `core/statistic.py:200` as one. But for this work the accurate framing is that there
+are two DIFFERENT quantities, and the right reconciliation is an identity rather than an
+equality:
 
-THE QUESTION THIS PROBE ANSWERS. Beyond availability: does per-order power actually VARY? If
-every order draws near-identical power, there is no phase structure for a transient
-formulation to exploit, and that is decisive regardless of how good the thermal model is.
+    optimization_energy_mj          what ThermoDSE ranks EDYP by (compute excluded)
+    thermal_dissipated_energy_mj    what heats the die (compute INCLUDED)
+
+    thermal_dissipated = optimization + excluded_compute
+
+A thermal trace must be built from the second. This probe reports both and the gap between
+them, and never treats a mismatch as an error to be reconciled away.
+
+WHAT THIS PROBE CAN AND CANNOT DECIDE. It reports the SCALAR total power per order. That is
+enough to show availability and conservation, and enough to show that variation EXISTS. It is
+NOT enough to decide the transient direction, and an earlier version of this docstring
+wrongly claimed it was.
+
+The reason is first-principles: temperature responds to a SPATIAL power vector,
+
+    T(t) = T_amb + integral G(t - tau) p(tau) dtau     with p(tau) a vector over blocks
+
+so a flat scalar total is fully compatible with a hotspot MIGRATING between chiplets from
+order to order, which changes peak temperature through diffusion, adjacency and history. The
+inference "scalar total is flat, therefore no phase structure to exploit" is invalid in both
+directions and is withdrawn. Only a floorplan-aligned per-order power VECTOR can decide it;
+that is the successor probe.
 
 NON-CLAIM diagnostic. Usage:
     python research/triangle/order_trace_probe.py <out> <workload> <arch_id>
@@ -171,8 +191,9 @@ def main():
             print(f"    VARIATION  : max/mean={act.max()/p_mean:.3f}x  "
                   f"min/mean={act.min()/p_mean:.3f}x  "
                   f"cv={act.std()/act.mean():.4f}")
-            print(f"                 (a flat profile would show max/mean ~ 1.0 and cv ~ 0; "
-                  f"that would mean no phase structure to exploit)")
+            print(f"                 (SCALAR total only. A flat scalar is still compatible "
+                  f"with a hotspot migrating between chiplets, so this cannot decide the "
+                  f"transient direction either way -- a spatial vector probe can.)")
 
         # --- conservation --------------------------------------------------------
         e_comp = (core[:, :, mon.NAME_LIST.index("mtxu")].sum()

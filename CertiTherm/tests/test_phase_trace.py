@@ -135,3 +135,21 @@ def test_phase_trace_validates_shape_and_sign():
         PhaseTrace(np.array([-1.0]), np.array([[1.0]]))              # negative duration
     with pytest.raises(ValueError):
         PhaseTrace(np.array([1.0]), np.array([[-1.0]]))              # negative power
+
+
+def test_tightening_report_runs():
+    """Regression: `tightening_report` called `reachable_polytope()` after it was
+    renamed `structural_envelope()`, so it raised AttributeError. The rename was
+    pushed without re-running this suite, which is what let it through."""
+    rep = tightening_report(ScheduleSpace(_tasks()))
+    for key in ("n_reachable_points", "box_total_w", "reachable_total_w",
+                "total_w_ratio", "box_volume_log", "reachable_volume_log"):
+        assert key in rep and np.isfinite(rep[key])
+
+
+def test_no_stale_method_names_in_module():
+    """Catch a rename that updated the definition but not every call site."""
+    import inspect
+    from CertiTherm import phase_trace
+    src = inspect.getsource(phase_trace)
+    assert "reachable_polytope(" not in src, "stale reference to the pre-rename name"
