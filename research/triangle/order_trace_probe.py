@@ -83,6 +83,8 @@ from contextlib import contextmanager
 from CertiTherm.experiments import (
     ROOT, _prepare_thermodse_sim, _registry_split, _rows, _thermodse_evaluator,
 )
+from CertiTherm.thermodse_trace import lower_monitor_trace
+from CertiTherm.trace_runner import floorplan_units
 
 DICTS = ("core_dict", "latency_dict", "noc_dict", "nop_dict", "dram_dict", "core_utl_dict")
 
@@ -157,6 +159,8 @@ def main():
     report = {"arch": ARCH_ID, "workload": WORKLOAD, "clk_freq_hz": clk,
               "endpoint_latency_ms": float(latency), "endpoint_energy_mj": float(energy),
               "networks": {}}
+    floorplan = sim / "floorplan" / "output_3D.flp"
+    blocks = tuple(floorplan_units(floorplan))
 
     lat_cycles_all = 0.0
     e_true_pj_all = 0.0
@@ -210,6 +214,32 @@ def main():
 
         lat_cycles_all += lat.sum()
         e_true_pj_all += e_true
+        lowered = lower_monitor_trace(
+            block_ids=blocks,
+            latency_cycles=lat,
+            core_energy_pj=core,
+            noc_energy_pj=noc,
+            nop_energy_pj=nop,
+            dram_energy_pj=dram,
+            clock_hz=clk,
+            component_names=tuple(mon.NAME_LIST),
+        )
+        vector_out = OUTPUT / f"spatial_trace_{WORKLOAD}_{ARCH_ID}_{nn}.npz"
+        np.savez_compressed(
+            vector_out,
+            block_ids=np.asarray(lowered.block_ids),
+            durations_s=lowered.trace.durations_s,
+            powers_w=lowered.trace.powers_w,
+            unplaced_channels=np.asarray(("noc", "nop", "dram")),
+            unplaced_energy_j=lowered.unplaced_energy_j,
+        )
+        print(f"    spatial     : represented={lowered.represented_energy_j:.6e} J  "
+              f"unplaced={lowered.residual_energy_j:.6e} J  "
+              f"represented_fraction={lowered.represented_fraction:.4f}")
+        print(f"                 wrote {vector_out}")
+        if not lowered.is_complete:
+            print("                 INCOMPLETE FOR THERMAL REPLAY: NoC/NoP/DRAM have "
+                  "aggregate energy but no defensible floorplan location")
         report["networks"][nn] = {
             "orders": int(n_ord), "cores": int(n_core), "components": int(n_comp),
             "duration_total_s": float(dur_s.sum()),
@@ -221,6 +251,11 @@ def main():
             "e_true_pj": float(e_true), "e_comp_pj": float(e_comp),
             "e_core_pj": float(e_core_ord.sum()), "e_noc_pj": float(noc.sum()),
             "e_nop_pj": float(nop.sum()), "e_dram_pj": float(dram.sum()),
+            "spatial_trace_npz": str(vector_out),
+            "represented_energy_j": lowered.represented_energy_j,
+            "unplaced_energy_j": lowered.residual_energy_j,
+            "represented_fraction": lowered.represented_fraction,
+            "complete_for_thermal_replay": lowered.is_complete,
         }
 
     # --- reconcile against the endpoints CertiTherm already trusts ---------------
@@ -246,8 +281,10 @@ def main():
     out = OUTPUT / f"order_trace_probe_{WORKLOAD}_{ARCH_ID}.json"
     out.write_text(json.dumps(report, indent=2))
     print(f"\n  wrote {out}")
-    print("  PROBE ONLY: establishes availability, variation and conservation. It builds no "
-          "trace, replays nothing thermally, and claims nothing about decisions.")
+    print("  PROBE ONLY: builds an exact floorplan-aligned CORE trace and accounts for every "
+          "source joule, but does not invent locations for aggregate NoC/NoP/DRAM energy. "
+          "The trace is therefore incomplete for thermal replay and claims nothing about "
+          "decisions.")
 
 
 if __name__ == "__main__":
