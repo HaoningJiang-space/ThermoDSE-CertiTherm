@@ -98,6 +98,8 @@ def main() -> None:
         events=events,
         compute_shape=shape,
         chiplet_cuts=cuts,
+        noc_hop_cost_pj=float(evaluator.noc_cost),
+        nop_hop_cost_pj=float(evaluator.nop_cost),
         batch_factor=batch_factor,
     )
 
@@ -111,6 +113,8 @@ def main() -> None:
         powers_w=routed.trace.powers_w,
         source_energy_j=np.asarray(routed.source_energy_j),
         route_energy_j=np.asarray(routed.route_energy_j),
+        legacy_source_energy_j=np.asarray(routed.legacy_source_energy_j),
+        legacy_route_energy_j=np.asarray(routed.legacy_route_energy_j),
         io_die_area_each_m2=np.asarray(augmented.io_die_area_each_m2),
         io_die_aspect_ratio=np.asarray(augmented.io_die_aspect_ratio),
     )
@@ -126,9 +130,14 @@ def main() -> None:
         f"{endpoint_latency_ms:.6f} ms; ratio={endpoint_latency_ms/physical_latency_ms:.6f}"
     )
     print(
-        f"  energy source={routed.source_energy_j * 1e3:.6f} mJ; "
+        f"  corrected thermal source={routed.source_energy_j * 1e3:.6f} mJ; "
         f"integrated trace={integrated_j * 1e3:.6f} mJ; "
-        f"route channels={routed.route_energy_j * 1e3:.6f} mJ"
+        f"corrected route channels={routed.route_energy_j * 1e3:.6f} mJ"
+    )
+    print(
+        f"  legacy monitor source={routed.legacy_source_energy_j * 1e3:.6f} mJ; "
+        f"legacy route channels={routed.legacy_route_energy_j * 1e3:.6f} mJ; "
+        f"correction={(routed.source_energy_j-routed.legacy_source_energy_j) * 1e3:.6f} mJ"
     )
     print(
         f"  IO geometry: {len(augmented.dram_blocks)} square dies, "
@@ -149,6 +158,14 @@ def main() -> None:
         "thermal_source_energy_mj": routed.source_energy_j * 1e3,
         "integrated_trace_energy_mj": integrated_j * 1e3,
         "route_energy_mj": routed.route_energy_j * 1e3,
+        "legacy_monitor_source_energy_mj": routed.legacy_source_energy_j * 1e3,
+        "legacy_route_energy_mj": routed.legacy_route_energy_j * 1e3,
+        "physical_energy_correction_mj": (
+            routed.source_energy_j - routed.legacy_source_energy_j
+        )
+        * 1e3,
+        "noc_hop_cost_pj": float(evaluator.noc_cost),
+        "nop_hop_cost_pj": float(evaluator.nop_cost),
         "batch_factor": batch_factor,
         "events": len(events),
         "io_die_area_each_m2": augmented.io_die_area_each_m2,

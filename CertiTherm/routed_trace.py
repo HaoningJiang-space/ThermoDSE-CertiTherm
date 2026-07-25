@@ -7,12 +7,14 @@ It does not trust or copy the corrupted link array.
 Placement contract
 ------------------
 * Core component energy retains the exact ThermoDSE floorplan block mapping.
-* A deterministic XY union tree supplies *location weights* for each event.  The original
-  NoC/NoP energy remains authoritative and is distributed over that tree, so routing does
-  not silently change the energy model.
+* A deterministic XY union tree supplies the physical edges for each event.  NoC/NoP
+  energy is recomputed from event volume, explicit edge class, and the evaluator's
+  per-hop costs.  The legacy counters remain an audited input ledger, not physical truth:
+  ThermoDSE misclassifies adjacent chiplet-boundary edges as NoC.
 * Same-chiplet NoC energy is split between the two facing ``io_*`` endpoint blocks.
 * Cross-chiplet NoP energy is placed on the intervening ``blockX_*``/``blockY_*`` block.
-* External NoP energy is split between the facing core IO block and the named DRAM die.
+* ThermoDSE deliberately excludes the external DRAM edge from NoP hop energy.  No energy
+  is invented for that uncharacterized edge; DRAM-access energy is placed on the DRAM die.
 * DRAM-access energy is divided equally over the DRAM locations, matching ThermoDSE's
   ``unicast_dram``/``unicast_to_dram`` convention.
 
@@ -384,12 +386,18 @@ def _place_edge_energy(
     target_j[block_index[name]] += energy_j
 
 
+def _is_external_edge(edge: Edge, nx: int) -> bool:
+    return any(coord[0] in (0, nx + 1) for coord in edge)
+
+
 @dataclass(frozen=True)
 class RoutedThermoDSETrace:
     floorplan: AugmentedFloorplan
     trace: PhaseTrace
     source_energy_j: float
     route_energy_j: float
+    legacy_source_energy_j: float
+    legacy_route_energy_j: float
 
     def __post_init__(self) -> None:
         if self.trace.dimension != len(self.floorplan.block_ids):
@@ -401,6 +409,14 @@ class RoutedThermoDSETrace:
             atol=1e-18,
         ):
             raise ValueError("complete routed trace does not conserve source energy")
+        values = (
+            self.source_energy_j,
+            self.route_energy_j,
+            self.legacy_source_energy_j,
+            self.legacy_route_energy_j,
+        )
+        if any(not np.isfinite(value) or value < 0.0 for value in values):
+            raise ValueError("routed trace energy receipts must be finite and non-negative")
 
 
 def lower_routed_trace(
@@ -410,14 +426,24 @@ def lower_routed_trace(
     events: Sequence[Mapping[str, object]],
     compute_shape: Tuple[int, int],
     chiplet_cuts: Tuple[int, int],
+    noc_hop_cost_pj: float,
+    nop_hop_cost_pj: float,
     batch_factor: int = 1,
 ) -> RoutedThermoDSETrace:
-    """Combine exact core energy with routed NoC/NoP/DRAM event energy."""
+    """Combine exact core energy with physically reclassified communication energy.
+
+    The captured legacy counters are still reconciled per order before use.  They are not
+    used as the routed NoC/NoP heat source because their boundary classifier is known to
+    label some physical NoP edges as NoC.
+    """
 
     nx, ny = int(compute_shape[0]), int(compute_shape[1])
     cut_x, cut_y = int(chiplet_cuts[0]), int(chiplet_cuts[1])
     if nx < 1 or ny < 1 or cut_x < 1 or cut_y < 1 or batch_factor < 1:
         raise ValueError("shape, cuts, and batch_factor must be positive")
+    costs_pj = {"noc": float(noc_hop_cost_pj), "nop": float(nop_hop_cost_pj)}
+    if any(not np.isfinite(cost) or cost <= 0.0 for cost in costs_pj.values()):
+        raise ValueError("NoC/NoP hop costs must be finite and positive")
     index = {name: column for column, name in enumerate(floorplan.block_ids)}
     if not set(core.block_ids).issubset(index):
         raise ValueError("augmented floorplan does not contain the core trace registry")
@@ -427,30 +453,40 @@ def lower_routed_trace(
     for old_column, name in enumerate(core.block_ids):
         energy_j[:, index[name]] = core_energy[:, old_column]
 
-    external_by_order_j = np.zeros((core.trace.n_phases, 3), dtype=float)
+    legacy_external_by_order_j = np.zeros((core.trace.n_phases, 3), dtype=float)
     route_total_j = 0.0
     for event in events:
         order = int(event["order"])
         if not (0 <= order < core.trace.n_phases):
             raise ValueError("communication event order is outside the phase trace")
         weights = _event_edge_weights(event, nx)
+        volume = float(event["volume"])
+        if not np.isfinite(volume) or volume < 0.0:
+            raise ValueError("communication event volume must be finite and non-negative")
         for channel_column, channel in enumerate(("noc", "nop")):
-            event_j = float(event[f"{channel}_energy_pj"]) * batch_factor * 1e-12
-            external_by_order_j[order, channel_column] += event_j
-            route_total_j += event_j
+            legacy_j = (
+                float(event[f"{channel}_energy_pj"]) * batch_factor * 1e-12
+            )
+            legacy_external_by_order_j[order, channel_column] += legacy_j
             selected = {
                 edge: weight
                 for edge, weight in weights.items()
                 if _edge_channel(edge, nx, ny, cut_x, cut_y) == channel
+                and not _is_external_edge(edge, nx)
             }
-            total_weight = float(sum(selected.values()))
-            if event_j > 0.0 and total_weight <= 0.0:
-                raise ValueError(f"positive {channel} energy has no {channel} route edge")
             for edge, weight in selected.items():
+                edge_j = (
+                    volume
+                    * float(weight)
+                    * costs_pj[channel]
+                    * batch_factor
+                    * 1e-12
+                )
+                route_total_j += edge_j
                 _place_edge_energy(
                     energy_j[order],
                     edge=edge,
-                    energy_j=event_j * float(weight) / total_weight,
+                    energy_j=edge_j,
                     channel=channel,
                     floorplan=floorplan,
                     block_index=index,
@@ -459,7 +495,7 @@ def lower_routed_trace(
                 )
 
         dram_j = float(event["dram_energy_pj"]) * batch_factor * 1e-12
-        external_by_order_j[order, 2] += dram_j
+        legacy_external_by_order_j[order, 2] += dram_j
         route_total_j += dram_j
         if dram_j:
             locations = tuple(
@@ -475,7 +511,7 @@ def lower_routed_trace(
                 energy_j[order, index[name]] += dram_j / len(locations)
 
     if not np.allclose(
-        external_by_order_j,
+        legacy_external_by_order_j,
         core.unplaced_energy_j,
         rtol=1e-11,
         atol=1e-18,
@@ -483,9 +519,12 @@ def lower_routed_trace(
         raise ValueError("route events do not reconcile with per-order external energy")
     powers_w = energy_j / core.trace.durations_s[:, None]
     trace = PhaseTrace(core.trace.durations_s, powers_w)
+    source_energy_j = core.represented_energy_j + route_total_j
     return RoutedThermoDSETrace(
         floorplan=floorplan,
         trace=trace,
-        source_energy_j=core.thermal_energy_j,
+        source_energy_j=source_energy_j,
         route_energy_j=route_total_j,
+        legacy_source_energy_j=core.thermal_energy_j,
+        legacy_route_energy_j=core.residual_energy_j,
     )

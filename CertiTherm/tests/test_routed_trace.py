@@ -45,6 +45,18 @@ def _core_lowering(external_pj):
     )
 
 
+def _lower(core, event, cuts):
+    return lower_routed_trace(
+        core,
+        floorplan=_augmented(),
+        events=(event,),
+        compute_shape=(2, 1),
+        chiplet_cuts=cuts,
+        noc_hop_cost_pj=2.0,
+        nop_hop_cost_pj=2.0,
+    )
+
+
 def _augmented():
     return augment_floorplan_with_dram(
         _floorplan_2x1(),
@@ -90,17 +102,12 @@ def test_same_chiplet_noc_energy_splits_facing_io_blocks():
         "source": [0, 0],
         "destinations": [[1, 0]],
         "dram_locations": [[0, 0], [3, 0]],
+        "volume": 4.0,
         "noc_energy_pj": 8.0,
         "nop_energy_pj": 0.0,
         "dram_energy_pj": 0.0,
     }
-    routed = lower_routed_trace(
-        core,
-        floorplan=_augmented(),
-        events=(event,),
-        compute_shape=(2, 1),
-        chiplet_cuts=(1, 1),
-    )
+    routed = _lower(core, event, (1, 1))
     energy = routed.trace.energy_j()
     index = {name: i for i, name in enumerate(routed.floorplan.block_ids)}
     assert energy[index["io_2_0"]] == pytest.approx(4e-12)
@@ -116,17 +123,12 @@ def test_cross_chiplet_nop_energy_goes_to_gap_block():
         "source": [0, 0],
         "destinations": [[1, 0]],
         "dram_locations": [[0, 0], [3, 0]],
+        "volume": 3.0,
         "noc_energy_pj": 0.0,
         "nop_energy_pj": 6.0,
         "dram_energy_pj": 0.0,
     }
-    routed = lower_routed_trace(
-        core,
-        floorplan=_augmented(),
-        events=(event,),
-        compute_shape=(2, 1),
-        chiplet_cuts=(2, 1),
-    )
+    routed = _lower(core, event, (2, 1))
     energy = routed.trace.energy_j()
     index = {name: i for i, name in enumerate(routed.floorplan.block_ids)}
     assert energy[index["blockX_0"]] == pytest.approx(6e-12)
@@ -139,22 +141,18 @@ def test_dram_read_places_access_energy_and_conserves_all_sources():
         "kind": "dram_read",
         "destinations": [[0, 0]],
         "dram_locations": [[0, 0], [3, 0]],
+        "volume": 4.0,
         "noc_energy_pj": 0.0,
         "nop_energy_pj": 4.0,
         "dram_energy_pj": 10.0,
     }
-    routed = lower_routed_trace(
-        core,
-        floorplan=_augmented(),
-        events=(event,),
-        compute_shape=(2, 1),
-        chiplet_cuts=(1, 1),
-    )
+    routed = _lower(core, event, (1, 1))
     energy = routed.trace.energy_j()
     index = {name: i for i, name in enumerate(routed.floorplan.block_ids)}
-    # 5 pJ DRAM access on each die, plus half of each external link's routed NoP share.
-    assert energy[index["dram_x0_y0"]] > 5e-12
-    assert energy[index["dram_x3_y0"]] > 5e-12
+    # 5 pJ DRAM access on each die.  The external PHY edge has no separately
+    # characterized energy in ThermoDSE and is therefore not invented here.
+    assert energy[index["dram_x0_y0"]] == pytest.approx(5e-12)
+    assert energy[index["dram_x3_y0"]] == pytest.approx(5e-12)
     assert energy.sum() == pytest.approx((2 + 3 + 4 + 10) * 1e-12)
 
 
@@ -166,6 +164,7 @@ def test_event_ledger_mismatch_fails_closed():
         "source": [0, 0],
         "destinations": [[1, 0]],
         "dram_locations": [[0, 0], [3, 0]],
+        "volume": 3.0,
         "noc_energy_pj": 0.0,
         "nop_energy_pj": 6.0,
         "dram_energy_pj": 0.0,
@@ -177,4 +176,38 @@ def test_event_ledger_mismatch_fails_closed():
             events=(event,),
             compute_shape=(2, 1),
             chiplet_cuts=(2, 1),
+            noc_hop_cost_pj=2.0,
+            nop_hop_cost_pj=2.0,
         )
+
+
+def test_legacy_boundary_noc_is_reclassified_as_physical_nop():
+    core = _core_lowering([6.0, 0.0, 0.0])
+    event = {
+        "order": 0,
+        "kind": "core_to_core",
+        "source": [0, 0],
+        "destinations": [[1, 0]],
+        "dram_locations": [[0, 0], [3, 0]],
+        "volume": 3.0,
+        # This is the known ThermoDSE boundary error: the adjacent cross-chiplet
+        # edge was charged at the NoC cost.
+        "noc_energy_pj": 6.0,
+        "nop_energy_pj": 0.0,
+        "dram_energy_pj": 0.0,
+    }
+    routed = lower_routed_trace(
+        core,
+        floorplan=_augmented(),
+        events=(event,),
+        compute_shape=(2, 1),
+        chiplet_cuts=(2, 1),
+        noc_hop_cost_pj=2.0,
+        nop_hop_cost_pj=5.0,
+    )
+    energy = routed.trace.energy_j()
+    index = {name: i for i, name in enumerate(routed.floorplan.block_ids)}
+    assert energy[index["blockX_0"]] == pytest.approx(15e-12)
+    assert routed.legacy_route_energy_j == pytest.approx(6e-12)
+    assert routed.route_energy_j == pytest.approx(15e-12)
+    assert routed.source_energy_j - routed.legacy_source_energy_j == pytest.approx(9e-12)
