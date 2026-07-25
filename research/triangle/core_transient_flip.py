@@ -1,45 +1,41 @@
-"""Core-only transient replay: does real schedule SHAPE move the peak? (NON-CLAIM)
+"""V6.1 causal isolation: does CORE schedule shape alone move the peak? (NON-CLAIM)
 
-The smallest defensible flip experiment. Everything about it is deliberately narrow.
+Rewritten to use `CertiTherm.transient.replay_periodic`. The first version shipped its own
+transient runner and resampler, which was duplication of already-verified infrastructure and
+carried defects that engine does not have: it defaulted to one pass so the convergence
+residual was always NaN, it reported drift without failing closed, it checked energy before
+serialisation rather than after, it normalised timing distortion by the LONGEST order so
+short-order error was hidden, and it ran only the `block` model although the flip this gate
+is meant to explain appeared under grid-max safety semantics.
+
+`replay_periodic` supplies all of that: exact fractional-overlap resampling that validates
+per-block energy and raises (`resample_uniform`, rtol 1e-11, and zero timing distortion
+because phases are split across bins rather than rounded to whole steps), a common fixed
+initial state, automatic convergence by cycle doubling, a mean-steady reference, and a guard
+refusing any convergence claim finer than HotSpot's 0.01 K output resolution.
+
+WHAT THIS SCRIPT STILL DOES ITSELF, because it is the genuinely new part: extract CORE-ONLY
+per-order power vectors using ThermoDSE's OWN `gen_all_ptrace_3D` by source and order
+isolation, then align them to the floorplan and PROVE the alignment discards no heat.
 
 WHY CORE-ONLY. The energy ledger (docs/THERMODSE_ENDPOINT_AUDIT.md) measured that of the
-four power sources only `core_dict` is both 100% energy-conserving into the ptrace and
-genuinely spatially resolved (80 columns). The others are not usable for a spatial claim:
-NoC is over-counted 133.41% AND spread uniformly, which erases the spatial information this
-experiment exists to measure; NoP lands in one lumped `interposer` column; DRAM never enters
-at all. So core-only is the only component whose spatial trace can carry a conclusion.
+four sources only `core_dict` is both 100% conserving into the ptrace and genuinely spatially
+resolved (80 columns). NoC is over-counted 133.41% AND spread uniformly, which erases the
+spatial information this gate measures; NoP lands in one lumped `interposer` column; DRAM
+never enters. So core is the only component whose spatial trace can carry a conclusion, and
+isolating it is the point: it asks whether core schedule shape ALONE suffices.
 
-BOUNDARY, stated up front and repeated in the output. This is a COMPUTE-DOMAIN experiment
-with no explicit DRAM power source or thermal node, no NoC and no NoP. Roughly half the
-dissipated energy is absent. A flip here supports "under this boundary the cheap abstraction
-does not preserve the decision" and NOTHING about a physical package.
-
-THE COMPARISON. Two traces with IDENTICAL per-column energy and identical total duration:
-
-    scheduled  the real per-order vectors at their real durations
-    flat       the time-weighted mean vector, held constant
-
-A steady-state model driven by mean power sees exactly one world; only a transient model can
-tell them apart. Both use the same floorplan, config, materials and initial condition.
-
-RESAMPLING, and why energy stays exact. HotSpot transient needs a fixed sampling interval,
-but the real per-order durations span ~163x. Each order k is assigned
-`n_k = max(1, round(dur_k / dt))` steps and its power is then RESCALED by
-`dur_k / (n_k * dt)`, so per-column energy is preserved EXACTLY by construction and the error
-appears as a bounded timing distortion instead, which is measured and reported. Getting this
-backwards -- preserving timing and letting energy drift -- would break the one property the
-flat comparison depends on.
-
-Latency is the CYCLE-DERIVED value; the returned endpoint is 1.8x too large.
+BOUNDARY, repeated in every line of output. Compute-domain, core-only. No DRAM (40.56% of
+dissipated energy), no NoP (10.90%), no NoC. A difference here supports "under this boundary
+core schedule shape does / does not move the peak" and nothing about a physical package.
 
 NON-CLAIM diagnostic. Usage:
-    python research/triangle/core_transient_flip.py <out> <workload> <arch_id> [passes]
+    python research/triangle/core_transient_flip.py <out> <workload> <arch_id> [models] [step_us]
 """
 from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -52,7 +48,9 @@ from CertiTherm.experiments import (
     HOTSPOT, ROOT, TEMPLATE, THERMAL_LIMIT_K, _prepare_thermodse_sim, _registry_split,
     _rows, _thermodse_evaluator,
 )
+from CertiTherm.phase_trace import PhaseTrace
 from CertiTherm.trace_runner import floorplan_units
+from CertiTherm.transient import replay_periodic
 
 import importlib.util as _ilu
 _spec = _ilu.spec_from_file_location("_otp", "research/triangle/order_trace_probe.py")
@@ -68,8 +66,10 @@ DICTS, monitor_snapshot = _otp.DICTS, _otp.monitor_snapshot
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/v6flip")
 WORKLOAD = sys.argv[2] if len(sys.argv) > 2 else "resnet50"
 ARCH_ID = sys.argv[3] if len(sys.argv) > 3 else "arch_c"
-PASSES = int(sys.argv[4]) if len(sys.argv) > 4 else 1
+MODELS = tuple((sys.argv[4] if len(sys.argv) > 4 else "block,grid64-max").split(","))
+STEP_US = float(sys.argv[5]) if len(sys.argv) > 5 else 0.5
 ENERGY_DICTS = ("core_dict", "noc_dict", "nop_dict", "dram_dict")
+AMBIENT_K = 318.15                      # the established fixed initial state
 
 
 def read_ptrace(path: Path):
@@ -84,6 +84,7 @@ def read_ptrace(path: Path):
 
 
 def generate(mon, dicts, gen_path: Path):
+    """Call ThermoDSE's OWN generator with the given energy dicts installed."""
     saved = {n: getattr(mon, n) for n in ENERGY_DICTS}
     try:
         for n, v in dicts.items():
@@ -94,22 +95,6 @@ def generate(mon, dicts, gen_path: Path):
         for n, v in saved.items():
             setattr(mon, n, v)
     return read_ptrace(gen_path / "cores_3D.ptrace")
-
-
-def hotspot_transient(config, floorplan, materials, cols, rows_w, dt, ws, tag):
-    ptrace, out = ws / f"{tag}.ptrace", ws / f"{tag}.out"
-    with ptrace.open("w") as fh:
-        fh.write("\t".join(cols) + "\n")
-        for row in rows_w:
-            fh.write("\t".join(f"{v:.6f}" for v in row) + "\n")
-    cmd = [str(HOTSPOT), "-c", str(config), "-f", str(floorplan), "-p", str(ptrace),
-           "-materials_file", str(materials), "-model_type", "block",
-           "-sampling_intvl", repr(dt), "-o", str(out)]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
-    if r.returncode != 0 or not out.exists():
-        raise RuntimeError(f"HotSpot failed: {r.stderr[-400:]}")
-    data = np.loadtxt(out, skiprows=1)
-    return data if data.ndim == 2 else data.reshape(1, -1)
 
 
 def main():
@@ -139,25 +124,23 @@ def main():
     clk = float(mon.clk_freq)
     nets = sorted(snap["core_dict"].keys())
     if len(nets) != 1:
-        print(f"FAIL: {len(nets)} networks; this experiment assumes one"); sys.exit(2)
+        print(f"FAIL: {len(nets)} networks; this gate assumes one"); sys.exit(2)
     nn = nets[0]
     dur = snap["latency_dict"][nn] / clk
-    t_total = float(dur.sum())
-    n_ord = dur.size
+    if not np.all(dur > 0):
+        print(f"FAIL: {int((dur <= 0).sum())} zero-length orders"); sys.exit(2)
+    t_total, n_ord = float(dur.sum()), dur.size
 
     work = Path(tempfile.mkdtemp(prefix="flip-", dir=str(OUTPUT)))
     try:
         # ---- CORE-ONLY per-order vectors, via ThermoDSE's own generator ----------
         zeros = {n: {k: np.zeros_like(v) for k, v in getattr(mon, n).items()}
                  for n in ENERGY_DICTS}
-        base = dict(zeros); base["core_dict"] = {k: v.copy()
-                                                for k, v in snap["core_dict"].items()}
+        base = dict(zeros)
+        base["core_dict"] = {k: v.copy() for k, v in snap["core_dict"].items()}
         cols, ref = generate(mon, base, work / "core-full")
-        keep = np.flatnonzero(np.abs(ref) > 0)
-        if keep.size == 0:
-            print("FAIL: core-only ptrace is all zero"); sys.exit(2)
-        print(f"{ARCH_ID}/{WORKLOAD}: {n_ord} orders, core-only occupies "
-              f"{keep.size} of {len(cols)} columns, total {ref.sum():.4f} W")
+        print(f"{ARCH_ID}/{WORKLOAD}: {n_ord} orders, physical latency "
+              f"{t_total * 1e3:.6f} ms, core-only total {ref.sum():.4f} W")
 
         rows = np.zeros((n_ord, len(cols)))
         for k in range(n_ord):
@@ -175,109 +158,107 @@ def main():
               f"-> {'OK' if sup_err < 5e-3 else 'FAILED'}")
         if sup_err >= 5e-3:
             sys.exit(3)
+        p_ord = rows * (t_total / dur[:, None])     # rows[k] = E_k/T_total
 
-        # rows[k] = E_k/T_total ; actual power = rows[k] * T_total/dur_k
-        nz = dur > 0
-        p_ord = np.zeros_like(rows)
-        p_ord[nz] = rows[nz] * (t_total / dur[nz, None])
-
-        # ---- resample onto a fixed dt, preserving per-column energy EXACTLY -----
-        dt = float(dur[nz].min())
-        steps = np.maximum(1, np.rint(dur / dt)).astype(int)
-        scale = np.where(steps > 0, dur / (steps * dt), 0.0)
-        timing_err = float(np.abs(steps * dt - dur).max() / dur.max())
-        sched_rows = []
-        for k in range(n_ord):
-            sched_rows.extend([p_ord[k] * scale[k]] * int(steps[k]))
-        sched = np.asarray(sched_rows)
-        n_steps = sched.shape[0]
-        e_sched = sched.sum(axis=0) * dt
-        e_true = p_ord * dur[:, None]
-        e_err = float(np.abs(e_sched - e_true.sum(axis=0)).max())
-        print(f"  resampled to {n_steps} steps of {dt * 1e6:.3f} us; "
-              f"per-column energy error {e_err:.3e} J "
-              f"(max timing distortion {timing_err * 100:.3f}% of the longest order)")
-        if e_err > 1e-9:
-            print("FAIL: resampling did not preserve per-column energy"); sys.exit(3)
-
-        # ---- FLAT: same per-column energy, same duration, constant --------------
-        flat_vec = e_sched / (n_steps * dt)
-        flat = np.tile(flat_vec, (n_steps, 1))
-        if not np.allclose(sched.sum(axis=0) * dt, flat.sum(axis=0) * dt, atol=1e-12):
-            print("FAIL: the two traces differ in per-column energy"); sys.exit(3)
-        print(f"  flat vector total {flat_vec.sum():.4f} W == scheduled mean "
-              f"{(sched.mean(axis=0)).sum():.4f} W")
-
-        # ---- replay both, identical everything else ----------------------------
+        # ---- align to the floorplan and PROVE no heat is discarded --------------
         floorplan = Path(sim) / "floorplan" / "output_3D.flp"
-        config = Path(sim) / "example.config"
-        materials = TEMPLATE / "example.materials"
-
-        # HotSpot requires exactly the floorplan's units. Align by NAME, and PROVE the
-        # alignment discards no heat rather than assuming it: core-only power lives
-        # entirely in columns that are floorplan units, so every dropped column must be
-        # identically zero across every step. If that ever fails, the trace is not
-        # core-only and the comparison is void.
         units = floorplan_units(floorplan)
         idx = {n: j for j, n in enumerate(cols)}
         absent = [n for n in units if n not in idx]
         if absent:
-            print(f"FAIL: {len(absent)} floorplan units absent from the ptrace header "
-                  f"(e.g. {absent[:3]})"); sys.exit(2)
-        unplaced_cols = [j for j, n in enumerate(cols) if n not in set(units)]
+            print(f"FAIL: {len(absent)} floorplan units absent from the header"); sys.exit(2)
+        unplaced = [j for j, n in enumerate(cols) if n not in set(units)]
+        leak = float(np.abs(p_ord[:, unplaced]).max()) if unplaced else 0.0
+        if leak > 0.0:
+            print(f"FAIL: {leak:.6f} W sits in columns with no floorplan unit; the trace "
+                  f"is not core-only and the comparison is void"); sys.exit(3)
         take = [idx[n] for n in units]
-        res = {}
-        for name, tr in (("scheduled", sched), ("flat", flat)):
-            leak = float(np.abs(tr[:, unplaced_cols]).max()) if unplaced_cols else 0.0
-            if leak > 0.0:
-                print(f"FAIL: {name} carries {leak:.6f} W in columns with no floorplan "
-                      f"unit; aligning would discard heat and void the comparison")
-                sys.exit(3)
-            body = np.tile(tr[:, take], (PASSES, 1))
-            temps = hotspot_transient(config, floorplan, materials, units, body, dt,
-                                      work, name)
-            if temps.shape[1] != len(units):
-                print(f"FAIL: {temps.shape[1]} output columns for {len(units)} units")
-                sys.exit(2)
-            per = n_steps
-            last = temps[-per:]
-            drift = (float(np.abs(last - temps[-2 * per:-per]).max())
-                     if temps.shape[0] >= 2 * per else float("nan"))
-            hot = int(last.max(axis=0).argmax())
-            res[name] = {"peak_k": float(last.max()), "peak_unit": units[hot],
-                         "hot_unit_ripple_k": float(last[:, hot].max() - last[:, hot].min()),
-                         "final_mean_k": float(last.mean()),
-                         "pass_drift_k": drift, "steps": int(temps.shape[0])}
-            r = res[name]
-            print(f"  {name:9s} peak={r['peak_k']:.4f} K at {r['peak_unit']:12s} "
-                  f"hot-unit ripple={r['hot_unit_ripple_k']:.4f} K  "
-                  f"pass-to-pass drift={drift:.5f} K")
+        p_aligned = p_ord[:, take]
+        print(f"  aligned onto {len(units)} floorplan units, discarding "
+              f"{len(unplaced)} provably-zero columns")
 
-        gap = res["scheduled"]["peak_k"] - res["flat"]["peak_k"]
-        print(f"\n  SHAPE EFFECT (scheduled - flat) = {gap:+.4f} K")
-        for name in ("scheduled", "flat"):
-            print(f"    {name:9s} peak {res[name]['peak_k']:.4f} K vs limit "
-                  f"{THERMAL_LIMIT_K} -> margin {THERMAL_LIMIT_K - res[name]['peak_k']:+.4f} K")
-        both_below = all(res[n]["peak_k"] < THERMAL_LIMIT_K for n in res)
-        both_above = all(res[n]["peak_k"] > THERMAL_LIMIT_K for n in res)
-        print(f"  FEASIBILITY: {'both SAFE' if both_below else 'both REJECT' if both_above else 'THEY DISAGREE'}"
-              f" at {THERMAL_LIMIT_K} K")
-        if not (both_below or both_above):
-            print("    A point-estimate disagreement is NOT a certified flip. It needs "
-                  "non-overlapping intervals under a transient error contract that does "
-                  "not exist yet (the 0.01 K band is a STEADY-STATE linearisation bound).")
+        # ---- the two traces: identical per-block energy, identical duration -----
+        scheduled = PhaseTrace(dur, p_aligned)
+        flat = PhaseTrace(np.array([t_total]), scheduled.mean_power_w[None, :])
+        e_err = float(np.abs(scheduled.energy_j() - flat.energy_j()).max())
+        if e_err > 1e-15:
+            print(f"FAIL: per-block energy differs by {e_err:.3e} J"); sys.exit(3)
+        print(f"  scheduled vs flat: per-block energy identical (max diff {e_err:.2e} J), "
+              f"mean total {scheduled.mean_power_w.sum():.4f} W")
 
+        report = {"arch": ARCH_ID, "workload": WORKLOAD, "orders": n_ord,
+                  "physical_latency_ms": t_total * 1e3, "max_step_us": STEP_US,
+                  "superposition_err_w": sup_err, "floorplan_units": len(units),
+                  "boundary": "compute-domain core-only; DRAM/NoP/NoC excluded",
+                  "models": {}}
+        for model_id in MODELS:
+            res = {}
+            for name, tr in (("scheduled", scheduled), ("flat", flat)):
+                r = replay_periodic(
+                    binary=HOTSPOT, config=Path(sim) / "example.config",
+                    floorplan=floorplan, materials=Path(sim) / "example.materials",
+                    model_id=model_id, block_ids=units, trace=tr,
+                    workspace=work / f"{model_id}-{name}",
+                    max_step_s=STEP_US * 1e-6, fixed_initial_k=AMBIENT_K,
+                    tolerance_k=0.01)
+                res[name] = r
+                print(f"  [{model_id}] {name:9s} periodic peak={r.periodic_peak_k:.4f} K "
+                      f"at {r.periodic_hottest_block:12s} cycles={r.cycles} "
+                      f"boundary_resid={r.boundary_residual_k:.4f} "
+                      f"peak_resid={r.peak_residual_k:.4f} K")
+                print(f"                       fixed-initial peak="
+                      f"{r.fixed_initial_peak_k:.4f} K   mean-steady peak="
+                      f"{r.mean_steady_peak_k:.4f} K at {r.mean_steady_hottest_block}")
+
+            s, f = res["scheduled"], res["flat"]
+            gap = s.periodic_peak_k - f.periodic_peak_k
+            resolution = max(s.temperature_output_resolution_k,
+                             f.temperature_output_resolution_k)
+            # Only conclusions larger than the residuals AND the output resolution can
+            # be read at all; the frozen 0.01 K band is a STEADY-STATE linearisation
+            # bound and does not cover transient discretisation, so it is a floor here,
+            # not a certified error contract.
+            noise = max(resolution, s.peak_residual_k, f.peak_residual_k,
+                        s.boundary_residual_k, f.boundary_residual_k)
+            print(f"\n  [{model_id}] SHAPE EFFECT (scheduled - flat) = {gap:+.4f} K")
+            print(f"    largest residual / output resolution = {noise:.4f} K "
+                  f"-> effect is {abs(gap) / noise:.2f}x it")
+            if abs(gap) <= noise:
+                verdict = "INDETERMINATE"
+                print(f"    INDETERMINATE: the difference does not exceed the numerical "
+                      f"floor; core schedule shape is not resolvable here.")
+            else:
+                verdict = "RESOLVED"
+            # `>=` on both sides so the exactly-at-limit case cannot fall through into a
+            # spurious disagreement, which a strict < / > pair does.
+            s_safe = s.periodic_peak_k < THERMAL_LIMIT_K
+            f_safe = f.periodic_peak_k < THERMAL_LIMIT_K
+            if s_safe == f_safe:
+                feas = "both SAFE" if s_safe else "both REJECT"
+            else:
+                feas = "DISAGREE (point estimate only)"
+            print(f"    margins: scheduled {THERMAL_LIMIT_K - s.periodic_peak_k:+.4f} K, "
+                  f"flat {THERMAL_LIMIT_K - f.periodic_peak_k:+.4f} K -> {feas}")
+            same_hot = s.periodic_hottest_block == f.periodic_hottest_block
+            print(f"    hottest block: {'unchanged' if same_hot else 'MOVED'} "
+                  f"({s.periodic_hottest_block} vs {f.periodic_hottest_block})")
+            if feas.startswith("DISAGREE"):
+                print(f"    A point-estimate disagreement is NOT a certified flip: that "
+                      f"needs non-overlapping intervals under a transient error contract, "
+                      f"which does not exist yet.")
+            report["models"][model_id] = {
+                "shape_effect_k": gap, "numerical_floor_k": noise, "verdict": verdict,
+                "feasibility": feas, "hottest_block_moved": not same_hot,
+                **{f"{n}_{k}": getattr(r, k) for n, r in res.items()
+                   for k in ("periodic_peak_k", "periodic_hottest_block", "cycles",
+                             "boundary_residual_k", "peak_residual_k",
+                             "fixed_initial_peak_k", "mean_steady_peak_k", "step_s",
+                             "samples_per_cycle")},
+            }
         print(f"\n  BOUNDARY: compute-domain core-only. No DRAM (40.56% of dissipated "
-              f"energy), no NoP (10.90%), no NoC. Any conclusion carries this boundary.")
-        (OUTPUT / f"core_flip_{WORKLOAD}_{ARCH_ID}.json").write_text(json.dumps({
-            "arch": ARCH_ID, "workload": WORKLOAD, "orders": n_ord, "passes": PASSES,
-            "dt_s": dt, "steps_per_pass": n_steps, "physical_latency_ms": t_total * 1e3,
-            "core_only_columns": int(keep.size), "floorplan_units": len(units),
-            "superposition_err_w": sup_err,
-            "resample_energy_err_j": e_err, "timing_distortion_frac": timing_err,
-            "results": res, "shape_effect_k": gap, "thermal_limit_k": THERMAL_LIMIT_K,
-            "boundary": "compute-domain core-only; DRAM/NoP/NoC excluded",
-        }, indent=2))
+              f"energy), no NoP (10.90%), no NoC.")
+        (OUTPUT / f"core_flip_{WORKLOAD}_{ARCH_ID}.json").write_text(
+            json.dumps(report, indent=2, default=str))
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
