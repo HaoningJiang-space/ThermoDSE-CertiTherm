@@ -9,19 +9,26 @@ captures say the whole `resnet50` workload has `latency_ms = 0.602` -- SHORTER t
 differently-shaped power traces reach the same temperature, a steady-state model on mean
 power loses nothing, and "steady-state ranking differs from transient ranking" cannot happen.
 
-So this compares, at the real timescale and on real placed power, two traces that are
-IDENTICAL to any steady-state abstraction:
+So this compares, at that timescale and on real placed power, two traces with the same
+per-block time average -- which is all a steady-state model driven by mean power can see:
 
-    flat    every phase at the mean power             p_mean
-    bursty  alternating 2*p_mean / 0                  same mean, same energy
+    flat    every step at the mean power              p_mean
+    bursty  alternating 2*p_mean / 0                  same per-block mean
 
-Both are replayed for many periods so the package reaches periodic steady state, then the
-peak temperature over the last period is compared. The gap is measured against two
-yardsticks already frozen in the project: the 0.01 K linearisation error band, and the
-distance to `THERMAL_LIMIT_K = 330.0`.
+**ADVERSARIAL SENSITIVITY TEST, NOT WORKLOAD EVIDENCE.** The bursty trace doubles every
+block simultaneously, which is very likely unreachable for any legal schedule -- precisely
+the sort of world `CertiTherm/phase_trace.py` exists to exclude. `latency_ms` is also the
+whole-workload latency, not a layer or kernel phase duration, and the capture holds a single
+whole-run average power vector, so no real phase structure is available here.
 
-Reads out, never asserts: if the gap is at or below the error band, transient shape is
-undetectable here and the transient framing should not rest on it.
+The probe is therefore conclusive in ONE direction only. A gap at or below the reference
+scale would rule transient shape out at this timescale. A LARGE gap establishes nothing
+about real schedules and must not be cited as workload evidence: only a trace derived from
+a real scheduler can support a positive claim.
+
+Both traces are replayed over many periods and the period-over-period drift is reported,
+because the two approach DIFFERENT periodic states and an unconverged comparison is
+differentially biased.
 
 Usage: python research/triangle/phase_timescale.py <out> <workload> <cand> [period_ms] [periods]
 """
@@ -97,10 +104,12 @@ def main():
     units = _floorplan_units(floorplan)
 
     if placed.size != len(units):
-        p = np.zeros(len(units))
-        k = min(placed.size, len(units))
-        p[:k] = placed[:k]
-        placed = p
+        # FAIL CLOSED. Zero-padding or truncating a mismatched power vector silently
+        # moves power onto the wrong blocks, which would corrupt every temperature
+        # here while still producing plausible-looking numbers.
+        print(f"FAIL: placed_power_w has {placed.size} entries but the floorplan has "
+              f"{len(units)} units; refusing to guess an alignment")
+        sys.exit(2)
 
     period_s = PERIOD_MS * 1e-3
     sampling_s = period_s / (2 * STEPS_PER_PHASE)
@@ -126,33 +135,59 @@ def main():
     for name, rows in (("flat", flat_rows), ("bursty", bursty_rows)):
         temps = hotspot_transient(config, floorplan, materials, units, rows,
                                   sampling_s, ws, name)
-        last = temps[-2 * STEPS_PER_PHASE:]            # final period only
+        if temps.shape[1] != len(units):
+            print(f"FAIL: HotSpot returned {temps.shape[1]} columns for {len(units)} "
+                  f"units; column-to-unit mapping cannot be trusted"); sys.exit(2)
+        per = 2 * STEPS_PER_PHASE
+        if temps.shape[0] < 2 * per:
+            print(f"FAIL: only {temps.shape[0]} steps; need at least two periods"); sys.exit(2)
+        last, prev = temps[-per:], temps[-2 * per:-per]
+        hot = int(last.max(axis=0).argmax())           # the hottest UNIT over the period
+        # CONVERGENCE: with a package tail still visible at 8 ms, a fixed period count
+        # may not have reached the periodic orbit. Incomplete convergence biases the
+        # comparison, so report the period-over-period drift instead of assuming.
+        drift = float(np.abs(last - prev).max())
         results[name] = {
             "peak_k": float(last.max()),
-            "peak_unit": units[int(np.unravel_index(last.argmax(), last.shape)[1])],
-            "mean_k": float(last.mean()),
-            "final_min_k": float(last.min()),
-            "ripple_k": float(last.max() - last.min()),
+            "peak_unit": units[hot],
+            # temporal quantities on the HOTTEST UNIT only. Taking max-min across both
+            # units and time mixes spatial gradient with temporal ripple and is not
+            # physically interpretable.
+            "hot_unit_mean_k": float(last[:, hot].mean()),
+            "hot_unit_ripple_k": float(last[:, hot].max() - last[:, hot].min()),
+            "period_drift_k": drift,
+            "converged": bool(drift < 0.001),          # 10x under the 0.01 K band
             "steps": int(temps.shape[0]),
         }
         r = results[name]
         print(f"  {name:7s} peak={r['peak_k']:.4f} K at {r['peak_unit']:12s} "
-              f"mean={r['mean_k']:.4f} K  ripple={r['ripple_k']:.4f} K")
+              f"hot-unit ripple={r['hot_unit_ripple_k']:.4f} K  "
+              f"period drift={drift:.5f} K {'(converged)' if r['converged'] else '(NOT CONVERGED)'}")
 
+    if not (results["flat"]["converged"] and results["bursty"]["converged"]):
+        print("\n  WARNING: at least one trace has not reached a periodic orbit. The two "
+              "traces approach different periodic states, so an unconverged comparison is "
+              "DIFFERENTIALLY biased -- rerun with more periods before reading the gap.")
     gap = results["bursty"]["peak_k"] - results["flat"]["peak_k"]
     margin = THERMAL_LIMIT_K - results["flat"]["peak_k"]
     print(f"\n  SHAPE EFFECT on peak temperature: {gap:+.4f} K")
-    print(f"  frozen linearisation error band: +/-{ERROR_BAND_K} K "
-          f"-> shape effect is {abs(gap) / ERROR_BAND_K:.1f}x the band")
+    # ERROR_BAND_K is the STEADY-STATE linearisation/replay contract. It is NOT a
+    # transient discretisation or physical-model error bound, so it is a reference
+    # scale here, not a detectability threshold for transient work.
+    print(f"  steady-state linearisation band (reference scale only, NOT a transient "
+          f"error bound): +/-{ERROR_BAND_K} K -> gap is {abs(gap) / ERROR_BAND_K:.1f}x it")
     if margin > 0:
         print(f"  distance from flat peak to THERMAL_LIMIT_K={THERMAL_LIMIT_K}: "
               f"{margin:.4f} K -> shape effect is {abs(gap) / margin * 100:.2f}% of it")
     else:
         print(f"  flat peak already exceeds THERMAL_LIMIT_K={THERMAL_LIMIT_K}")
-    print("\n  READ-OUT ONLY, no verdict. A shape effect at or below the error band means "
-          "transient shape is undetectable at this timescale on this candidate, and the "
-          "transient framing must not rest on it. A large one means a steady-state model "
-          "on mean power can miss a peak that decides SAFE/REJECT.")
+    print("\n  ADVERSARIAL SENSITIVITY TEST, NOT WORKLOAD EVIDENCE. The bursty trace "
+          "doubles every block simultaneously, which is very likely UNREACHABLE for any "
+          "legal schedule -- exactly the kind of world CertiTherm/phase_trace.py exists to "
+          "exclude. So this probe is conclusive only in the NEGATIVE direction: a gap at or "
+          "below the reference scale would rule transient shape out, while a LARGE gap "
+          "establishes nothing about real schedules and must not be cited as one. Only a "
+          "trace derived from a real scheduler can support a positive claim.")
 
     (OUTPUT / f"phase_timescale_{WORKLOAD}_c{CAND}.json").write_text(json.dumps({
         "candidate": a0["architecture_id"], "workload": WORKLOAD, "cand_index": CAND,
