@@ -1,14 +1,17 @@
-# V6 physical-trace gate — exact core vectors exist; the thermal input is incomplete
+# V6 physical-trace gate — one route ledger now drives energy, latency, and heat
 
-Status: **OPEN / transient replay blocked**  
+Status: **PARTIALLY CLOSED / complete trace 6/6; grid transient convergence open**
 Tier: NON-CLAIM diagnostic  
-Revision: `3fa11d4`  
+Revision: through `c325cf3`
 Host: `moe-server`, clean remote clone  
 Commands:
 
 ```text
 python research/triangle/order_trace_probe.py <out> <workload> <arch>
 python research/triangle/energy_ledger.py <out> <workload> <arch>
+python research/triangle/route_classification_audit.py <route-event.json> [...]
+python research/triangle/complete_trace_probe.py <out> <workload> <arch>
+python research/triangle/transient_trace_probe.py <trace.npz> <floorplan> <sim> <out> [model] [step-us]
 ```
 
 ## Question
@@ -16,9 +19,78 @@ python research/triangle/energy_ledger.py <out> <workload> <arch>
 Can the real ThermoDSE schedule be lowered into a floorplan-aligned, energy-conserving
 spatial power trace that is meaningful to replay through HotSpot transient?
 
-The answer at this revision is **no**. The per-order core vectors are obtainable and show
-large spatial redistribution, but ThermoDSE's current thermal input omits or misplaces too
-much external energy to serve as the physical oracle.
+The original ThermoDSE thermal path still answers **no**: it omits or misplaces too much
+external energy. The new physical-ledger path answers **yes for trace construction** on all
+six registered workload/candidate cases. It does not yet answer whether transient
+temperature changes a design decision; grid-model and cross-candidate replay remain open.
+
+## Current closure update
+
+The first route lowering failed closed because events with positive reported NoC energy had
+only physical NoP edges. The mismatch was systematic:
+
+| workload | candidate | mismatched events | reported NoC energy on all-NoP paths / total NoC |
+|---|---:|---:|---:|
+| ResNet-50 | arch_a | 0 | 0% |
+| ResNet-50 | arch_b | 104 | 0.8706% |
+| ResNet-50 | arch_c | 125 | 2.0636% |
+| Transformer | arch_a | 0 | 0% |
+| Transformer | arch_b | 188 | 0.7351% |
+| Transformer | arch_c | 550 | 4.0696% |
+
+Every mismatch was an adjacent cross-chiplet `core_to_core` edge labeled NoC; there were
+zero opposite-direction mismatches. Merely redistributing the old aggregate counters was
+therefore invalid. An attempted independent XY-union lowering also failed its hop receipt:
+on `arch_c/ResNet-50` it produced 1.5821x the old internal-hop total. Its resulting
++0.522 mJ “correction” was rejected because it mixed boundary reclassification with a
+changed multicast topology.
+
+`CertiTherm/physical_nop.py` is now the replacement single fact source. It preserves the
+pinned public cost interface but uses an unaliased `(nx + 2)` stride, deterministic
+X-then-Y paths, one charge per rooted multicast-tree edge, and explicit chiplet-boundary
+classification. The same edge ledger drives contention latency, channel energy, and heat
+placement. The pinned submodule remains unchanged; this replacement is explicitly installed
+only for the physical path.
+
+The augmented floorplan preserves all original blocks and adds four named DRAM dies.
+Upstream supplies their area and external location but no aspect ratio, so square dies are
+an explicit sensitivity assumption. Uncovered side-strip area is zero-power filler and all
+geometry is checked for overlap.
+
+For every event, route energy is recomputed from volume, physical edge, and the evaluator's
+per-hop cost. It must equal the physical monitor's NoC/NoP/DRAM energy for every order:
+
+| workload | candidate | phases | blocks | latency (ms) | source (mJ) | routed (mJ) | physical/monitor hops |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| ResNet-50 | arch_a | 68 | 243 | 0.334497 | 9.439827 | 5.949307 | 1.000000000 |
+| ResNet-50 | arch_b | 68 | 233 | 0.221210 | 9.908419 | 5.657804 | 1.000000000 |
+| ResNet-50 | arch_c | 68 | 187 | 0.337107 | 9.744279 | 5.673949 | 1.000000000 |
+| Transformer | arch_a | 124 | 243 | 0.586984 | 23.632178 | 12.153209 | 1.000000000 |
+| Transformer | arch_b | 112 | 233 | 0.405057 | 23.163035 | 10.415653 | 1.000000000 |
+| Transformer | arch_c | 129 | 187 | 0.524478 | 24.156554 | 11.824104 | 1.000000000 |
+
+All six traces conserve integrated energy and retain exact block identity. Targeted remote
+tests pass 32/32 for route, floorplan, core lowering, and phase-trace contracts.
+
+### First periodic transient receipt
+
+Variable phases are averaged into a uniform HotSpot time grid while conserving every
+block's energy. Both a common 318.15 K one-cycle start and a repeated trace initialized
+from mean-power steady state are reported. Pinned HotSpot serializes `.ttrace` to
+**0.01 K**; an earlier 1e-4 K convergence label was rejected as finer than the observable
+output.
+
+For `arch_c/ResNet-50` under the block model:
+
+| max step | actual step | samples/cycle | periodic peak | hottest block | fixed-initial peak |
+|---:|---:|---:|---:|---|---:|
+| 1.0 us | 0.997359 us | 338 | 325.43 K | `dram_x5_y3` | 319.50 K |
+| 0.5 us | 0.499418 us | 675 | 325.43 K | `dram_x5_y3` | 319.50 K |
+| 0.25 us | 0.249894 us | 1349 | 325.43 K | `dram_x5_y3` | 319.50 K |
+
+Eight cycles made the final two observed block-temperature cycles indistinguishable at
+0.01 K. The 5.93 K cold-versus-periodic gap proves initialization is material. It does not
+yet validate grid discretization or establish a decision flip.
 
 ## What now works
 
@@ -131,25 +203,22 @@ named DRAM/IO geometry before they become a thermal power vector.
 
 ## Gate consequence
 
-Do **not** run or cite transient HotSpot on the current ptrace. A replay could be numerically
-precise while omitting a quarter to half of the heat source and assigning the remaining
-communication heat incorrectly.
+Do not cite the original ptrace or the rejected mixed-topology correction. The physical
+trace may now be used for the remaining non-claim transient gate. Before a paper claim:
 
-The next implementation gate is:
-
-1. capture per-order core-to-core and core-to-DRAM communication events without modifying
-   the pinned ThermoDSE submodule;
-2. add explicit, geometry-checked DRAM/IO-die blocks to the thermal floorplan;
-3. lower NoC/NoP link and DRAM access energy to named blocks;
-4. prove, per source and per order, that source energy equals HotSpot-admitted energy within
-   a derived serialization/numerical bound;
-5. only then perform fixed-initial and periodic-initial transient replay.
+1. close block-vs-grid transient convergence;
+2. run both workloads by all three candidates at periodic state;
+3. report margin, ranking, flip/regret, and initialization sensitivity;
+4. vary the uncharacterized DRAM aspect ratio/side placement;
+5. rerun any DSE ranking whose objective came from the old aliased route model.
 
 ## Dissent ledger
 
 | severity | falsifiable objection | required closing evidence | status |
 |---|---|---|---|
-| Critical | The current HotSpot input is not an energy-conserving representation of the real ThermoDSE execution. | Per-source/per-order source energy equals HotSpot-admitted energy; no omitted or over-injected channel beyond derived tolerance. | **OPEN** |
-| Critical | Communication heat cannot be located from `link_hops` because its coordinate index aliases rows and external columns. | Independent event capture and route reconstruction with parity against aggregate NoC/NoP energy on all registered candidates. | **OPEN — event capture parity passed 6/6; route-to-floorplan lowering remains** |
-| Critical | No physical DRAM blocks exist in the active floorplan even though DRAM contributes 5.55–6.92 mJ for Transformer and 3.74–4.03 mJ for ResNet-50. | Explicit DRAM/IO geometry, area/placement receipt, and 100% DRAM energy admission. | **OPEN** |
-| Major | Spatial power migration may still have negligible temperature or decision effect at sub-millisecond periods. | Converged fixed-initial and periodic-initial transient replay after all Critical trace objections close. | **OPEN** |
+| Critical | The original HotSpot input is not an energy-conserving representation of the execution. | Per-source/per-order source energy equals HotSpot-admitted energy. | **CLOSED for physical path, 6/6; original path invalid** |
+| Critical | Latency, energy, and heat use inconsistent aliased or invented routes. | One unaliased ledger drives contention, energy, and placement; independent parity. | **CLOSED, 6/6 at hop ratio 1.0** |
+| Critical | No physical DRAM blocks exist despite material DRAM energy. | Explicit geometry, area/placement receipt, and 100% energy admission. | **CLOSED under square-die assumption; sensitivity OPEN** |
+| Major | A cold one-cycle replay stands in for repeated operation. | Fixed-initial and periodic replay with observable convergence tolerance. | **CLOSED for one block case; effect 5.93 K** |
+| Major | Block discretization may hide or mis-rank grid-local peaks. | Grid transient convergence and cross-candidate comparison. | **OPEN** |
+| Major | Correcting the route ledger may change the DSE objective ranking. | Regenerate and compare old/new candidate objectives. | **OPEN** |
