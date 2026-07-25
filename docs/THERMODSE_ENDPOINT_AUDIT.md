@@ -70,17 +70,70 @@ two must not be conflated. The accurate framing is an identity, not an equality:
 `9.221901 * 0.864 = 7.967035` reproduces the endpoint exactly, and `9.221901` matches
 ThermoDSE's own printout. **A thermal trace must be built from the dissipated value.**
 
-## 3. An unchecked capture invariant fails, and the cause is NOT established
+## 3. RESOLVED — half the dissipated energy never reaches the thermal model
 
-`sum(placed_power_w) = 13.68 W`, while the per-order time-weighted mean total is
-`27.36 W` — a factor of exactly **2.0000**.
+The `2.0000x` between `sum(placed_power_w) = 13.68 W` and the per-order mean total of
+`27.36 W` is now fully accounted for, by measurement, with **zero residual**. It is the
+coincidental product of two independent losses and one over-count.
 
-    sum(placed_power_w) * latency_ms(endpoint) = 8.300 mJ  vs energy_mj 7.967  -> 1.042
-    sum(placed_power_w) * latency_ms(correct)  = 4.611 mJ  vs energy_mj 7.967  -> 0.579
+### The measurement
 
-So the capture is numerically self-consistent with the **wrong** latency and inconsistent with
-the correct one. No root cause is claimed here. What reading `gen_all_ptrace_3D` establishes
-about the ptrace's contents (read, not inferred):
+An energy-source ledger (`research/triangle/energy_ledger.py`) probes each source by
+ISOLATION — zero every other source, re-run ThermoDSE's OWN `gen_all_ptrace_3D`, read the
+file back — so destination columns are established by the original code rather than by
+reading it. The generator's linearity was verified, not assumed: isolated sources superpose
+to the unmodified reference with a **maximum column error of 0.000e+00 W**.
+
+| source | energy (pJ) | ptraced | in-domain | columns |
+| --- | ---: | ---: | ---: | ---: |
+| `core_dict` | 4.0703e9 | 12.0756 W | 100.00% | 80 |
+| `noc_dict` | 4.0585e8 | 1.6064 W | **133.41%** | 64 |
+| `nop_dict` | 1.0052e9 | 2.9824 W | 100.00% | 1 |
+| `dram_dict` | 3.7405e9 | **0 W** | **0.00%** | **0** |
+
+Then the alignment step was measured directly:
+
+    raw cores_3D.ptrace  : 186 columns, 16.6644 W
+    name_aligned.ptrace  : 181 columns, 13.6820 W
+    dropped              :   5 columns,  2.9824 W
+
+The five dropped columns are `interposer` and `interposer_e0..e3`. **None of them exists as a
+floorplan unit** (`grep -c '^interposer	' output_3D.flp` = 0), so `align_trace` — which
+aligns by name — carried none of them over. The dropped 2.9824 W is *exactly* the
+`interposer` column, i.e. all NoP power.
+
+### The closure
+
+    total sources - DRAM - NoP + NoC over-count  =  energy reaching HotSpot
+    9.2218e9      - 3.7405e9 - 1.0052e9 + 1.3560e8  =  4.6118e9 pJ
+    residual: 0.00e+00
+
+    9.2218e9 / 4.6118e9 = 2.0000
+
+| loss | share of source energy | mechanism |
+| --- | ---: | --- |
+| DRAM | **40.56%** | never written to any column (the placing code is commented out) |
+| NoP | **10.90%** | written, then silently dropped by name alignment |
+| **combined** | **51.46%** | — |
+
+plus NoC over-counted by **+33.41%**.
+
+**About half the dissipated energy never reaches HotSpot.** Note the two are different in
+kind: the DRAM omission is at least consistent with a compute-domain model, whereas the NoP
+loss is an unintended alignment failure that nobody chose.
+
+Distinguish two percentages that are easy to conflate: DRAM is **40.56%** of source energy
+(`3.7405/9.2219`), while **39.09%** is the *net* excluded ledger energy
+(`3.605026/9.221901`) — smaller because the NoC over-count is credited in-domain.
+
+### Fixed
+
+`align_trace` now fails closed on any unplaced column carrying power, returning the report
+and accepting the omission only via an explicit `allow_unplaced` that records what was
+discarded (`CertiTherm/tests/test_trace_alignment.py`). Understating heat leaves the output
+entirely plausible, which is why nothing caught this.
+
+### What reading `gen_all_ptrace_3D` establishes about the ptrace (read, not inferred)
 
 - `interposer` carries `sum(nop)/latency`; `interposer_e0..e3` are zero.
 - Per core, `NAME_LIST_3D = [mtxu, vecu, ubuf, ibuf, obuf, io_0..io_3]`, with
@@ -89,11 +142,54 @@ about the ptrace's contents (read, not inferred):
   power is spread **uniformly** over IO blocks — which destroys its spatial information by
   construction, and over a block count that need not equal the number of `io_*` columns.
 - `blockX/Y/XY` and `eblk0..3` are all zero. **DRAM energy never enters the ptrace**: the
-  lines that would have placed it are commented out (`statistic.py:359-363`). DRAM is
-  `3.7405e9` of `9.2219e9` pJ — **40.6% of dissipated energy is absent from the thermal
-  input.**
+  lines that would have placed it are commented out (`statistic.py:359-363`), and they would
+  have written FIVE columns (`dram` plus four edge strips) matching a separate `dram.flp`,
+  not the four `eblk` columns actually emitted.
 
-The last point is the significant one for the transient direction and is recorded as OPEN.
+## 4. The DRAM boundary — what is and is not established
+
+`dram.flp` exists alongside the compute floorplan and contains `dram_e0..e3` whose geometry
+is byte-identical to `eblk0..3`, plus a central `dram` block. `example.lcf` exists but
+references the stock Alpha EV6 example floorplans, and the run invokes HotSpot with
+`-f output_3D.flp -model_type block`, no `-model_3D`, no layer file. `grep -c dram
+output_3D.flp` = 0.
+
+**Established:** the executed model is a planar block-level compute-domain model with no
+explicit DRAM power source and no DRAM thermal node, so DRAM self-heating and explicit
+DRAM–compute coupling are omitted.
+
+**NOT established, and previously overstated here:**
+
+- that DRAM is *physically* outside the thermal domain. Block-mode HotSpot still carries
+  implicit package, spreader, sink and ambient paths, so "absent from the solved model" is
+  not "outside the physical domain".
+- the *purpose* of `eblk0..3`. Identical geometry makes the filler reading plausible but does
+  not establish it. An earlier hypothesis that the floorplan "reserves DRAM block positions"
+  was wrong and is withdrawn; the reserved positions are in `dram.flp`, which is not used.
+
+**Consequence for claims.** A flip found on this ptrace may support *"under the stated
+compute-domain / no-explicit-DRAM boundary, the cheap abstraction does not preserve decision
+X"* — never a package-level claim, a DRAM-inclusive safety certification, or a quantitative
+physical temperature. A sensitivity envelope over non-negative nuisance heat loads can test
+robustness (a linear passive thermal network is monotone in applied heat) but is not a
+physical bound without independently justified magnitudes and paths.
+
+## 5. NoC: a blocking defect for spatial claims
+
+NoC is ptraced at 133.41% of its source energy, and spread **uniformly** over the `io_*`
+columns. Both matter, differently: the over-count violates source conservation, and the
+uniform spreading erases exactly the event-dependent spatial information a spatial trace is
+meant to measure. **Documentation cannot turn an incorrect energy transform into a certified
+trace**, so this must be corrected — or NoC reclassified as a nuisance/background model — before
+any spatial claim.
+
+The direction of bias is **indeterminate**: extra power raises temperature and pushes toward
+infeasibility, while uniform spreading suppresses local hotspots and may *hide* a spatial
+flip. Which dominates depends on how the coarse and refined abstractions each respond.
+
+Likewise the single lumped `interposer` column conserves NoP energy while discarding the
+location of every NoP link and PHY. It is a documented lumped background source, not
+floorplan-resolved interconnect activity.
 
 ## Consequences for this round
 
