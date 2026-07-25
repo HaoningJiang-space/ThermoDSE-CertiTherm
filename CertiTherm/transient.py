@@ -144,6 +144,7 @@ class PeriodicTransientResult:
     periodic_hottest_block: str
     fixed_initial_peak_k: float
     fixed_initial_hottest_block: str
+    temperature_output_resolution_k: float = 0.01
 
 
 def replay_periodic(
@@ -158,7 +159,7 @@ def replay_periodic(
     workspace: Path,
     max_step_s: float,
     fixed_initial_k: float,
-    tolerance_k: float = 1e-4,
+    tolerance_k: float = 0.01,
     initial_cycles: int = 8,
     max_cycles: int = 128,
 ) -> PeriodicTransientResult:
@@ -171,6 +172,10 @@ def replay_periodic(
         or tolerance_k <= 0.0
     ):
         raise ValueError("initial temperature and convergence tolerance must be positive")
+    # Pinned HotSpot's write_vals() serializes transient temperatures to 0.01 K.
+    # Refuse a convergence claim finer than the observable output.
+    if tolerance_k < 0.01:
+        raise ValueError("convergence tolerance is below HotSpot's 0.01 K output resolution")
     if initial_cycles < 2 or max_cycles < initial_cycles:
         raise ValueError("periodic replay cycle bounds are invalid")
     paths = tuple(

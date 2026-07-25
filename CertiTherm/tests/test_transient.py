@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from CertiTherm.phase_trace import PhaseTrace
-from CertiTherm.transient import resample_uniform
+from CertiTherm.transient import replay_periodic, resample_uniform
 
 
 def test_uniform_resampling_preserves_each_block_energy():
@@ -24,3 +24,21 @@ def test_uniform_resampling_rejects_bad_step():
     trace = PhaseTrace(np.asarray([1.0]), np.asarray([[1.0]]))
     with pytest.raises(ValueError, match="positive"):
         resample_uniform(trace, 0.0)
+
+
+def test_periodic_replay_rejects_subresolution_convergence(tmp_path):
+    trace = PhaseTrace(np.asarray([1.0]), np.asarray([[1.0]]))
+    with pytest.raises(ValueError, match="output resolution"):
+        replay_periodic(
+            binary=tmp_path / "missing",
+            config=tmp_path / "missing",
+            floorplan=tmp_path / "missing",
+            materials=tmp_path / "missing",
+            model_id="block",
+            block_ids=("x",),
+            trace=trace,
+            workspace=tmp_path,
+            max_step_s=1.0,
+            fixed_initial_k=318.15,
+            tolerance_k=0.001,
+        )

@@ -43,7 +43,7 @@ def main():
         workspace=OUTPUT,
         max_step_s=STEP_US * 1e-6,
         fixed_initial_k=318.15,
-        tolerance_k=1e-4,
+        tolerance_k=0.01,
     )
     report = {
         "trace": str(TRACE),
@@ -60,6 +60,7 @@ def main():
         "fixed_initial_k": 318.15,
         "fixed_initial_peak_k": result.fixed_initial_peak_k,
         "fixed_initial_hottest_block": result.fixed_initial_hottest_block,
+        "temperature_output_resolution_k": result.temperature_output_resolution_k,
     }
     OUTPUT.mkdir(parents=True, exist_ok=True)
     report_path = OUTPUT / "transient_report.json"
