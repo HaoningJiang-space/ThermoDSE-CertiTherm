@@ -6,7 +6,14 @@ no thermal replay: passing this probe closes the trace-construction prerequisite
 transient or decision gate.
 
 Usage:
-    python research/triangle/complete_trace_probe.py <out> <workload> <arch_id>
+    python research/triangle/complete_trace_probe.py <out> <workload> <arch_id> \
+        [io_aspect_ratio] [components]
+
+`components` is an optional comma-separated subset of {core,noc,nop,dram} used by the V6.1
+causal-isolation gate to attribute a thermal result to a power source. Omitting it emits the
+full trace exactly as before. A masked emission carries the component mask in its filename,
+so an ablation cannot overwrite the full-trace evidence, and every route reconciliation
+receipt is still enforced against the full ledger inside `lower_routed_trace`.
 """
 
 from __future__ import annotations
@@ -37,6 +44,13 @@ OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/v6complete"
 WORKLOAD = sys.argv[2] if len(sys.argv) > 2 else "resnet50"
 ARCH_ID = sys.argv[3] if len(sys.argv) > 3 else "arch_c"
 IO_ASPECT_RATIO = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0
+# Optional comma-separated component mask over {core,noc,nop,dram} for V6.1 causal
+# isolation. Absent means the full trace, i.e. the existing behaviour. The mask is
+# encoded in the emitted filenames so an ablation cannot overwrite the full-trace
+# evidence, and it is recorded in the JSON receipt.
+COMPONENTS = (tuple(sys.argv[5].split(",")) if len(sys.argv) > 5 and sys.argv[5]
+              else None)
+SUFFIX = "" if COMPONENTS is None else "_" + "-".join(sorted(COMPONENTS))
 
 
 def main() -> None:
@@ -104,10 +118,11 @@ def main() -> None:
         noc_hop_cost_pj=float(evaluator.noc_cost),
         nop_hop_cost_pj=float(evaluator.nop_cost),
         batch_factor=batch_factor,
+        components=COMPONENTS,
     )
 
     floorplan_out = OUTPUT / f"complete_floorplan_{WORKLOAD}_{ARCH_ID}.flp"
-    trace_out = OUTPUT / f"complete_trace_{WORKLOAD}_{ARCH_ID}.npz"
+    trace_out = OUTPUT / f"complete_trace_{WORKLOAD}_{ARCH_ID}{SUFFIX}.npz"
     floorplan_out.write_text(augmented.text, encoding="utf-8")
     np.savez_compressed(
         trace_out,
@@ -122,6 +137,10 @@ def main() -> None:
         monitor_channel_hops=np.asarray(routed.monitor_channel_hops),
         io_die_area_each_m2=np.asarray(augmented.io_die_area_each_m2),
         io_die_aspect_ratio=np.asarray(augmented.io_die_aspect_ratio),
+        full_source_energy_j=np.asarray(routed.full_source_energy_j),
+        retained_components=np.asarray(routed.retained_components),
+        component_names=np.asarray(tuple(routed.component_energy_j)),
+        component_energy_j=np.asarray(tuple(routed.component_energy_j.values())),
     )
 
     integrated_j = float(routed.trace.energy_j().sum())
@@ -205,7 +224,11 @@ def main() -> None:
             np.isclose(integrated_j, routed.source_energy_j, rtol=1e-11, atol=1e-18)
         ),
     }
-    report_out = OUTPUT / f"complete_trace_{WORKLOAD}_{ARCH_ID}.json"
+    report["retained_components"] = list(routed.retained_components)
+    report["component_energy_mj"] = {k: v * 1e3
+                                     for k, v in routed.component_energy_j.items()}
+    report["full_source_energy_mj"] = routed.full_source_energy_j * 1e3
+    report_out = OUTPUT / f"complete_trace_{WORKLOAD}_{ARCH_ID}{SUFFIX}.json"
     report_out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"  wrote {report_out}")
     print(
