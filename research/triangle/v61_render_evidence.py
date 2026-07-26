@@ -171,10 +171,49 @@ def validate(m: dict) -> dict:
             _require(got[f] == v[f], f"leave-one-out {drop}: {f} disagrees "
                                      f"({got[f]!r} vs {v[f]!r})")
 
+    # -- execution receipts and tie evidence (schema 3+; absent in the schema-2 manifest) ---
+    run = m.get("run") or {}
+    receipts = {t: r.get("execution") for t, r in rows.items()}
+    present = [t for t, x in receipts.items() if isinstance(x, dict) and x]
+    _require(len(present) in (0, len(rows)),
+             f"{len(present)} of {len(rows)} rows carry an execution receipt; a partial set "
+             f"cannot support a statement about the run as a whole")
+    has_receipts = bool(present)
+    if has_receipts:
+        nonce = run.get("run_id")
+        _require(bool(nonce), "rows carry a run nonce but the manifest records no run id")
+        for t, ex in sorted(receipts.items()):
+            _require(ex.get("dest_existed_before_run") is False,
+                     f"{t}: the row directory already existed before the row ran")
+            _require(not ex.get("workspace_files_before_run"),
+                     f"{t}: the HotSpot workspace was not empty before the row ran")
+            # 1 mean-steady solve + 1 fixed-initial solve + at least one cycle attempt.
+            _require(ex.get("hotspot_invocations", 0) >= 3,
+                     f"{t}: {ex.get('hotspot_invocations')} HotSpot invocations is too few "
+                     f"for one replay")
+            _require(len(ex.get("raw_outputs") or {}) >= 3,
+                     f"{t}: fewer raw HotSpot outputs than invocations that write a file")
+            _require(run.get("started_unix", 0) <= ex["started_unix"] <= ex["ended_unix"]
+                     <= run.get("ended_unix", float("inf")) + 1e-6,
+                     f"{t}: the row's wall window is not inside the run's")
+        fresh = all(receipts[t].get("run_nonce") == nonce for t in rows)
+        _require(s.get("all_rows_fresh") == fresh,
+                 f"summary.all_rows_fresh={s.get('all_rows_fresh')} but recomputing it from "
+                 f"the receipts' run nonces gives {fresh}")
+    has_ties = all("periodic_top_gap_k" in r for r in rows.values())
+    if has_ties:
+        for t, r in sorted(rows.items()):
+            _require(abs(r["periodic_top_gap_k"]
+                         - (r["periodic_peak_k"] - r["periodic_second_peak_k"])) < 1e-9,
+                     f"{t}: periodic top gap disagrees with peak - runner-up")
+            _require(r["periodic_hottest_block"] in r["periodic_tie_blocks"],
+                     f"{t}: the reported argmax block is not in its own tie set")
+
     ratios = {t: 100 * (r["periodic_peak_k"] - r["mean_steady_peak_k"])
               / (r["mean_steady_peak_k"] - m["ambient_k"]) for t, r in rows.items()}
     return {"status": status, "minimal": minimal, "loo": loo, "quantum": quantum,
             "comps": comps, "ratios": ratios, "full": full,
+            "has_receipts": has_receipts, "has_ties": has_ties,
             "excess_k": full["periodic_peak_k"] - limit}
 
 
@@ -236,12 +275,34 @@ def main() -> None:
       f"earlier numbers: identical inputs through an identical binary are arithmetically "
       f"determined to agree. What it confirms is the provenance chain, not the physics.")
     A("")
-    A(f"**Fresh execution is asserted by policy, not proven by this document.** "
-      f"`summary.all_rows_fresh = {s.get('all_rows_fresh')}` echoes the driver's no-reuse "
-      f"constant; the manifest carries no per-row process receipt (no command line, PID, exit "
-      f"status, start/end time, or hash of the raw HotSpot output). Nothing here would "
-      f"distinguish 15 solver executions from 15 reads of a cache. Closing it needs per-row "
-      f"invocation and raw-output evidence, which is an open gap.")
+    if v["has_receipts"]:
+        ex = {t: rows[t]["execution"] for t in rows}
+        total_inv = sum(e["hotspot_invocations"] for e in ex.values())
+        total_raw = sum(len(e["raw_outputs"]) for e in ex.values())
+        A(f"**Fresh execution is evidenced per row, not asserted.** Every row records that its "
+          f"output directory and HotSpot workspace did not exist before it ran, its wall "
+          f"window inside the run's, its PID, this run's nonce, the number of HotSpot "
+          f"processes it started, and the SHA-256 of every raw HotSpot artefact it produced. "
+          f"Across the {len(rows)} rows: **{total_inv} HotSpot invocations** and "
+          f"**{total_raw} raw output files hashed** "
+          f"(`summary.all_rows_fresh = {s.get('all_rows_fresh')}`, recomputed here from the "
+          f"receipts' nonces rather than read). A cache read would have to fabricate the "
+          f"artefacts as well as the numbers.")
+        A("")
+        A("| subset | HotSpot invocations | raw outputs | wall (s) | dir existed before |")
+        A("| --- | ---: | ---: | ---: | --- |")
+        for t in sorted(rows, key=lambda t: ex[t]["started_unix"]):
+            e = ex[t]
+            A(f"| `{t}` | {e['hotspot_invocations']} | {len(e['raw_outputs'])} | "
+              f"{e['wall_s']:.1f} | {e['dest_existed_before_run']} |")
+    else:
+        A(f"**Fresh execution is asserted by policy, not proven by this document.** "
+          f"`summary.all_rows_fresh = {s.get('all_rows_fresh')}` echoes the driver's no-reuse "
+          f"constant; this manifest (schema {run.get('schema_version','?')}) carries no per-row "
+          f"process receipt — no PID, wall window, HotSpot invocation count, or hash of the raw "
+          f"HotSpot output. Nothing here would distinguish {len(rows)} solver executions from "
+          f"{len(rows)} reads of a cache. The driver records all of it from schema 3 onward; "
+          f"for this manifest it is an open gap.")
     A("")
     A("## Source energy ledger")
     A("")
@@ -356,18 +417,42 @@ def main() -> None:
     if moves:
         A(f"In {len(moves)} of {len(rows)} subsets the **reported argmax block label** differs "
           f"between the two semantics:")
-        for t, a, b in moves:
-            A(f"- `{t}`: steady `{a}` → periodic `{b}`")
+        if v["has_ties"]:
+            A("")
+            A("| subset | steady argmax | periodic argmax | periodic top-two gap (K) | "
+              "blocks within one quantum | resolvable? |")
+            A("| --- | --- | --- | ---: | ---: | --- |")
+            for t, a, b in moves:
+                r = rows[t]
+                tied = len(r["periodic_tie_blocks"])
+                A(f"| `{t}` | `{a}` | `{b}` | {r['periodic_top_gap_k']:.2f} | {tied} | "
+                  f"{'yes' if r['periodic_top_gap_k'] > q else 'NO — inside the quantum'} |")
+            A("")
+            unresolved = [t for t, _, _ in moves if rows[t]["periodic_top_gap_k"] <= q]
+            if unresolved:
+                A(f"{len(unresolved)} of these ({', '.join('`'+t+'`' for t in unresolved)}) have "
+                  f"a top-two gap no larger than the {q} K output quantum, so the label change "
+                  f"is **indistinguishable from a tie broken differently** and is not evidence "
+                  f"that a peak moved.")
+            else:
+                A(f"All {len(moves)} have a top-two gap larger than the {q} K output quantum, so "
+                  f"the label change is resolvable at the reported resolution. That still makes "
+                  f"it an observation about the argmax, not a demonstrated physical mechanism.")
+        else:
+            for t, a, b in moves:
+                A(f"- `{t}`: steady `{a}` → periodic `{b}`")
+            A("")
+            A(f"This says the argmax label changed. It does **not** establish that a physically "
+              f"meaningful peak relocated: periodic temperatures are reported only to {q} K, "
+              f"and this manifest records no second-hottest temperature, no top-two gap and no "
+              f"tie set, so a change between two blocks within one quantum of each other is "
+              f"indistinguishable from a tie broken differently. `dram_x0_y4` versus "
+              f"`dram_x0_y0` in particular may be a symmetry. The driver records the runner-up "
+              f"and the resolution-aware tie set from schema 3 onward; until a manifest carries "
+              f"them these rows support no claim.")
         A("")
-        A(f"This says the argmax label changed. It does **not** establish that a physically "
-          f"meaningful peak relocated: periodic temperatures are reported only to {q} K, and "
-          f"the manifest records no second-hottest temperature, no top-two gap and no tie set, "
-          f"so a change between two blocks within one quantum of each other is "
-          f"indistinguishable from a tie broken differently. `dram_x0_y4` versus `dram_x0_y0` "
-          f"in particular may be a symmetry. These rows stay in this appendix and support no "
-          f"claim until the full temperature vector, the top-two gap and the tie-breaking rule "
-          f"are recorded. The crossing row's argmax is unchanged, so this is not the crossing "
-          f"mechanism either way.")
+        A(f"The crossing row's argmax is unchanged, so this is not the crossing mechanism "
+          f"either way.")
     else:
         A("No subset reported a different argmax block between the two semantics.")
     A("")

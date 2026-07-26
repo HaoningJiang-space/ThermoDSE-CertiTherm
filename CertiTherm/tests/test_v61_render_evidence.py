@@ -256,3 +256,118 @@ def test_the_document_does_not_present_near_exact_agreement_as_repeatability(man
     assert "byte-identical" in text
     # and the delta must be printed with enough precision to be non-zero
     assert "1.245e-07" in text, "0.000000 hid a nonzero residual behind %.6f"
+
+
+# --- schema 3: execution receipts and tie evidence ------------------------------------
+
+def _with_receipts(m, **row_over):
+    """Promote the archived schema-2 manifest to a schema-3 shape."""
+    m = copy.deepcopy(m)
+    nonce = m["run"]["run_id"]
+    t0 = m["run"]["started_unix"]
+    for i, (tag, r) in enumerate(sorted(m["rows"].items())):
+        r["execution"] = {"dest_existed_before_run": False,
+                          "workspace_files_before_run": [],
+                          "started_unix": t0 + i, "ended_unix": t0 + i + 0.5,
+                          "wall_s": 0.5, "pid": 4242, "run_nonce": nonce,
+                          "hotspot_invocations": 4,
+                          "raw_outputs": {f"o{k}": f"h{i}{k}" for k in range(4)}}
+        r["periodic_second_peak_k"] = r["periodic_peak_k"] - 0.5
+        r["periodic_top_gap_k"] = 0.5
+        r["periodic_tie_blocks"] = [r["periodic_hottest_block"]]
+        r["mean_steady_second_peak_k"] = r["mean_steady_peak_k"] - 0.5
+        r["mean_steady_top_gap_k"] = 0.5
+        r["mean_steady_tie_blocks"] = [r["mean_steady_hottest_block"]]
+        r.update(row_over)
+    return m
+
+
+def test_a_schema_3_manifest_validates_and_reports_the_receipts(man, tmp_path):
+    m = _with_receipts(man)
+    v = R.validate(m)
+    assert v["has_receipts"] and v["has_ties"]
+    text = _render(m, tmp_path)
+    assert "Fresh execution is evidenced per row" in text
+    assert "60 HotSpot invocations" in text          # 15 rows x 4
+    assert "HotSpot invocations | raw outputs" in text
+
+
+def test_refuses_a_partial_set_of_receipts(man):
+    m = _with_receipts(man)
+    del m["rows"]["core"]["execution"]
+    _refuses(m, "cannot support a statement about the run as a whole")
+
+
+def test_refuses_a_row_whose_directory_already_existed(man):
+    m = _with_receipts(man)
+    m["rows"]["core"]["execution"]["dest_existed_before_run"] = True
+    _refuses(m, "already existed before the row ran")
+
+
+def test_refuses_a_row_whose_workspace_was_not_empty(man):
+    m = _with_receipts(man)
+    m["rows"]["core"]["execution"]["workspace_files_before_run"] = ["periodic-8.ttrace"]
+    _refuses(m, "was not empty before the row ran")
+
+
+def test_refuses_too_few_hotspot_invocations(man):
+    m = _with_receipts(man)
+    m["rows"]["core"]["execution"]["hotspot_invocations"] = 2
+    _refuses(m, "too few")
+
+
+def test_refuses_a_row_with_no_raw_output_hashes(man):
+    m = _with_receipts(man)
+    m["rows"]["core"]["execution"]["raw_outputs"] = {}
+    _refuses(m, "fewer raw HotSpot outputs")
+
+
+def test_refuses_a_row_that_ran_outside_the_run_window(man):
+    m = _with_receipts(man)
+    m["rows"]["core"]["execution"]["ended_unix"] = m["run"]["ended_unix"] + 3600
+    _refuses(m, "wall window is not inside")
+
+
+def test_refuses_when_a_row_carries_a_foreign_run_nonce_but_the_summary_says_fresh(man):
+    m = _with_receipts(man)
+    m["rows"]["core"]["execution"]["run_nonce"] = "some-other-run"
+    _refuses(m, "all_rows_fresh")
+
+
+def test_refuses_an_inconsistent_top_gap(man):
+    m = _with_receipts(man)
+    m["rows"]["core"]["periodic_top_gap_k"] = 9.0
+    _refuses(m, "top gap disagrees")
+
+
+def test_refuses_an_argmax_block_absent_from_its_own_tie_set(man):
+    m = _with_receipts(man)
+    m["rows"]["core"]["periodic_tie_blocks"] = ["some_other_block"]
+    _refuses(m, "not in its own tie set")
+
+
+def test_argmax_moves_inside_the_quantum_are_called_unresolvable(man, tmp_path):
+    """The appendix must say which label changes the reported resolution cannot decide."""
+    m = _with_receipts(man)
+    for tag in ("dram", "core-nop", "core-dram-nop"):     # the three rows that move
+        r = m["rows"][tag]
+        r["periodic_top_gap_k"] = 0.005                   # inside the 0.01 K quantum
+        r["periodic_second_peak_k"] = r["periodic_peak_k"] - 0.005
+        r["periodic_tie_blocks"] = [r["periodic_hottest_block"],
+                                    r["mean_steady_hottest_block"]]
+    text = _render(m, tmp_path)
+    assert "NO — inside the quantum" in text
+    assert "indistinguishable from a tie broken differently" in text
+
+
+def test_argmax_moves_outside_the_quantum_are_called_resolvable(man, tmp_path):
+    text = _render(_with_receipts(man), tmp_path)     # every gap is 0.5 K
+    assert "resolvable at the reported resolution" in text
+    assert "not a demonstrated physical mechanism" in text
+
+
+def test_the_schema_2_manifest_still_renders_and_names_the_gap(man, tmp_path):
+    """The archived claim-grade manifest predates the receipts; it must render, and say so."""
+    text = _render(man, tmp_path)
+    assert "asserted by policy, not proven" in text
+    assert "from schema 3 onward" in text

@@ -88,7 +88,11 @@ GATE = {"workload": "transformer", "arch": "arch_b", "model": "grid64-max",
         # value within one output quantum, and reports the steady delta without gating on it
         # until a tolerance is established from repeated clean runs.
         "steady_tolerance_k": None}
-SCHEMA_VERSION = 2
+# 3 adds the per-row execution receipt (pre-run non-existence, wall window, PID, HotSpot
+# invocation count, hash of every raw HotSpot output) and the argmax tie evidence. A v2 row
+# cannot be reused under v3 because it carries neither, and a manifest without them cannot
+# support a fresh-execution claim.
+SCHEMA_VERSION = 3
 NO_REUSE = os.environ.get("V61_ALLOW_REUSE", "0") != "1"
 
 
@@ -207,12 +211,22 @@ def reusable(dest: Path, want: dict) -> bool:
             return False
     if got.get("cycles", 0) < 2:
         return False
+    # A row without an execution receipt cannot support the fresh-execution statement the
+    # manifest makes about it, so it is not reusable even if every number matches.
+    ex = got.get("execution") or {}
+    if not isinstance(ex, dict) or ex.get("hotspot_invocations", 0) < 3:
+        return False
+    if not ex.get("raw_outputs"):
+        return False
     return True
 
 
 def main() -> None:
     run_started = time.time()
     commit, dirty, diff_sha = git_state()
+    # One nonce for the whole run, stamped into every row receipt and into the manifest, so a
+    # row cannot silently belong to a different execution than the manifest that reports it.
+    run_nonce = f"{commit[:8]}-{MODEL}-{STEP_US:g}us-{int(run_started)}"
     if OUT.exists() and any(OUT.iterdir()) and NO_REUSE:
         print(f"FAIL: {OUT} already exists and is non-empty. A claim-grade run must start in "
               f"a NEW workspace so no row can be inherited; set V61_ALLOW_REUSE=1 only for a "
@@ -305,7 +319,15 @@ def main() -> None:
             row = json.loads((dest / "v61_row.json").read_text())
             print(f"  {tag:22s} reused (provenance verified)")
         else:
+            # Pre-run proof that nothing was inherited: record whether the row directory and
+            # its HotSpot workspace existed BEFORE this row ran. An exactly-reproduced number
+            # cannot distinguish a fresh solver run from a reused one, so the receipt has to
+            # come from the process, not from the result.
+            existed_before = dest.exists()
+            workspace_before = sorted(p.name for p in (dest / "hotspot").glob("*")
+                                      if p.is_file()) if (dest / "hotspot").is_dir() else []
             dest.mkdir(parents=True, exist_ok=True)
+            started = time.time()
             r = replay_periodic(
                 binary=staged["hotspot"], config=staged["config"],
                 floorplan=staged["floorplan"],
@@ -313,8 +335,30 @@ def main() -> None:
                 block_ids=frozen["augmented"].block_ids, trace=rows[sub].trace,
                 workspace=dest / "hotspot", max_step_s=STEP_US * 1e-6,
                 fixed_initial_k=AMBIENT_K, tolerance_k=0.01)
+            ended = time.time()
+            raw = sorted(p for p in (dest / "hotspot").glob("*") if p.is_file())
             row = dict(want)
             row.update({
+                "execution": {
+                    "dest_existed_before_run": bool(existed_before),
+                    "workspace_files_before_run": workspace_before,
+                    "started_unix": started, "ended_unix": ended,
+                    "wall_s": ended - started, "pid": os.getpid(),
+                    "run_nonce": run_nonce,
+                    # Counted inside replay_periodic, one increment per subprocess.run.
+                    "hotspot_invocations": r.hotspot_invocations,
+                    # Hashes of the RAW HotSpot artefacts, not of the parsed scalars. Their
+                    # count must match the invocations that produce a file.
+                    "raw_outputs": {p.name: sha256(p) for p in raw},
+                },
+                # Argmax tie evidence: a label change within one output quantum is not a
+                # relocated peak, and without these the manifest could not tell the two apart.
+                "periodic_second_peak_k": r.periodic_second_peak_k,
+                "periodic_top_gap_k": r.periodic_top_gap_k,
+                "periodic_tie_blocks": list(r.periodic_tie_blocks),
+                "mean_steady_second_peak_k": r.mean_steady_second_peak_k,
+                "mean_steady_top_gap_k": r.mean_steady_top_gap_k,
+                "mean_steady_tie_blocks": list(r.mean_steady_tie_blocks),
                 "retained_source_energy_j": rows[sub].source_energy_j,
                 "mean_steady_peak_k": r.mean_steady_peak_k,
                 "mean_steady_hottest_block": r.mean_steady_hottest_block,
@@ -334,7 +378,9 @@ def main() -> None:
             write_json(dest / "v61_row.json", row)
             print(f"  {tag:22s} steady {row['mean_steady_peak_k']:.6f} K  periodic "
                   f"{row['periodic_peak_k']:.2f} K  at {row['periodic_hottest_block']:11s} "
-                  f"cyc={row['cycles']}")
+                  f"cyc={row['cycles']} hs={r.hotspot_invocations} "
+                  f"raw={len(raw)} gap={r.periodic_top_gap_k:.2f}K "
+                  f"ties={len(r.periodic_tie_blocks)}")
         manifest["rows"][tag] = row
 
     # ---- GATE: the full row must reproduce the registered counterexample ---------
@@ -439,14 +485,23 @@ def main() -> None:
                   "timing, an additive deposition intervention, and the HotSpot model. It is "
                   "not general physical causality and says nothing about temperature-"
                   "dependent power feedback."),
-        "all_rows_fresh": bool(NO_REUSE),
+        # Evidence, not policy. This previously echoed the NO_REUSE constant, which asserts
+        # the intention and proves nothing: a row is fresh only if it carries an execution
+        # receipt stamped with THIS run's nonce.
+        "all_rows_fresh": all(
+            (r.get("execution") or {}).get("run_nonce") == run_nonce
+            for r in manifest["rows"].values()),
+        "reuse_disabled_by_policy": bool(NO_REUSE),
+        "hotspot_invocations_total": sum(
+            (r.get("execution") or {}).get("hotspot_invocations", 0)
+            for r in manifest["rows"].values()),
     }
     print(f"\n  minimal crossing coalitions: {minimal or '(none)'}")
     for drop, v in loo.items():
         print(f"    full-minus-{drop:5s} periodic {v['periodic_peak_k']:.2f} K -> "
               f"{'BELOW  => conditionally necessary' if v['below_limit'] else 'still OVER'}")
     manifest["run"] = {
-        "run_id": f"{commit[:8]}-{MODEL}-{STEP_US:g}us-{int(run_started)}",
+        "run_id": run_nonce,
         "started_unix": run_started, "ended_unix": time.time(),
         "host": platform.node(), "platform": platform.platform(),
         "python": platform.python_version(), "numpy": np.__version__,

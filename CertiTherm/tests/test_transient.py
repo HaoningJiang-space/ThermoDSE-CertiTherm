@@ -8,7 +8,10 @@ import pytest
 from CertiTherm.hotspot import HotSpotModel
 from CertiTherm.phase_trace import PhaseTrace
 from CertiTherm.transient import (
+    OUTPUT_RESOLUTION_K,
+    PeriodicTransientResult,
     _parse_steady,
+    _peak_and_ties,
     _within_output_tolerance,
     replay_periodic,
     resample_uniform,
@@ -66,3 +69,52 @@ def test_grid_max_model_is_explicit_not_an_implicit_avg():
     assert model.model_type == "grid"
     assert model.grid_rows == model.grid_cols == 64
     assert model.grid_map_mode == "max"
+
+
+# --- resolution-aware peak/tie analysis ------------------------------------------------
+# A reported argmax block name cannot distinguish a relocated peak from a tie broken
+# differently, because HotSpot serialises temperature to 0.01 K. Three of fifteen V6.1
+# subsets changed their reported argmax between semantics and the evidence to judge them
+# did not exist.
+
+def test_tie_set_holds_every_block_within_one_quantum():
+    winner, runner_up, ties = _peak_and_ties(
+        np.asarray([320.0, 330.005, 330.01, 330.002, 329.998]),
+        ("a", "b", "c", "d", "e"),
+        OUTPUT_RESOLUTION_K,
+    )
+    assert winner == 2                                   # 330.01 is the maximum
+    assert runner_up == pytest.approx(330.005)
+    assert set(ties) == {"b", "c", "d"}                  # all within 0.01 K of the peak
+    assert ties[0] == "c", "the tie set must be ordered hottest first"
+    assert "a" not in ties
+    assert "e" not in ties, "0.012 K below the peak is outside the quantum"
+
+
+def test_a_resolvable_peak_has_a_singleton_tie_set():
+    winner, runner_up, ties = _peak_and_ties(
+        np.asarray([300.0, 330.5]), ("cool", "hot"), OUTPUT_RESOLUTION_K
+    )
+    assert winner == 1 and ties == ("hot",)
+    assert runner_up == pytest.approx(300.0)
+
+
+def test_peak_and_ties_refuses_a_mismatched_block_list():
+    with pytest.raises(ValueError, match="does not match the block list"):
+        _peak_and_ties(np.asarray([1.0, 2.0]), ("only_one",), OUTPUT_RESOLUTION_K)
+
+
+def test_output_resolution_is_named_once():
+    """The convergence guard and the tie analysis must use the same quantum, or a run could
+    claim convergence at a resolution finer than the one it calls a tie."""
+    assert OUTPUT_RESOLUTION_K == 0.01
+    assert PeriodicTransientResult.__dataclass_fields__[
+        "temperature_output_resolution_k"].default == OUTPUT_RESOLUTION_K
+
+
+def test_invocation_count_has_no_default():
+    """A default of 0 would let a caller print a fabricated count as if it were measured."""
+    import dataclasses
+    field = PeriodicTransientResult.__dataclass_fields__["hotspot_invocations"]
+    assert field.default is dataclasses.MISSING
+    assert field.default_factory is dataclasses.MISSING

@@ -201,3 +201,50 @@ def test_importing_the_probe_does_not_reinterpret_the_callers_argv():
         assert callable(mod.capture_frozen_inputs)
     finally:
         sys.argv = saved
+
+
+# --- schema 3: the execution receipt -------------------------------------------------
+# `all_rows_fresh` previously echoed the NO_REUSE module constant, so it asserted the
+# driver's intention and proved nothing. A near-exact reproduction of a registered number
+# cannot distinguish a fresh solver run from a reused one; only process evidence can.
+
+def test_schema_is_bumped_so_receiptless_rows_cannot_be_inherited():
+    assert F.SCHEMA_VERSION >= 3
+
+
+def _v3_row(**over):
+    row = _row()
+    row.update(schema_version=F.SCHEMA_VERSION,
+               execution={"dest_existed_before_run": False,
+                          "workspace_files_before_run": [],
+                          "started_unix": 1.0, "ended_unix": 2.0, "wall_s": 1.0,
+                          "pid": 123, "run_nonce": "n",
+                          "hotspot_invocations": 4,
+                          "raw_outputs": {"mean.steady": "h1", "fixed-initial.ttrace": "h2",
+                                          "periodic-8.ttrace": "h3"}})
+    row.update(over)
+    return row
+
+
+def _v3_want():
+    want = _want()
+    want["schema_version"] = F.SCHEMA_VERSION
+    return want
+
+
+def test_reuse_is_accepted_for_a_row_with_an_execution_receipt(tmp_path):
+    (tmp_path / "v61_row.json").write_text(json.dumps(_v3_row()))
+    assert F.reusable(tmp_path, _v3_want())
+
+
+@pytest.mark.parametrize("over,reason", [
+    ({"execution": None}, "no receipt at all"),
+    ({"execution": {}}, "empty receipt"),
+    ({"execution": dict(_v3_row()["execution"], hotspot_invocations=2)},
+     "too few HotSpot invocations for one replay"),
+    ({"execution": dict(_v3_row()["execution"], raw_outputs={})},
+     "no raw HotSpot output hashed"),
+])
+def test_reuse_is_refused_without_process_evidence(tmp_path, over, reason):
+    (tmp_path / "v61_row.json").write_text(json.dumps(_v3_row(**over)))
+    assert not F.reusable(tmp_path, _v3_want()), f"must refuse to reuse: {reason}"

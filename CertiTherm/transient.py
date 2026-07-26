@@ -12,6 +12,11 @@ import numpy as np
 from .hotspot import HotSpotModel
 from .phase_trace import PhaseTrace
 
+# Pinned HotSpot's write_vals() serialises temperatures with two decimals, so 0.01 K is the
+# finest distinction any of its output can express. Named once because both the convergence
+# guard and the tie analysis depend on the same quantum.
+OUTPUT_RESOLUTION_K = 0.01
+
 
 def resample_uniform(
     trace: PhaseTrace, max_step_s: float
@@ -98,6 +103,31 @@ def _within_output_tolerance(residual_k: float, tolerance_k: float) -> bool:
     return residual_k <= tolerance_k + 1e-9
 
 
+def _peak_and_ties(
+    per_block_k: "np.ndarray", block_ids: Sequence[str], resolution_k: float
+) -> tuple:
+    """Return (winner index, runner-up temperature, tie set) for one temperature vector.
+
+    The tie set is every block within one output quantum of the maximum, INCLUDING the
+    winner. With a 0.01 K reported resolution, two blocks inside that band are not
+    distinguishable, so a change of reported argmax between them is not evidence that a
+    peak moved. The runner-up is the largest value outside the winner's own entry.
+    """
+    values = np.asarray(per_block_k, dtype=float).reshape(-1)
+    if values.size != len(block_ids):
+        raise ValueError("temperature vector does not match the block list")
+    winner = int(np.argmax(values))
+    peak = float(values[winner])
+    ties = tuple(
+        str(block_ids[i])
+        for i in np.argsort(-values)
+        if peak - float(values[i]) <= resolution_k + 1e-9
+    )
+    others = np.delete(values, winner)
+    runner_up = float(others.max()) if others.size else peak
+    return winner, runner_up, ties
+
+
 def _run_hotspot(
     *,
     binary: Path,
@@ -171,7 +201,25 @@ class PeriodicTransientResult:
     fixed_initial_hottest_block: str
     mean_steady_peak_k: float
     mean_steady_hottest_block: str
-    temperature_output_resolution_k: float = 0.01
+    # How many HotSpot processes this replay actually ran. Required, with no default: a
+    # default would let a caller print a fabricated 0 as if the solver had been counted.
+    hotspot_invocations: int
+    # A reported argmax block name alone cannot distinguish a relocated peak from a tie
+    # broken differently, because output is quantised to 0.01 K. These carry the runner-up
+    # and the resolution-aware tie set so the question is answerable from the receipt.
+    periodic_second_peak_k: float
+    periodic_tie_blocks: tuple
+    mean_steady_second_peak_k: float
+    mean_steady_tie_blocks: tuple
+    temperature_output_resolution_k: float = OUTPUT_RESOLUTION_K
+
+    @property
+    def periodic_top_gap_k(self) -> float:
+        return self.periodic_peak_k - self.periodic_second_peak_k
+
+    @property
+    def mean_steady_top_gap_k(self) -> float:
+        return self.mean_steady_peak_k - self.mean_steady_second_peak_k
 
 
 def replay_periodic(
@@ -201,7 +249,7 @@ def replay_periodic(
         raise ValueError("initial temperature and convergence tolerance must be positive")
     # Pinned HotSpot's write_vals() serializes transient temperatures to 0.01 K.
     # Refuse a convergence claim finer than the observable output.
-    if tolerance_k < 0.01:
+    if tolerance_k < OUTPUT_RESOLUTION_K:
         raise ValueError("convergence tolerance is below HotSpot's 0.01 K output resolution")
     if initial_cycles < 2 or max_cycles < initial_cycles:
         raise ValueError("periodic replay cycle bounds are invalid")
@@ -214,9 +262,11 @@ def replay_periodic(
     model = HotSpotModel.parse(model_id)
     step_s, samples = resample_uniform(trace, max_step_s)
 
+    invocations = 0
     mean_ptrace = workspace / "mean.ptrace"
     mean_steady = workspace / "mean.steady"
     _write_ptrace(mean_ptrace, block_ids, trace.mean_power_w[None, :])
+    invocations += 1
     _run_hotspot(
         binary=paths[0],
         config=paths[1],
@@ -231,6 +281,7 @@ def replay_periodic(
     one_cycle = workspace / "one-cycle.ptrace"
     fixed_ttrace = workspace / "fixed-initial.ttrace"
     _write_ptrace(one_cycle, block_ids, samples)
+    invocations += 1
     _run_hotspot(
         binary=paths[0],
         config=paths[1],
@@ -249,6 +300,7 @@ def replay_periodic(
         periodic_ptrace = workspace / f"periodic-{cycles}.ptrace"
         periodic_ttrace = workspace / f"periodic-{cycles}.ttrace"
         _write_ptrace(periodic_ptrace, block_ids, samples, repeats=cycles)
+        invocations += 1
         _run_hotspot(
             binary=paths[0],
             config=paths[1],
@@ -288,19 +340,32 @@ def replay_periodic(
             )
         cycles = min(max_cycles, cycles * 2)
 
-    periodic_flat = int(np.argmax(last))
     fixed_flat = int(np.argmax(fixed))
-    mean_flat = int(np.argmax(mean_temperatures))
+    # Per-block maximum over the converged cycle: the same winner as argmax over the whole
+    # matrix, but it also gives the runner-up and the resolution-aware tie set.
+    periodic_per_block = np.asarray(last, dtype=float).max(axis=0)
+    p_win, p_second, p_ties = _peak_and_ties(
+        periodic_per_block, block_ids, OUTPUT_RESOLUTION_K
+    )
+    m_win, m_second, m_ties = _peak_and_ties(
+        mean_temperatures, block_ids, OUTPUT_RESOLUTION_K
+    )
     return PeriodicTransientResult(
         step_s=step_s,
         samples_per_cycle=len(samples),
         cycles=cycles,
         boundary_residual_k=boundary_residual,
         peak_residual_k=peak_residual,
-        periodic_peak_k=float(last.flat[periodic_flat]),
-        periodic_hottest_block=str(block_ids[periodic_flat % len(block_ids)]),
+        periodic_peak_k=float(periodic_per_block[p_win]),
+        periodic_hottest_block=str(block_ids[p_win]),
         fixed_initial_peak_k=float(fixed.flat[fixed_flat]),
         fixed_initial_hottest_block=str(block_ids[fixed_flat % len(block_ids)]),
-        mean_steady_peak_k=float(mean_temperatures[mean_flat]),
-        mean_steady_hottest_block=str(block_ids[mean_flat]),
+        mean_steady_peak_k=float(mean_temperatures[m_win]),
+        mean_steady_hottest_block=str(block_ids[m_win]),
+        hotspot_invocations=invocations,
+        periodic_second_peak_k=p_second,
+        periodic_tie_blocks=p_ties,
+        mean_steady_second_peak_k=m_second,
+        mean_steady_tie_blocks=m_ties,
+        temperature_output_resolution_k=OUTPUT_RESOLUTION_K,
     )
