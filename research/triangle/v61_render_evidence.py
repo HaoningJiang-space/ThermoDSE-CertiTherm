@@ -89,6 +89,19 @@ def main() -> None:
       f"`indeterminate` and is excluded from the coalition analysis rather than counted as "
       f"crossing. Indeterminate rows this run: "
       f"{s['indeterminate_rows'] or 'none'}.")
+    moves = [(t, r["mean_steady_hottest_block"], r["periodic_hottest_block"])
+             for t, r in rows.items()
+             if r["mean_steady_hottest_block"] != r["periodic_hottest_block"]]
+    if moves:
+        A("")
+        A(f"In {len(moves)} of {len(rows)} subsets the hottest block MOVES between the two "
+          f"semantics, so time structure relocates the peak and does not merely raise it:")
+        for t, a, b in sorted(moves):
+            A(f"- `{t}`: steady `{a}` -> periodic `{b}`")
+        A("")
+        A("This is an observation, not a mechanism: it is not the crossing mechanism (the "
+          "crossing row's hottest block is unchanged) and no source-identity cause has been "
+          "tested for it.")
     A("")
     A("## Gate")
     A("")
