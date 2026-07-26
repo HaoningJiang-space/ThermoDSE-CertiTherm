@@ -38,8 +38,9 @@ def render(m: dict, v: dict, g: dict, ex: dict, manifest_path: Path) -> str:
       f"leave-one-out table; convergence; the energy ledger; cross-row provenance; and the gate, "
       f"against the pinned registration `{rel(REGISTRATION)}` rather than the manifest's own "
       f"copy of its verdicts. Any disagreement is a refusal. **Producer-attested, and not "
-      f"re-derivable here:** the temperatures themselves, the superposition residual, and the "
-      f"execution receipts — hashes without retained bytes cannot be re-verified.")
+      f"re-derived here:** the temperatures themselves, the superposition residual, and the "
+      f"execution receipts. The raw HotSpot outputs they hash ARE retained, outside this "
+      f"repository, so an independent consumer can reparse them — this generator does not.")
     A("")
     A("## Provenance")
     A("")
@@ -157,12 +158,25 @@ def render(m: dict, v: dict, g: dict, ex: dict, manifest_path: Path) -> str:
       f"producer-reported tie list — such a list could name any block, since nothing in it is "
       f"tied to a temperature.")
     A("")
-    A(f"**The gate binds names and temperatures, NOT the registered instance** "
-      f"(`binds_instance_hashes = {reg['binds_instance_hashes']}`, "
-      f"`canonical_trace_sha256 = {reg['canonical_trace_sha256']}`). It does not verify that the "
-      f"registry, power trace or routing are unchanged, so a changed registry under the same "
-      f"workload/architecture names would still pass. Closing that needs a canonical trace hash "
-      f"preregistered from a run that is itself claim-grade. Open gap.")
+    canon = g["pinned"]["canonical_instance"]
+    A(f"**The gate binds the physical instance** (`binds_instance_hashes = "
+      f"{reg['binds_instance_hashes']}`, `canonical_trace_sha256 = "
+      f"{reg['canonical_trace_sha256'][:16]}…`). Enforced against the canonical instance: the "
+      f"staged input hashes, the HotSpot binary, the {canon['block_count']}-block floorplan "
+      f"registry hash, all {len(canon['trace_sha256_by_subset'])} per-subset power-trace hashes, "
+      f"and the source energy decomposition. Until gate policy 3 the gate bound names and "
+      f"temperatures only, so a changed registry, trace or routing under the same "
+      f"workload/architecture names would have passed.")
+    A("")
+    A(f"**What that does and does not establish.** These hashes were *canonicalised from* the "
+      f"schema-4 claim-grade run (`{canon['canonicalised_from']['manifest']}`, commit "
+      f"`{canon['canonicalised_from']['commit'][:12]}`), **not preregistered ahead of the "
+      f"fact** — the originally registered run in `{g['pinned']['grid64_source']['document']}` "
+      f"predates this pipeline and no hash of its inputs survives. So the binding guarantees "
+      f"that this run replayed the same physical instance as the run the evidence rests on. It "
+      f"does **not** establish that either run replayed the instance behind the original "
+      f"registered numbers. That link cannot be recovered and is closed only for runs from here "
+      f"on.")
     A("")
     A("## Result")
     A("")
@@ -250,12 +264,17 @@ def render(m: dict, v: dict, g: dict, ex: dict, manifest_path: Path) -> str:
     A("")
     A("## Scope")
     A("")
-    A(f"Evidence grade: **run-provenance-controlled, registry-instance-unbound, single-capture "
-      f"HotSpot evidence with producer-attested execution receipts.** The staged hashes "
-      f"establish integrity within this execution; `binds_instance_hashes = "
-      f"{reg['binds_instance_hashes']}` leaves the identity link to the originally registered "
-      f"trace and routing open; the raw HotSpot outputs are not archived here, so no consumer "
-      f"can reparse them; and no independent thermal model has validated any number.")
+    b = ex["bundle"]
+    A(f"Evidence grade: **instance-bound, provenance-controlled, single-capture HotSpot evidence "
+      f"with producer-attested execution receipts and retained raw outputs.** The staged hashes "
+      f"establish integrity within this execution and the canonical hashes bind the physical "
+      f"instance forward from the schema-4 run. The raw HotSpot outputs are retained as one "
+      f"bundle of {b['members']} files, {b['bytes']/1e6:.1f} MB gzipped from "
+      f"{b['uncompressed_bytes']/1e6:.1f} MB, `sha256 {b['sha256'][:16]}…`, deliberately "
+      f"**outside** this repository (`{b['path']}` on the run host) — a hash identifies bytes, "
+      f"it does not guarantee they still exist on a shared volume. No independent thermal model "
+      f"has validated any number, which bounds this to HotSpot-conditional decision "
+      f"preservation rather than physical accuracy.")
     A("")
     lo = min(view, key=lambda t: view[t]["uplift_ratio_pct"])
     hi = max(view, key=lambda t: view[t]["uplift_ratio_pct"])

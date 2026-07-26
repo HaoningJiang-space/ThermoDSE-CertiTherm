@@ -1,13 +1,13 @@
 # V6.1 source-subset isolation under a fixed additive power trace
 
-Recomputed from the manifest's raw observations by `research/triangle/v61_validate.py`: the subset enumeration; every row's peak, argmax, runner-up and resolution-aware tie set, from the per-block temperature vectors; the classification, crossing coalitions and leave-one-out table; convergence; the energy ledger; cross-row provenance; and the gate, against the pinned registration `docs/registration/v61_grid64_counterexample.json` rather than the manifest's own copy of its verdicts. Any disagreement is a refusal. **Producer-attested, and not re-derivable here:** the temperatures themselves, the superposition residual, and the execution receipts — hashes without retained bytes cannot be re-verified.
+Recomputed from the manifest's raw observations by `research/triangle/v61_validate.py`: the subset enumeration; every row's peak, argmax, runner-up and resolution-aware tie set, from the per-block temperature vectors; the classification, crossing coalitions and leave-one-out table; convergence; the energy ledger; cross-row provenance; and the gate, against the pinned registration `docs/registration/v61_grid64_counterexample.json` rather than the manifest's own copy of its verdicts. Any disagreement is a refusal. **Producer-attested, and not re-derived here:** the temperatures themselves, the superposition residual, and the execution receipts. The raw HotSpot outputs they hash ARE retained, outside this repository, so an independent consumer can reparse them — this generator does not.
 
 ## Provenance
 
-- commit `56e77c28326f`, working tree CLEAN at start and end (`provenance_stable = True`)
+- commit `fd9d93bb3e13`, working tree CLEAN at start and end (`provenance_stable = True`)
 - candidate `transformer` / `arch_b`, model `grid64-max`, requested step 0.5 us, ambient 318.15 K, limit 330.0 K, 233 floorplan blocks
-- host `hpclab03`, Linux-5.15.0-71-generic-x86_64-with-glibc2.29, Python 3.8.10, NumPy 1.24.4, manifest schema 4, gate policy 2
-- run `56e77c28-grid64-max-0.5us-1785061755`, wall 66.2 min
+- host `hpclab03`, Linux-5.15.0-71-generic-x86_64-with-glibc2.29, Python 3.8.10, NumPy 1.24.4, manifest schema 5, gate policy 3
+- run `fd9d93bb-grid64-max-0.5us-1785070097`, wall 67.1 min
 - registration `v61-grid64-max-transient-counterexample`, file unchanged since the run: `True`
 - every input staged read-only, hashed as read, re-verified after each replay:
   - `config` `b5956b0d44880986…`
@@ -26,21 +26,21 @@ Validated: the recorded role sequence is `mean-steady`, `fixed-initial`, then a 
 
 | subset | invocations | outputs | output MB | wall (s) | cycles |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `core` | 3 | 3 | 11.9 | 137.7 | 8 |
-| `noc` | 3 | 3 | 11.9 | 130.7 | 8 |
-| `nop` | 3 | 3 | 11.9 | 122.0 | 8 |
-| `dram` | 4 | 4 | 33.1 | 348.5 | 16 |
-| `core-noc` | 3 | 3 | 11.9 | 131.0 | 8 |
-| `core-nop` | 3 | 3 | 11.9 | 137.4 | 8 |
+| `core` | 3 | 3 | 11.9 | 138.0 | 8 |
+| `noc` | 3 | 3 | 11.9 | 131.1 | 8 |
+| `nop` | 3 | 3 | 11.9 | 122.2 | 8 |
+| `dram` | 4 | 4 | 33.1 | 348.1 | 16 |
+| `core-noc` | 3 | 3 | 11.9 | 131.1 | 8 |
+| `core-nop` | 3 | 3 | 11.9 | 137.0 | 8 |
 | `core-dram` | 4 | 4 | 33.1 | 365.1 | 16 |
-| `noc-nop` | 3 | 3 | 11.9 | 131.8 | 8 |
-| `dram-noc` | 4 | 4 | 33.1 | 341.7 | 16 |
-| `dram-nop` | 4 | 4 | 33.1 | 346.2 | 16 |
-| `core-noc-nop` | 4 | 4 | 33.1 | 347.1 | 16 |
-| `core-dram-noc` | 4 | 4 | 33.1 | 355.0 | 16 |
-| `core-dram-nop` | 4 | 4 | 33.1 | 363.3 | 16 |
+| `noc-nop` | 3 | 3 | 11.9 | 131.9 | 8 |
+| `dram-noc` | 4 | 4 | 33.1 | 342.5 | 16 |
+| `dram-nop` | 4 | 4 | 33.1 | 346.6 | 16 |
+| `core-noc-nop` | 4 | 4 | 33.1 | 347.6 | 16 |
+| `core-dram-noc` | 4 | 4 | 33.1 | 355.6 | 16 |
+| `core-dram-nop` | 4 | 4 | 33.1 | 364.2 | 16 |
 | `dram-noc-nop` | 4 | 4 | 33.1 | 343.2 | 16 |
-| `full` | 4 | 4 | 33.1 | 353.8 | 16 |
+| `full` | 4 | 4 | 33.1 | 354.4 | 16 |
 
 ## Source energy ledger
 
@@ -78,7 +78,7 @@ HotSpot reports transient temperature to 0.01 K, so with a 330.0 K limit a row i
 
 ## Gate
 
-Recomputed against `docs/registration/v61_grid64_counterexample.json` (`v61-grid64-max-transient-counterexample`, gate policy 2), whose registered tuple the manifest must match exactly:
+Recomputed against `docs/registration/v61_grid64_counterexample.json` (`v61-grid64-max-transient-counterexample`, gate policy 3), whose registered tuple the manifest must match exactly:
 
 - decision — steady < 330.0 K **and** the full row classifies as `crossing` under the same quantisation rule as every other row: **True**
 - periodic value within one 0.01 K quantum of the registered 330.19 K: **True**
@@ -87,7 +87,9 @@ Recomputed against `docs/registration/v61_grid64_counterexample.json` (`v61-grid
 
 **The location check is a compatibility test, not spatial reproduction.** It asserts only that the registered block cannot be distinguished from the maximum at HotSpot's output resolution. Gate policy 1 required exact argmax equality, which depended on how an exact tie was broken: 11 of 15 rows here have a tied argmax, and refactoring the argmax from a flat maximum over (sample, block) to a per-block maximum flipped one row's reported label with every temperature unchanged. Exact equality still holds this run (`argmax_equals = True`) but is reported, not gated. The predicate is computed from the registered block's own temperature, not from a producer-reported tie list — such a list could name any block, since nothing in it is tied to a temperature.
 
-**The gate binds names and temperatures, NOT the registered instance** (`binds_instance_hashes = False`, `canonical_trace_sha256 = None`). It does not verify that the registry, power trace or routing are unchanged, so a changed registry under the same workload/architecture names would still pass. Closing that needs a canonical trace hash preregistered from a run that is itself claim-grade. Open gap.
+**The gate binds the physical instance** (`binds_instance_hashes = True`, `canonical_trace_sha256 = 4b5ded2fb08d452d…`). Enforced against the canonical instance: the staged input hashes, the HotSpot binary, the 233-block floorplan registry hash, all 15 per-subset power-trace hashes, and the source energy decomposition. Until gate policy 3 the gate bound names and temperatures only, so a changed registry, trace or routing under the same workload/architecture names would have passed.
+
+**What that does and does not establish.** These hashes were *canonicalised from* the schema-4 claim-grade run (`artifacts_receipts/v61_cg4_schema4/v61_manifest.json`, commit `56e77c28326f`), **not preregistered ahead of the fact** — the originally registered run in `docs/V6_PHYSICAL_TRACE_GATE.md` predates this pipeline and no hash of its inputs survives. So the binding guarantees that this run replayed the same physical instance as the run the evidence rests on. It does **not** establish that either run replayed the instance behind the original registered numbers. That link cannot be recovered and is closed only for runs from here on.
 
 ## Result
 
@@ -121,10 +123,10 @@ A label change counts as a relocation only if BOTH endpoints are resolvable: the
 
 ## Scope
 
-Evidence grade: **run-provenance-controlled, registry-instance-unbound, single-capture HotSpot evidence with producer-attested execution receipts.** The staged hashes establish integrity within this execution; `binds_instance_hashes = False` leaves the identity link to the originally registered trace and routing open; the raw HotSpot outputs are not archived here, so no consumer can reparse them; and no independent thermal model has validated any number.
+Evidence grade: **instance-bound, provenance-controlled, single-capture HotSpot evidence with producer-attested execution receipts and retained raw outputs.** The staged hashes establish integrity within this execution and the canonical hashes bind the physical instance forward from the schema-4 run. The raw HotSpot outputs are retained as one bundle of 54 files, 11.2 MB gzipped from 369.5 MB, `sha256 bfc1b62281094bad…`, deliberately **outside** this repository (`artifacts/v61_cg5_grid64/v61_hotspot_outputs.tar.gz` on the run host) — a hash identifies bytes, it does not guarantee they still exist on a shared volume. No independent thermal model has validated any number, which bounds this to HotSpot-conditional decision preservation rather than physical accuracy.
 
 Bounded to: this fixed trace; this fixed routing and timing; an additive deposition intervention with no temperature-dependent power feedback; the HotSpot model, candidate and discretisation; and the **fixed decomposition of 23.163 mJ into `core`, `dram`, `noc`, `nop`** — a different assignment of the same total would change every row, and that assignment is an artefact of the routed-trace lowering, not a measurement. NOT established: that any source alone suffices; that periodic uplift is baseline-independent (as a fraction of the steady rise above ambient it spans 1.89% for `dram-nop` to 5.02% for `noc`, and the 0.01 K quantum is already 0.37% of `noc`'s rise, so any source-identity effect is `UNTESTED`); generalisation to other candidates, models or discretisations; or agreement with any independent thermal model.
 
 `grid128-max` has not been run as a factorial. Its registered argmax (`ubuf_13` steady / `ubuf_16` periodic, `docs/V6_PHYSICAL_TRACE_GATE.md:149`) differs from this run's `mtxu_16`, but given how few argmax labels here are resolvable that difference cannot be read as a spatial finding. A grid128 factorial would need its own preregistration and is only required if the paper claims resolution robustness or a spatial mechanism.
 
-Manifest: `artifacts_receipts/v61_cg4_schema4/v61_manifest.json`
+Manifest: `artifacts_receipts/v61_cg5_schema5/v61_manifest.json`
