@@ -219,6 +219,16 @@ def validate_gate(m: dict, view: dict) -> dict:
              "the stored gate value_ok disagrees with recomputation")
     _require(m["gate"].get("location_ok") is argmax_equals,
              "the stored gate location_ok disagrees with recomputation")
+    # The stored `decision_ok` is deliberately NOT compared: the driver computed it with a
+    # bare `periodic >= limit`, which is weaker than the shared quantisation rule used here.
+    # Requiring the recomputed verdict covers the case where the two disagree.
+    #
+    # `gate.passed is True` is a precondition, so every recomputed verdict must hold. Without
+    # this, a manifest asserting a passed gate could carry a full row that the shared
+    # quantisation rule calls indeterminate -- found by a test that expected a refusal here.
+    _require(decision_ok and value_ok and argmax_equals,
+             f"the manifest reports gate.passed but recomputation gives "
+             f"decision_ok={decision_ok} value_ok={value_ok} argmax_equals={argmax_equals}")
     _require(abs(_finite(_get(m["gate"], "steady_delta_k", "gate"), "steady_delta_k")
                  - steady_delta) < 1e-12,
              "the stored steady delta disagrees with recomputation")

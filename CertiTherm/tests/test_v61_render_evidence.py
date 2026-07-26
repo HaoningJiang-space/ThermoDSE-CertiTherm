@@ -136,7 +136,7 @@ def test_refuses_when_the_staged_binary_hash_contradicts_the_recorded_one(man):
 
 def test_refuses_when_top_level_metadata_disagrees_with_the_rows(man):
     man["workload"] = "resnet50"
-    _refuses(man, "is not the registered")
+    _refuses(man, "top-level workload disagrees with the rows")
 
 
 # --- convergence, which was not validated at all -------------------------------------
@@ -249,8 +249,9 @@ def test_the_gate_decision_uses_the_same_quantisation_rule_as_every_row(man):
     full["periodic_second_peak_k"] = limit
     full["periodic_top_gap_k"] = 0.0
     man["gate"]["value_ok"] = False          # keep the stored copy consistent
-    with pytest.raises(R.Refuse):
-        R.build(man)
+    # This test originally expected only a refusal and found a hole instead: nothing required
+    # the RECOMPUTED verdicts to hold when the manifest says the gate passed.
+    _refuses(man, "reports gate.passed but recomputation gives")
     assert R.classify(limit, limit, 0.01) == "indeterminate"
     assert R.classify(limit + 0.01, limit, 0.01) == "crossing"
     assert R.classify(limit - 0.01, limit, 0.01) == "below"
@@ -391,11 +392,15 @@ def test_uniqueness_prose_is_conditional_on_validation(man, tmp_path):
     assert "unique minimal crossing coalition" in text
 
     m2 = copy.deepcopy(man)
-    r = m2["rows"]["core-dram-noc"]                    # push a second row over the limit
-    r["periodic_peak_k"] = 330.50
-    r["periodic_second_peak_k"] = 330.50
-    r["periodic_top_gap_k"] = 0.0
+    # Two INCOMPARABLE crossing subsets. Pushing a subset of `full` over the limit would not
+    # do it: `full` would simply stop being minimal, leaving exactly one minimal coalition.
+    for tag in ("core-dram", "noc-nop"):
+        r = m2["rows"][tag]
+        r["periodic_peak_k"] = 330.50
+        r["periodic_second_peak_k"] = 330.50
+        r["periodic_top_gap_k"] = 0.0
     view, _, _ = R.build(m2)
+    assert len(view["minimal"]) == 2
     assert view["uniqueness_claimable"] is False
     text2 = _render(m2, tmp_path / "b")
     assert "Uniqueness is **not** claimable" in text2
