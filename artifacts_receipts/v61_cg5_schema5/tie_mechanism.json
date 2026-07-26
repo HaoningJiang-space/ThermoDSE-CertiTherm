@@ -1,0 +1,413 @@
+{
+  "manifest_commit": "fd9d93bb3e1361f95de539008cf11ae98b42da03",
+  "run_id": "fd9d93bb-grid64-max-0.5us-1785070097",
+  "floorplan_sha256": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+  "grid": {
+    "rows": 64,
+    "cols": 64,
+    "cell_w_m": 0.0003390027311617187,
+    "cell_h_m": 0.00028046875,
+    "chip_w_m": 0.021696174794349998,
+    "chip_h_m": 0.01795
+  },
+  "mechanism_counts": {
+    "shared_cell": 9,
+    "symmetric": 2,
+    "not_tied": 3,
+    "overlap_untied": 1
+  },
+  "rows": {
+    "core": {
+      "top_two": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 2,
+      "rect": {
+        "mtxu_16": [
+          5,
+          12,
+          12,
+          19
+        ],
+        "ubuf_16": [
+          4,
+          13,
+          18,
+          20
+        ]
+      },
+      "shared_cells": 7,
+      "mechanism": "shared_cell"
+    },
+    "core-dram": {
+      "top_two": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 2,
+      "rect": {
+        "mtxu_16": [
+          5,
+          12,
+          12,
+          19
+        ],
+        "ubuf_16": [
+          4,
+          13,
+          18,
+          20
+        ]
+      },
+      "shared_cells": 7,
+      "mechanism": "shared_cell"
+    },
+    "core-dram-noc": {
+      "top_two": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 2,
+      "rect": {
+        "mtxu_16": [
+          5,
+          12,
+          12,
+          19
+        ],
+        "ubuf_16": [
+          4,
+          13,
+          18,
+          20
+        ]
+      },
+      "shared_cells": 7,
+      "mechanism": "shared_cell"
+    },
+    "core-dram-nop": {
+      "top_two": [
+        "ubuf_13",
+        "io_2_13"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 2,
+      "rect": {
+        "ubuf_13": [
+          16,
+          25,
+          27,
+          29
+        ],
+        "io_2_13": [
+          15,
+          25,
+          28,
+          30
+        ]
+      },
+      "shared_cells": 9,
+      "mechanism": "shared_cell"
+    },
+    "core-noc": {
+      "top_two": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 2,
+      "rect": {
+        "mtxu_16": [
+          5,
+          12,
+          12,
+          19
+        ],
+        "ubuf_16": [
+          4,
+          13,
+          18,
+          20
+        ]
+      },
+      "shared_cells": 7,
+      "mechanism": "shared_cell"
+    },
+    "core-noc-nop": {
+      "top_two": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 2,
+      "rect": {
+        "mtxu_16": [
+          5,
+          12,
+          12,
+          19
+        ],
+        "ubuf_16": [
+          4,
+          13,
+          18,
+          20
+        ]
+      },
+      "shared_cells": 7,
+      "mechanism": "shared_cell"
+    },
+    "core-nop": {
+      "top_two": [
+        "ubuf_13",
+        "io_2_13"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 4,
+      "rect": {
+        "ubuf_13": [
+          16,
+          25,
+          27,
+          29
+        ],
+        "io_2_13": [
+          15,
+          25,
+          28,
+          30
+        ]
+      },
+      "shared_cells": 9,
+      "mechanism": "shared_cell"
+    },
+    "dram": {
+      "top_two": [
+        "dram_x0_y4",
+        "dram_x0_y0"
+      ],
+      "steady_gap_k": 1.8840000848285854e-07,
+      "bit_identical": false,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 4,
+      "rect": {
+        "dram_x0_y4": [
+          0,
+          11,
+          0,
+          9
+        ],
+        "dram_x0_y0": [
+          53,
+          64,
+          0,
+          9
+        ]
+      },
+      "shared_cells": 0,
+      "mechanism": "symmetric"
+    },
+    "dram-noc": {
+      "top_two": [
+        "dram_x0_y0",
+        "dram_x5_y0"
+      ],
+      "steady_gap_k": 0.03451381580003954,
+      "bit_identical": false,
+      "periodic_gap_k": 0.03999999999996362,
+      "periodic_tie_set_size": 1,
+      "rect": {
+        "dram_x0_y0": [
+          53,
+          64,
+          0,
+          9
+        ],
+        "dram_x5_y0": [
+          53,
+          64,
+          55,
+          64
+        ]
+      },
+      "shared_cells": 0,
+      "mechanism": "not_tied"
+    },
+    "dram-noc-nop": {
+      "top_two": [
+        "dram_x0_y0",
+        "dram_x5_y0"
+      ],
+      "steady_gap_k": 0.03451635260000785,
+      "bit_identical": false,
+      "periodic_gap_k": 0.040000000000020464,
+      "periodic_tie_set_size": 1,
+      "rect": {
+        "dram_x0_y0": [
+          53,
+          64,
+          0,
+          9
+        ],
+        "dram_x5_y0": [
+          53,
+          64,
+          55,
+          64
+        ]
+      },
+      "shared_cells": 0,
+      "mechanism": "not_tied"
+    },
+    "dram-nop": {
+      "top_two": [
+        "dram_x0_y0",
+        "dram_x5_y0"
+      ],
+      "steady_gap_k": 6.280000093283888e-07,
+      "bit_identical": false,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 2,
+      "rect": {
+        "dram_x0_y0": [
+          53,
+          64,
+          0,
+          9
+        ],
+        "dram_x5_y0": [
+          53,
+          64,
+          55,
+          64
+        ]
+      },
+      "shared_cells": 0,
+      "mechanism": "symmetric"
+    },
+    "full": {
+      "top_two": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 2,
+      "rect": {
+        "mtxu_16": [
+          5,
+          12,
+          12,
+          19
+        ],
+        "ubuf_16": [
+          4,
+          13,
+          18,
+          20
+        ]
+      },
+      "shared_cells": 7,
+      "mechanism": "shared_cell"
+    },
+    "noc": {
+      "top_two": [
+        "ubuf_0",
+        "io_2_0"
+      ],
+      "steady_gap_k": 0.0,
+      "bit_identical": true,
+      "periodic_gap_k": 0.0,
+      "periodic_tie_set_size": 4,
+      "rect": {
+        "ubuf_0": [
+          51,
+          60,
+          18,
+          20
+        ],
+        "io_2_0": [
+          50,
+          60,
+          19,
+          20
+        ]
+      },
+      "shared_cells": 9,
+      "mechanism": "shared_cell"
+    },
+    "noc-nop": {
+      "top_two": [
+        "blockX_1",
+        "ubuf_0"
+      ],
+      "steady_gap_k": 0.3532274282999879,
+      "bit_identical": false,
+      "periodic_gap_k": 0.3300000000000409,
+      "periodic_tie_set_size": 1,
+      "rect": {
+        "blockX_1": [
+          50,
+          61,
+          29,
+          35
+        ],
+        "ubuf_0": [
+          51,
+          60,
+          18,
+          20
+        ]
+      },
+      "shared_cells": 0,
+      "mechanism": "not_tied"
+    },
+    "nop": {
+      "top_two": [
+        "blockX_1",
+        "io_0_2"
+      ],
+      "steady_gap_k": 0.6517358544999752,
+      "bit_identical": false,
+      "periodic_gap_k": 0.6700000000000159,
+      "periodic_tie_set_size": 1,
+      "rect": {
+        "blockX_1": [
+          50,
+          61,
+          29,
+          35
+        ],
+        "io_0_2": [
+          51,
+          61,
+          34,
+          36
+        ]
+      },
+      "shared_cells": 10,
+      "mechanism": "overlap_untied"
+    }
+  },
+  "necessary_not_sufficient": "Overlapping rectangles are necessary for a bit-identical pair, not sufficient: 1 row(s) overlap without being bit-identical, because each block's own hottest cell lies outside the shared region.",
+  "unproven": "Not established here: that the shared cell IS the argmax of both rectangles. That needs per-cell temperatures, and HotSpot's cell dump is %.2f -- the repository's precision patch covers the block dump only -- so a full-precision witness would need an instrumented binary whose different hash falls outside the canonical instance."
+}

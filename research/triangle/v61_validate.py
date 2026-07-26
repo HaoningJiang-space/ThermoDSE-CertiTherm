@@ -23,6 +23,7 @@ re-verified here.
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 from itertools import combinations
 from pathlib import Path
@@ -412,8 +413,61 @@ def validate_execution(m: dict, v: dict) -> dict:
             "tied_rows": sorted(t for t in rows if len(v["view"][t]["periodic"]["ties"]) > 1)}
 
 
+def validate_tie_mechanism(m: dict, v: dict, path: Path) -> dict:
+    """Cross-check the geometric tie diagnostic against the manifest it claims to describe.
+
+    The receipt is produced by `v61_tie_mechanism.py`, which reconstructs HotSpot's g2bmap in
+    Python. A reimplementation cannot be its own oracle, so everything the manifest can settle is
+    settled here: the floorplan identity, the run identity, and every per-row bit-identity and
+    steady gap, recomputed from the temperature vectors. What is left to the receipt is the
+    geometry.
+    """
+    if not path.is_file():
+        return {}
+    r = json.loads(path.read_text(encoding="utf-8"))
+    require(get(r, "floorplan_sha256", "tie receipt") == m["input_hashes"]["floorplan"],
+            "the tie diagnostic describes a different floorplan than this manifest")
+    require(get(r, "run_id", "tie receipt") == m["run"]["run_id"],
+            "the tie diagnostic describes a different run than this manifest")
+    require(set(get(r, "rows", "tie receipt")) == set(v["rows"]),
+            "the tie diagnostic covers a different row set")
+    counts = get(r, "mechanism_counts", "tie receipt")
+    require(sum(counts.values()) == len(v["rows"]),
+            f"the tie diagnostic classifies {sum(counts.values())} rows, not {len(v['rows'])}")
+    for tag, row in sorted(r["rows"].items()):
+        w = f"tie receipt row `{tag}`"
+        steady = m["rows"][tag]["mean_steady_block_k"]
+        order = sorted(range(len(steady)), key=lambda i: (-steady[i], i))
+        top = [v["block_ids"][order[0]], v["block_ids"][order[1]]]
+        require(get(row, "top_two", w) == top,
+                f"{w}: names {row['top_two']}, but the vectors give {top}")
+        identical = steady[order[0]] == steady[order[1]]
+        require(get(row, "bit_identical", w) is identical,
+                f"{w}: claims bit_identical={row['bit_identical']}, vectors give {identical}")
+        require(abs(get(row, "steady_gap_k", w)
+                    - (steady[order[0]] - steady[order[1]])) < 1e-15,
+                f"{w}: the recorded steady gap disagrees with the vectors")
+        shared = get(row, "shared_cells", w)
+        if identical:
+            require(shared > 0,
+                    f"{w}: bit-identical from disjoint cell rectangles is impossible under a "
+                    f"`max` mapping that copies a cell value")
+        if row.get("mechanism") == "symmetric":
+            require(shared == 0 and not identical,
+                    f"{w}: a symmetry explanation requires disjoint rectangles and a nonzero gap")
+    return r
+
+
 def build(m: dict) -> tuple:
     ident = validate_identity(m)
     v = validate_rows(m)
     v.update(ident)
     return v, validate_gate(m, v), validate_execution(m, v)
+
+
+def build_with_mechanism(m: dict, manifest_path: Path) -> tuple:
+    """`build`, plus the tie diagnostic if a receipt sits beside the manifest."""
+    v, g, ex = build(m)
+    ex["tie_mechanism"] = validate_tie_mechanism(
+        m, v, Path(manifest_path).parent / "tie_mechanism.json")
+    return v, g, ex

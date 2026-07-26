@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from research.triangle.v61_contract import REGISTRATION, Refuse, rel  # noqa: E402
-from research.triangle.v61_validate import build  # noqa: E402
+from research.triangle.v61_validate import build_with_mechanism  # noqa: E402
 
 
 def render(m: dict, v: dict, g: dict, ex: dict, manifest_path: Path) -> str:
@@ -225,18 +225,62 @@ def render(m: dict, v: dict, g: dict, ex: dict, manifest_path: Path) -> str:
       f"does not predict which source decides the threshold; the deltas do, and they are what a "
       f"paper table should carry rather than the necessity label.")
     A("")
-    A("## Appendix — the reported argmax block is mostly not resolvable")
+    A("## Appendix — why the reported hottest block is tied, and by two different mechanisms")
     A("")
     tied = ex["tied_rows"]
-    exact = [t for t in tied if view[t]["periodic"]["gap_k"] == 0.0]
-    A(f"In **{len(tied)} of {n}** subsets the periodic argmax is tied with at least one other "
-      f"block within one {q} K quantum, and in {len(exact)} of them the top-two gap is exactly "
-      f"`0.000e+00` K — far below quantisation, so the model assigns both blocks the same "
-      f"temperature rather than rounding them together. Under `{m['model']}` a block's "
-      f"temperature is the maximum over the grid cells covering it, so two blocks sharing the "
-      f"hottest cell receive identical values; that is the leading explanation and it is "
-      f"**UNTESTED** here. Every tie set in this document was reconstructed from the per-block "
-      f"temperature vectors, not read from the manifest.")
+    exact = sorted(t for t in view if view[t]["steady"]["gap_k"] == 0.0)
+    A(f"**The statistic to use here is the steady one, not the periodic one.** {len(tied)} of {n} "
+      f"rows have more than one block within one {q} K quantum of the *periodic* peak, but a "
+      f"top-two gap of zero in a value serialised to {q} K is what quantisation *produces* — it "
+      f"cannot show the underlying temperatures are equal. The mean-steady block output carries "
+      f"ten decimals (this repository patches `%.2f` to `%.10f` for the block dump, though not "
+      f"for the per-cell dump), and there **{len(exact)} of {n}** rows have a top-two gap of "
+      f"exactly `0.000e+00` — the same double, bit for bit. An earlier version of this appendix "
+      f"cited the periodic count for a claim only the steady values support.")
+    A("")
+    tm = ex.get("tie_mechanism") or {}
+    if tm:
+        c = tm["mechanism_counts"]
+        g_ = tm["grid"]
+        A(f"`research/triangle/v61_tie_mechanism.py` reconstructs HotSpot's `g2bmap` rectangle for "
+          f"all {len(v['block_ids'])} blocks from the floorplan this run was produced from "
+          f"(hash-verified against the manifest) and the {g_['rows']}x{g_['cols']} grid "
+          f"({g_['cell_w_m']*1e6:.1f} x {g_['cell_h_m']*1e6:.1f} um cells over "
+          f"{g_['chip_w_m']*1e3:.2f} x {g_['chip_h_m']*1e3:.2f} mm). Under `GRID_MAX` a block's "
+          f"temperature is `max` over that rectangle — a value **copied** from one cell — and the "
+          f"rectangle is rounded outward, so it covers every cell the block touches. Two blocks "
+          f"therefore share cells when their common boundary falls *inside* a cell; a "
+          f"grid-aligned boundary produces none.")
+        A("")
+        A("| subset | top two blocks | steady gap (K) | shared cells | mechanism |")
+        A("| --- | --- | ---: | ---: | --- |")
+        for tag in sorted(tm["rows"], key=lambda t: tm["rows"][t]["steady_gap_k"]):
+            r = tm["rows"][tag]
+            A(f"| `{tag}` | `{r['top_two'][0]}` / `{r['top_two'][1]}` | "
+              f"{r['steady_gap_k']:.3e} | {r['shared_cells']} | {r['mechanism']} |")
+        A("")
+        A(f"**Mechanism 1 — a shared boundary cell ({c['shared_cell']} rows).** Every "
+          f"bit-identical pair has overlapping rectangles, so the same cell value is available to "
+          f"both. In the crossing row `{reg['hottest']}` and its partner share "
+          f"{tm['rows'][v['full_tag']]['shared_cells']} cells.")
+        A("")
+        A(f"**Mechanism 2 — floorplan symmetry ({c['symmetric']} rows).** Here the near-degenerate "
+          f"blocks are corner DRAM dies whose rectangles are **disjoint**, so no cell can be "
+          f"shared: they agree to about 1e-7 K but are never bit-identical. `dram-nop` is the "
+          f"clean demonstration — adding NoP separates the top pair from the bottom pair by "
+          f"0.03 K while the left-right pair stays degenerate at 6e-7 K, so the surviving "
+          f"degeneracy is exactly the surviving symmetry. The appendix previously offered only "
+          f"mechanism 1, which is refuted for these rows.")
+        A("")
+        A(f"Overlap is **necessary but not sufficient**: {c['overlap_untied']} row "
+          f"({'`' + [t for t, r in tm['rows'].items() if r['mechanism'] == 'overlap_untied'][0] + '`' if c['overlap_untied'] else 'none'}) "
+          f"has overlapping rectangles and is not tied, because each block's own hottest cell "
+          f"lies outside the shared region. That asymmetry is what makes the classification "
+          f"informative rather than a restatement of adjacency.")
+        A("")
+        A(f"**Still unproven:** {tm['unproven']}")
+    else:
+        A(f"No tie diagnostic accompanies this manifest, so the mechanism is UNTESTED here.")
     A("")
     if ex["moves"]:
         A(f"{len(ex['moves'])} subsets report a different argmax label for the two semantics:")
@@ -246,7 +290,7 @@ def render(m: dict, v: dict, g: dict, ex: dict, manifest_path: Path) -> str:
         A("| --- | --- | --- | ---: | ---: | ---: | --- |")
         for mv in ex["moves"]:
             A(f"| `{mv['tag']}` | `{mv['steady']}` | `{mv['periodic']}` | "
-              f"{mv['steady_gap_k']:.2f} | {mv['periodic_gap_k']:.2f} | "
+              f"{mv['steady_gap_k']:.3e} | {mv['periodic_gap_k']:.3e} | "
               f"{mv['periodic_ties']} | "
               f"{'yes' if mv['resolved'] else 'NO — a tie broken differently'} |")
         A("")
@@ -261,6 +305,13 @@ def render(m: dict, v: dict, g: dict, ex: dict, manifest_path: Path) -> str:
              f"argmax rather than a demonstrated mechanism."))
     else:
         A("No subset reports a different argmax label for the two semantics.")
+    A("")
+    A(f"**What this licenses, and what it does not.** The temperature field and its hottest grid "
+      f"cell are model results. What the mapping makes unresolvable is the attribution of that "
+      f"peak to one named floorplan *block*: at this grid the peak is localised to a "
+      f"{g_['cell_w_m']*1e6:.0f} x {g_['cell_h_m']*1e6:.0f} um cell, and several blocks can own "
+      f"that cell. It does **not** follow that there is no physical hotspot, nor that the "
+      f"equality would survive a finer grid or a different mapping mode." if tm else "")
     A("")
     A("## Scope")
     A("")
@@ -309,7 +360,7 @@ def main() -> None:
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else None
     m = json.loads(manifest_path.read_text())
     try:
-        v, gate, ex = build(m)
+        v, gate, ex = build_with_mechanism(m, manifest_path)
         text = render(m, v, gate, ex, manifest_path)
     except Refuse as exc:
         print(f"REFUSING to render: {exc}")

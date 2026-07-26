@@ -108,18 +108,48 @@ The full set crosses by only **+0.19 K** (330.19 K against a 330.0 K limit). Eve
 
 The informative row is the smallest. `nop` carries 5.377% of the dissipated energy yet its removal drops the periodic peak by 0.41 K — 2.2x the excess and 41x the 0.01 K quantum. Energy share does not predict which source decides the threshold; the deltas do, and they are what a paper table should carry rather than the necessity label.
 
-## Appendix — the reported argmax block is mostly not resolvable
+## Appendix — why the reported hottest block is tied, and by two different mechanisms
 
-In **11 of 15** subsets the periodic argmax is tied with at least one other block within one 0.01 K quantum, and in 11 of them the top-two gap is exactly `0.000e+00` K — far below quantisation, so the model assigns both blocks the same temperature rather than rounding them together. Under `grid64-max` a block's temperature is the maximum over the grid cells covering it, so two blocks sharing the hottest cell receive identical values; that is the leading explanation and it is **UNTESTED** here. Every tie set in this document was reconstructed from the per-block temperature vectors, not read from the manifest.
+**The statistic to use here is the steady one, not the periodic one.** 11 of 15 rows have more than one block within one 0.01 K quantum of the *periodic* peak, but a top-two gap of zero in a value serialised to 0.01 K is what quantisation *produces* — it cannot show the underlying temperatures are equal. The mean-steady block output carries ten decimals (this repository patches `%.2f` to `%.10f` for the block dump, though not for the per-cell dump), and there **9 of 15** rows have a top-two gap of exactly `0.000e+00` — the same double, bit for bit. An earlier version of this appendix cited the periodic count for a claim only the steady values support.
+
+`research/triangle/v61_tie_mechanism.py` reconstructs HotSpot's `g2bmap` rectangle for all 233 blocks from the floorplan this run was produced from (hash-verified against the manifest) and the 64x64 grid (339.0 x 280.5 um cells over 21.70 x 17.95 mm). Under `GRID_MAX` a block's temperature is `max` over that rectangle — a value **copied** from one cell — and the rectangle is rounded outward, so it covers every cell the block touches. Two blocks therefore share cells when their common boundary falls *inside* a cell; a grid-aligned boundary produces none.
+
+| subset | top two blocks | steady gap (K) | shared cells | mechanism |
+| --- | --- | ---: | ---: | --- |
+| `core` | `mtxu_16` / `ubuf_16` | 0.000e+00 | 7 | shared_cell |
+| `core-dram` | `mtxu_16` / `ubuf_16` | 0.000e+00 | 7 | shared_cell |
+| `core-dram-noc` | `mtxu_16` / `ubuf_16` | 0.000e+00 | 7 | shared_cell |
+| `core-dram-nop` | `ubuf_13` / `io_2_13` | 0.000e+00 | 9 | shared_cell |
+| `core-noc` | `mtxu_16` / `ubuf_16` | 0.000e+00 | 7 | shared_cell |
+| `core-noc-nop` | `mtxu_16` / `ubuf_16` | 0.000e+00 | 7 | shared_cell |
+| `core-nop` | `ubuf_13` / `io_2_13` | 0.000e+00 | 9 | shared_cell |
+| `full` | `mtxu_16` / `ubuf_16` | 0.000e+00 | 7 | shared_cell |
+| `noc` | `ubuf_0` / `io_2_0` | 0.000e+00 | 9 | shared_cell |
+| `dram` | `dram_x0_y4` / `dram_x0_y0` | 1.884e-07 | 0 | symmetric |
+| `dram-nop` | `dram_x0_y0` / `dram_x5_y0` | 6.280e-07 | 0 | symmetric |
+| `dram-noc` | `dram_x0_y0` / `dram_x5_y0` | 3.451e-02 | 0 | not_tied |
+| `dram-noc-nop` | `dram_x0_y0` / `dram_x5_y0` | 3.452e-02 | 0 | not_tied |
+| `noc-nop` | `blockX_1` / `ubuf_0` | 3.532e-01 | 0 | not_tied |
+| `nop` | `blockX_1` / `io_0_2` | 6.517e-01 | 10 | overlap_untied |
+
+**Mechanism 1 — a shared boundary cell (9 rows).** Every bit-identical pair has overlapping rectangles, so the same cell value is available to both. In the crossing row `mtxu_16` and its partner share 7 cells.
+
+**Mechanism 2 — floorplan symmetry (2 rows).** Here the near-degenerate blocks are corner DRAM dies whose rectangles are **disjoint**, so no cell can be shared: they agree to about 1e-7 K but are never bit-identical. `dram-nop` is the clean demonstration — adding NoP separates the top pair from the bottom pair by 0.03 K while the left-right pair stays degenerate at 6e-7 K, so the surviving degeneracy is exactly the surviving symmetry. The appendix previously offered only mechanism 1, which is refuted for these rows.
+
+Overlap is **necessary but not sufficient**: 1 row (`nop`) has overlapping rectangles and is not tied, because each block's own hottest cell lies outside the shared region. That asymmetry is what makes the classification informative rather than a restatement of adjacency.
+
+**Still unproven:** Not established here: that the shared cell IS the argmax of both rectangles. That needs per-cell temperatures, and HotSpot's cell dump is %.2f -- the repository's precision patch covers the block dump only -- so a full-precision witness would need an instrumented binary whose different hash falls outside the canonical instance.
 
 2 subsets report a different argmax label for the two semantics:
 
 | subset | steady argmax | periodic argmax | steady gap (K) | periodic gap (K) | periodic tie set | relocation? |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| `core-dram-nop` | `ubuf_13` | `mtxu_16` | 0.00 | 0.00 | 2 | NO — a tie broken differently |
-| `dram` | `dram_x0_y4` | `dram_x0_y0` | 0.00 | 0.00 | 4 | NO — a tie broken differently |
+| `core-dram-nop` | `ubuf_13` | `mtxu_16` | 0.000e+00 | 0.000e+00 | 2 | NO — a tie broken differently |
+| `dram` | `dram_x0_y4` | `dram_x0_y0` | 1.884e-07 | 0.000e+00 | 4 | NO — a tie broken differently |
 
 A label change counts as a relocation only if BOTH endpoints are resolvable: the old block outside the new tie set, the new block outside the old one, and both gaps above one quantum. 2 of 2 fail that test (`core-dram-nop`, `dram`), so they are not evidence that a peak moved.
+
+**What this licenses, and what it does not.** The temperature field and its hottest grid cell are model results. What the mapping makes unresolvable is the attribution of that peak to one named floorplan *block*: at this grid the peak is localised to a 339 x 280 um cell, and several blocks can own that cell. It does **not** follow that there is no physical hotspot, nor that the equality would survive a finer grid or a different mapping mode.
 
 ## Scope
 

@@ -658,3 +658,100 @@ def test_a_bundle_claimed_to_be_in_the_repository_is_refused(man):
 def test_a_malformed_bundle_hash_is_refused(man):
     man["raw_output_bundle"]["sha256"] = "short"
     _refuses(man, "is not a sha256")
+
+
+# --- the tie mechanism diagnostic ------------------------------------------------------
+# The appendix carried ONE explanation, labelled UNTESTED, and cited the periodic tie count to
+# support it. A gap of zero in a value serialised to 0.01 K is what quantisation produces; only
+# the ten-decimal steady values can show bit-identity. There turned out to be two mechanisms.
+
+TIE_RECEIPT = ROOT / "artifacts_receipts/v61_cg5_schema5/tie_mechanism.json"
+FLOORPLAN = ROOT / "artifacts_receipts/v61_cg5_schema5/frozen_floorplan.flp"
+
+
+@pytest.mark.skipif(not TIE_RECEIPT.exists(), reason="tie receipt not present")
+def test_the_tie_receipt_is_cross_checked_against_the_manifest():
+    m = json.loads(ARCHIVED.read_text())
+    v, _, ex = V.build_with_mechanism(m, ARCHIVED)
+    tm = ex["tie_mechanism"]
+    c = tm["mechanism_counts"]
+    assert sum(c.values()) == len(v["rows"])
+    # the two mechanisms, and the exception that makes overlap necessary-but-not-sufficient
+    assert c["shared_cell"] == 9 and c["symmetric"] == 2 and c["overlap_untied"] == 1
+    for tag, row in tm["rows"].items():
+        if row["bit_identical"]:
+            assert row["shared_cells"] > 0, f"{tag}: bit-identical from disjoint rectangles"
+        if row["mechanism"] == "symmetric":
+            assert row["shared_cells"] == 0 and not row["bit_identical"]
+
+
+@pytest.mark.skipif(not TIE_RECEIPT.exists(), reason="tie receipt not present")
+def test_a_receipt_that_contradicts_the_vectors_is_refused(monkeypatch, tmp_path):
+    """The receipt reconstructs HotSpot's mapping in Python and cannot be its own oracle, so
+    every claim the manifest can settle is settled from the temperature vectors."""
+    m = json.loads(ARCHIVED.read_text())
+    r = json.loads(TIE_RECEIPT.read_text())
+    r["rows"]["full"]["bit_identical"] = False
+    fake = tmp_path / "tie_mechanism.json"
+    fake.write_text(json.dumps(r))
+    v, _, _ = V.build(m)
+    with pytest.raises(C.Refuse, match="claims bit_identical"):
+        V.validate_tie_mechanism(m, v, fake)
+
+
+@pytest.mark.skipif(not TIE_RECEIPT.exists(), reason="tie receipt not present")
+def test_a_bit_identical_pair_from_disjoint_rectangles_is_refused(tmp_path):
+    """`max` copies a cell value, so two blocks cannot return the same double from disjoint cell
+    sets. If the receipt claims that, either its geometry is wrong or the mechanism is not the
+    mapping -- and either way it must not be printed."""
+    m = json.loads(ARCHIVED.read_text())
+    r = json.loads(TIE_RECEIPT.read_text())
+    r["rows"]["full"]["shared_cells"] = 0
+    fake = tmp_path / "tie_mechanism.json"
+    fake.write_text(json.dumps(r))
+    v, _, _ = V.build(m)
+    with pytest.raises(C.Refuse, match="disjoint cell rectangles is impossible"):
+        V.validate_tie_mechanism(m, v, fake)
+
+
+@pytest.mark.skipif(not TIE_RECEIPT.exists(), reason="tie receipt not present")
+def test_a_receipt_for_a_different_floorplan_is_refused(tmp_path):
+    m = json.loads(ARCHIVED.read_text())
+    r = json.loads(TIE_RECEIPT.read_text())
+    r["floorplan_sha256"] = "f" * 64
+    fake = tmp_path / "tie_mechanism.json"
+    fake.write_text(json.dumps(r))
+    v, _, _ = V.build(m)
+    with pytest.raises(C.Refuse, match="different floorplan"):
+        V.validate_tie_mechanism(m, v, fake)
+
+
+@pytest.mark.skipif(not FLOORPLAN.exists(), reason="floorplan not present")
+def test_the_committed_floorplan_is_the_one_the_run_used():
+    import hashlib
+    m = json.loads(ARCHIVED.read_text())
+    assert hashlib.sha256(FLOORPLAN.read_bytes()).hexdigest() == m["input_hashes"]["floorplan"]
+
+
+@pytest.mark.skipif(not FLOORPLAN.exists(), reason="floorplan not present")
+def test_the_reconstructed_geometry_reproduces_the_observed_pattern():
+    """The Python reconstruction of HotSpot's g2bmap is checked by the pattern it must produce:
+    across 233 blocks and 15 rows, every bit-identical pair overlaps and no disjoint pair is
+    bit-identical. A wrong rectangle would break that."""
+    from research.triangle import v61_tie_mechanism as T
+    m = json.loads(ARCHIVED.read_text())
+    result = T.analyse(m, FLOORPLAN)
+    for tag, row in result["rows"].items():
+        assert row["bit_identical"] == (row["shared_cells"] > 0 and row["steady_gap_k"] == 0.0)
+    assert result["grid"]["rows"] == result["grid"]["cols"] == 64
+
+
+def test_the_document_states_both_mechanisms_and_the_right_statistic(tmp_path):
+    doc = DOCUMENT.read_text()
+    assert "two different mechanisms" in doc
+    assert "Mechanism 1 — a shared boundary cell" in doc
+    assert "Mechanism 2 — floorplan symmetry" in doc
+    assert "necessary but not sufficient" in doc
+    # the corrected statistic, and the reason the old one was wrong
+    assert "what quantisation *produces*" in doc
+    assert "It does **not** follow that there is no physical hotspot" in doc
