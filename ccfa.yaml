@@ -16,7 +16,7 @@ active_contract: "docs/V6_DIRECTION_DECISION.md"
 # grid64-avg, periodic time structure changes no feasibility decision, thermal ordering or
 # selected architecture across the 2x3 matrix (largest uplift 0.144 K), while spatial model
 # choice exceeds temporal uplift in all six comparisons and yields a 33.01% decision-regret
-# case. Exactly one converged counterexample survives -- Transformer/arch_b under grid-max,
+# case. Exactly one converged counterexample survives -- Transformer/arch_b under grid64-max,
 # 329.904867 K time-mean vs 330.19 K periodic at mtxu_16 -- and V6.1 exists to attribute it
 # to a power component before any corrected top-K frontier is attempted.
 # The legacy ThermoDSE ptrace path is NOT valid evidence: see docs/THERMODSE_ENDPOINT_AUDIT.md.
@@ -289,6 +289,10 @@ reference_sources:
       any of these must be recorded in vendor/ with source repo, commit, path,
       owner/license, reuse mode and semantic delta before it lands.
 
+# Audit and fix ledger. These six entries were misfiled INSIDE reference_sources by
+# commit 92d82e2, whose first element is a mapping -- so any consumer doing
+# reference_sources[i]["path"] crashed on a string, and any ledger scan missed all six.
+audit_ledger:
   - "FIXED 2026-07-22, introduced same day: the ordered-query failure path added the failing candidate's local bound twice (it is accumulated before the status is examined, then added again). The reported query lower bound could therefore EXCEED the true optimum -- an invalid bound, the one error class this contract exists to exclude. Caught by ccf-integrity-auditor before any result depended on it; pinned by a regression test asserting the bound never exceeds the full-library cost."
 
   - "IMPLEMENTED 2026-07-22: Anytime-DSOS runs under a single end-to-end budget and the driver sources every primary endpoint from that one result. Pre-push audit caught that the first attempt built U as min(width, dual, fixed) in the driver -- violating the freeze twice (separately budgeted runs; independent baselines substituted into U) -- while unit tests called the controller directly and therefore missed the wiring error. A regression now asserts that independent baselines cannot leak into U/L. Commit c830327 removed the fixed 0.2 split: width may use the current remaining budget to obtain a replayable upper contract, and exact proof search receives the actual remainder. RESIDUAL: the SIGALRM budget is cooperative rather than a preemptive process deadline."
