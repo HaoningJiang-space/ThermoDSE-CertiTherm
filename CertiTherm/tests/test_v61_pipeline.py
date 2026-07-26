@@ -154,9 +154,12 @@ def test_reuse_is_refused_for(tmp_path, over, reason):
     assert not F.reusable(tmp_path, _want()), f"must refuse to reuse: {reason}"
 
 
-def test_reuse_is_accepted_only_for_a_complete_matching_row(tmp_path):
+def test_a_matching_row_without_process_evidence_is_no_longer_reusable(tmp_path):
+    """Under schema 3 a complete, fingerprint-matching row is still refused if it carries no
+    execution receipt: the numbers alone cannot show the solver ran. The positive case is
+    `test_reuse_is_accepted_for_a_row_with_an_execution_receipt` below."""
     (tmp_path / "v61_row.json").write_text(json.dumps(_row()))
-    assert F.reusable(tmp_path, _want())
+    assert not F.reusable(tmp_path, _want())
 
 
 def test_reuse_is_refused_when_the_row_is_unreadable(tmp_path):
@@ -226,15 +229,9 @@ def _v3_row(**over):
     return row
 
 
-def _v3_want():
-    want = _want()
-    want["schema_version"] = F.SCHEMA_VERSION
-    return want
-
-
 def test_reuse_is_accepted_for_a_row_with_an_execution_receipt(tmp_path):
     (tmp_path / "v61_row.json").write_text(json.dumps(_v3_row()))
-    assert F.reusable(tmp_path, _v3_want())
+    assert F.reusable(tmp_path, _want())
 
 
 @pytest.mark.parametrize("over,reason", [
@@ -247,4 +244,4 @@ def test_reuse_is_accepted_for_a_row_with_an_execution_receipt(tmp_path):
 ])
 def test_reuse_is_refused_without_process_evidence(tmp_path, over, reason):
     (tmp_path / "v61_row.json").write_text(json.dumps(_v3_row(**over)))
-    assert not F.reusable(tmp_path, _v3_want()), f"must refuse to reuse: {reason}"
+    assert not F.reusable(tmp_path, _want()), f"must refuse to reuse: {reason}"
