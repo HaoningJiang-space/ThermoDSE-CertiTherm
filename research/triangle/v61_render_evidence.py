@@ -185,6 +185,26 @@ def validate_rows(m: dict) -> dict:
                 v == "indeterminate" for v in status.values())}
 
 
+def check_citation(cite: dict, values) -> None:
+    """A pinned document:line must still contain the values recorded beside it.
+
+    Line numbers drift the moment the cited document is edited -- this record was wrong
+    within an hour of being written, because adding a correction paragraph above the cited
+    table shifted it by one. A wrong citation prints silently, so it has to be a refusal.
+    """
+    path = ROOT / _get(cite, "document", "citation")
+    _require(path.is_file(), f"cited document {cite['document']} is missing")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    n = _get(cite, "line", "citation")
+    _require(1 <= n <= len(lines),
+             f"{cite['document']}:{n} is past the end of a {len(lines)}-line file")
+    line = lines[n - 1]
+    for v in values:
+        _require(str(v) in line,
+                 f"{cite['document']}:{n} no longer contains {v!r}; the pinned citation in "
+                 f"{REGISTRATION.relative_to(ROOT)} is stale")
+
+
 def validate_gate(m: dict, view: dict) -> dict:
     """Recompute the gate from the full row and the PINNED registration.
 
@@ -205,6 +225,12 @@ def validate_gate(m: dict, view: dict) -> dict:
                  f"not apply and no registered comparison may be printed")
     _require(view["limit"] == reg["thermal_limit_k"],
              "the run's thermal limit is not the registered one")
+    check_citation(pinned["grid64_source"],
+                   [reg["hottest"], reg["periodic_peak_k"], reg["mean_steady_peak_k"]])
+    check_citation(pinned["grid128_row"], [pinned["grid128_row"]["steady_block"],
+                                           pinned["grid128_row"]["periodic_block"]])
+    check_citation(pinned["earlier_hotspot_binary_sha256"],
+                   [pinned["earlier_hotspot_binary_sha256"]["sha256"]])
 
     full, q = view["full"], view["quantum"]
     # The DECISION uses the same quantisation-aware rule as every row, not a bare `>= limit`.

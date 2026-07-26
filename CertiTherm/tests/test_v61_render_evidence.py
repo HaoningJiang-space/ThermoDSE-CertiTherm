@@ -470,3 +470,47 @@ def test_the_committed_document_regenerates_byte_for_byte(tmp_path):
     assert out.read_text() == doc.read_text(), (
         "docs/V6_1_CAUSAL_ISOLATION.md is not the output of the current generator; "
         "regenerate it instead of editing it")
+
+
+# --- pinned citations drift the moment the cited document is edited --------------------
+
+def test_a_stale_cited_line_is_a_refusal(man, monkeypatch, tmp_path):
+    """This is not hypothetical: inserting a correction paragraph above the cited table
+    shifted every line number in the registration by one, within an hour of writing it. A
+    wrong citation prints silently, so it has to refuse."""
+    pinned = json.loads(R.REGISTRATION.read_text())
+    pinned["grid128_row"]["line"] = 1
+    fake = tmp_path / "registration.json"
+    fake.write_text(json.dumps(pinned))
+    monkeypatch.setattr(R, "REGISTRATION", fake)
+    _refuses(man, "no longer contains")
+
+
+def test_a_line_past_the_end_of_the_file_is_a_refusal(man, monkeypatch, tmp_path):
+    pinned = json.loads(R.REGISTRATION.read_text())
+    pinned["grid64_source"]["line"] = 10 ** 6
+    fake = tmp_path / "registration.json"
+    fake.write_text(json.dumps(pinned))
+    monkeypatch.setattr(R, "REGISTRATION", fake)
+    _refuses(man, "past the end")
+
+
+def test_a_missing_cited_document_is_a_refusal(man, monkeypatch, tmp_path):
+    pinned = json.loads(R.REGISTRATION.read_text())
+    pinned["earlier_hotspot_binary_sha256"]["document"] = "docs/does-not-exist.md"
+    fake = tmp_path / "registration.json"
+    fake.write_text(json.dumps(pinned))
+    monkeypatch.setattr(R, "REGISTRATION", fake)
+    _refuses(man, "cited document")
+
+
+def test_the_live_citations_all_resolve():
+    """Guards the committed registration against the next edit to either cited document."""
+    pinned = json.loads(R.REGISTRATION.read_text())
+    reg = pinned["registered_tuple"]
+    R.check_citation(pinned["grid64_source"],
+                     [reg["hottest"], reg["periodic_peak_k"], reg["mean_steady_peak_k"]])
+    R.check_citation(pinned["grid128_row"], [pinned["grid128_row"]["steady_block"],
+                                             pinned["grid128_row"]["periodic_block"]])
+    R.check_citation(pinned["earlier_hotspot_binary_sha256"],
+                     [pinned["earlier_hotspot_binary_sha256"]["sha256"]])

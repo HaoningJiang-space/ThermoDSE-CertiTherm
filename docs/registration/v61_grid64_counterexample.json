@@ -20,13 +20,13 @@
   },
   "grid64_source": {
     "document": "docs/V6_PHYSICAL_TRACE_GATE.md",
-    "line": 147,
+    "line": 148,
     "steady_block": "mtxu_16",
     "periodic_block": "mtxu_16"
   },
   "grid128_row": {
     "document": "docs/V6_PHYSICAL_TRACE_GATE.md",
-    "line": 148,
+    "line": 149,
     "steady_block": "ubuf_13",
     "periodic_block": "ubuf_16",
     "note": "Externally supplied. grid128-max has NOT been run as a factorial; its registered argmax differs from grid64's and moves between the two semantics."
@@ -36,5 +36,6 @@
     "line": 86,
     "sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
     "note": "The binary used by the earlier transient work. A run whose staged binary hashes to this value cannot be an independent numerical confirmation of that work's numbers -- identical inputs through an identical binary are arithmetically determined to agree."
-  }
+  },
+  "citation_contract": "Each cited document/line must still contain the values recorded beside it; the renderer refuses otherwise. Line numbers drift when the cited document is edited -- this record was already wrong once within an hour of being written."
 }

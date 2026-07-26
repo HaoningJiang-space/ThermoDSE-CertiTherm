@@ -118,9 +118,12 @@ def _peak_and_ties(
         raise ValueError("temperature vector does not match the block list")
     winner = int(np.argmax(values))
     peak = float(values[winner])
+    # A STABLE sort, so the tie listing is reproducible and its order is documented: hottest
+    # first, then block order among equal values. With an unstable sort the order among exact
+    # ties is arbitrary, and exact ties are the common case here -- 11 of 15 V6.1 subsets.
     ties = tuple(
         str(block_ids[i])
-        for i in np.argsort(-values)
+        for i in np.argsort(-values, kind="stable")
         if peak - float(values[i]) <= resolution_k + 1e-9
     )
     others = np.delete(values, winner)

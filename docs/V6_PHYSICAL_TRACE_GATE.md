@@ -129,9 +129,10 @@ operator.
 ### Grid-max boundary case
 
 `grid64-max` is used here because a safety decision cannot be justified from cell averages.
-For Transformer/`arch_b`, its time-mean steady peak is 329.904867 K at `mtxu_16`, while
-the 0.5 us periodic replay reaches 330.19 K at the same location. Thus the same registered
+For Transformer/`arch_b`, its time-mean steady peak is 329.904867 K and the 0.5 us periodic
+replay reaches 330.19 K, both reported at `mtxu_16`. Thus the same registered
 HotSpot model contains a mean-to-periodic feasibility flip at the declared 330 K boundary.
+(**"At `mtxu_16`" is a reported label, not a location** — see the correction below.)
 Time-step convergence is exact at HotSpot's output precision:
 
 | model | max step | actual step | cycles | mean steady | periodic | boundary residual |
@@ -151,6 +152,34 @@ The grid-refined periodic peaks differ by 0.01 K and both cross 330 K. Local hot
 identity changes, so `grid64-max` is not a claim about exact hotspot ownership, but the
 feasibility flip is invariant. This closes the registered HotSpot time/grid convergence
 gate positively.
+
+### Correction, 2026-07-26 — the reported hottest block is not a location
+
+The V6.1 factorial (`docs/V6_1_CAUSAL_ISOLATION.md`, manifest
+`artifacts_receipts/v61_cg3_schema3/`) recorded the runner-up temperature and the
+resolution-aware tie set for the first time, and it withdraws the location readings above,
+though not the temperatures.
+
+- In **11 of the 15** subsets of that factorial the periodic argmax is tied with at least one
+  other block, most at a top-two gap of exactly `0.000e+00` K. That is far below the 0.01 K
+  output quantum: the model assigns the two blocks the same temperature, it does not merely
+  round them together.
+- The crossing row is one of them. `mtxu_16` is tied with `ubuf_16` at 330.19 K periodic and
+  at 329.904867 K time-mean steady. So "all three runs identify `mtxu_16`" and "the same
+  location" state that a tie was broken the same way, not that a hotspot was located.
+- This is demonstrable rather than hypothetical: changing the argmax from a flat maximum over
+  (sample, block) to a per-block maximum — a refactor that leaves every temperature bit
+  identical — changed one row's reported label. Two independent claim-grade runs at different
+  commits agree on all 30 temperatures and disagree on one label.
+- Consequently the `grid64` vs `grid128` label difference (`mtxu_16` vs `ubuf_13`/`ubuf_16`)
+  cannot be read as a spatial finding either. The leading explanation is that under a `max`
+  grid mapping a block takes the maximum over the cells covering it, so blocks sharing the
+  hottest cell receive identical values; that is **UNTESTED**.
+
+What survives unchanged: every temperature, the convergence table, and the feasibility flip.
+What is withdrawn: any reading of the reported block name as hotspot ownership. The V6.1
+gate's exact-argmax-equality check is correspondingly fragile and is recorded there as an
+open item.
 
 The comparison is threshold-sensitive: the observed uplift is only 0.285 K and HotSpot
 serializes transient output to 0.01 K. It proves neither silicon temperature nor general

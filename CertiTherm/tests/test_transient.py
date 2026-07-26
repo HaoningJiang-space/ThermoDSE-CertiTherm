@@ -118,3 +118,13 @@ def test_invocation_count_has_no_default():
     field = PeriodicTransientResult.__dataclass_fields__["hotspot_invocations"]
     assert field.default is dataclasses.MISSING
     assert field.default_factory is dataclasses.MISSING
+
+
+def test_the_tie_set_order_is_stable_and_documented():
+    """Exact ties are the common case (11 of 15 V6.1 subsets), and an unstable sort left
+    their order arbitrary. Hottest first, then block order among equal values."""
+    winner, _, ties = _peak_and_ties(
+        np.asarray([330.0, 330.0, 330.0, 320.0]), ("d", "c", "b", "a"), OUTPUT_RESOLUTION_K
+    )
+    assert winner == 0, "argmax takes the first maximum in block order"
+    assert ties == ("d", "c", "b"), "block order among exact ties, not an arbitrary permutation"
