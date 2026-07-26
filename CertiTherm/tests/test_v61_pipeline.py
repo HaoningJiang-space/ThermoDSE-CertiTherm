@@ -245,3 +245,35 @@ def test_reuse_is_accepted_for_a_row_with_an_execution_receipt(tmp_path):
 def test_reuse_is_refused_without_process_evidence(tmp_path, over, reason):
     (tmp_path / "v61_row.json").write_text(json.dumps(_v3_row(**over)))
     assert not F.reusable(tmp_path, _want()), f"must refuse to reuse: {reason}"
+
+
+# --- one copy of the rules that decide evidence ---------------------------------------
+
+def test_the_driver_and_the_renderer_share_one_classification_rule():
+    """They each carried their own `classify`. The copies agreed by luck; the gate's own
+    decision did not agree with either, which is how a row at exactly the limit could pass a
+    gate that classification calls undecidable."""
+    from research.triangle import v61_contract as C
+    from research.triangle import v61_render_evidence as R
+    assert F._classify is C.classify
+    assert R.classify is C.classify
+    assert F.subset_tag(F.COMPONENTS) == C.subset_tag(F.COMPONENTS, F.COMPONENTS) == "full"
+    src = (ROOT / "research/triangle/v61_frozen_factorial.py").read_text()
+    assert "return \"crossing\"" not in src, "the driver must not keep a second classifier"
+
+
+def test_the_output_quantum_is_not_a_bare_literal_in_the_driver():
+    """`tolerance_k: 0.01` was written out three times, unconnected to HotSpot's actual
+    serialisation limit."""
+    from research.triangle import v61_contract as C
+    src = (ROOT / "research/triangle/v61_frozen_factorial.py").read_text()
+    assert 'tolerance_k": 0.01' not in src and "tolerance_k=0.01" not in src
+    assert F.GATE["tolerance_k"] == C.OUTPUT_RESOLUTION_K
+
+
+def test_the_shared_quantum_comes_from_the_transient_engine():
+    """Not a third independent constant: the convergence guard and the classification must be
+    unable to disagree."""
+    from research.triangle import v61_contract as C
+    from CertiTherm.transient import OUTPUT_RESOLUTION_K
+    assert C.OUTPUT_RESOLUTION_K is OUTPUT_RESOLUTION_K

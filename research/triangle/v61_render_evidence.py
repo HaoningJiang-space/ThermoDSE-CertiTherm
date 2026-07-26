@@ -1,21 +1,3 @@
-"""Render the V6.1 evidence document from a manifest. (NON-CLAIM tooling)
-
-What this generator independently RECOMPUTES from `rows`, and refuses to render on any
-disagreement: the subset enumeration, the quantisation-aware classification of every row, the
-crossing coalitions, the leave-one-out table, the energy ledger, convergence, cross-row
-provenance identity, and the gate verdicts (against the pinned registration in
-`docs/registration/`, not against the manifest's own copy of them).
-
-What remains PRODUCER-REPORTED and is labelled as such in the output: the per-row temperature
-scalars themselves, the superposition residual, the execution receipts, and the narrative
-scope sentence. This generator cannot re-derive those without the raw traces; calling the
-receipts "proof of execution" would be an overclaim, so the document calls them an audit
-receipt. An earlier version of this docstring claimed "every derived claim" and "nothing here
-may be a bare literal" -- both were false, and the slogans were what let four literals and
-several copied verdicts survive.
-
-Usage: python research/triangle/v61_render_evidence.py <manifest.json> [out.md]
-"""
 from __future__ import annotations
 
 import json
@@ -23,59 +5,25 @@ import sys
 from itertools import combinations
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-REGISTRATION = ROOT / "docs/registration/v61_grid64_counterexample.json"
+# Run as a script, sys.path[0] is this directory, not the repo root -- so the shared contract
+# is unimportable without this. The driver does the same for the same reason.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from research.triangle.v61_contract import (
+    REGISTRATION,
+    ROOT,
+    Refuse,
+    check_citation,
+    classify,
+    finite as _finite,
+    get as _get,
+    load_registration,
+    rel as _rel,
+    require as _require,
+    subset_tag,
+)
+
 REQUIRED_SCHEMA = 3
-
-
-def _rel(path: Path) -> str:
-    """Repo-relative when inside the tree, absolute otherwise.
-
-    `Path.relative_to` RAISES for a path outside ROOT, and this was called from inside
-    refusal messages -- so a refusal about a misplaced registration crashed with a ValueError
-    instead of printing. An error path must never be able to raise.
-    """
-    try:
-        return str(path.resolve().relative_to(ROOT))
-    except ValueError:
-        return str(path)
-
-
-class Refuse(Exception):
-    """Any inconsistency, missing evidence, or unmet precondition. Never rendered around."""
-
-
-def _require(cond: bool, msg: str) -> None:
-    if not cond:
-        raise Refuse(msg)
-
-
-def _get(d: dict, key: str, where: str):
-    """Fetch a required field as a Refuse, not a KeyError -- a traceback is not fail-closed."""
-    _require(key in d, f"{where}: required field `{key}` is missing")
-    return d[key]
-
-
-def _finite(value, where: str) -> float:
-    _require(isinstance(value, (int, float)) and not isinstance(value, bool)
-             and value == value and abs(value) != float("inf"),
-             f"{where} is not a finite number ({value!r})")
-    return float(value)
-
-
-def subset_tag(components, all_components) -> str:
-    return "full" if set(components) == set(all_components) else "-".join(sorted(components))
-
-
-def classify(periodic_k: float, limit_k: float, quantum_k: float) -> str:
-    """The ONE classification rule. Strictly outside the two-sided quantum band, or
-    INDETERMINATE: at a 330.0 K limit and a 0.01 K quantum, >= 330.01 crosses, <= 329.99 is
-    below, and exactly 330.00 is undecidable."""
-    if periodic_k >= limit_k + quantum_k:
-        return "crossing"
-    if periodic_k <= limit_k - quantum_k:
-        return "below"
-    return "indeterminate"
 
 
 # --- validation ------------------------------------------------------------------------
@@ -225,8 +173,7 @@ def validate_gate(m: dict, view: dict) -> dict:
     verbatim, so an edited manifest could assert a passing gate with untouched rows. They are
     now recomputed and the stored copies must agree.
     """
-    _require(REGISTRATION.is_file(), f"pinned registration {REGISTRATION} is missing")
-    pinned = json.loads(REGISTRATION.read_text())
+    pinned = load_registration(REGISTRATION)
     reg = pinned["registered_tuple"]
     stored = _get(m["gate"], "registered_tuple", "gate")
     _require(stored == reg,

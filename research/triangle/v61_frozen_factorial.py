@@ -55,6 +55,12 @@ from CertiTherm.experiments import HOTSPOT, THERMAL_LIMIT_K
 from CertiTherm.routed_trace import COMPONENTS, lower_routed_trace
 from CertiTherm.transient import replay_periodic
 from research.triangle.complete_trace_probe import capture_frozen_inputs
+# One copy of the rules that decide evidence, shared with the renderer. The driver used to
+# carry its own `classify` and `subset_tag`; they agreed by luck, and the gate's own decision
+# did NOT agree with them.
+from research.triangle.v61_contract import OUTPUT_RESOLUTION_K
+from research.triangle.v61_contract import classify as _classify
+from research.triangle.v61_contract import subset_tag as _subset_tag
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/v61frozen")
 MODEL = sys.argv[2] if len(sys.argv) > 2 else "grid64-max"
@@ -66,7 +72,7 @@ AMBIENT_K = 318.15
 # The gate is registered for a COMPLETE tuple, not just a model. Applying it to any
 # grid64-max run would compare a different workload/architecture against these values.
 GATE = {"workload": "transformer", "arch": "arch_b", "model": "grid64-max",
-        "max_step_us": 0.5, "ambient_k": 318.15, "tolerance_k": 0.01,
+        "max_step_us": 0.5, "ambient_k": 318.15, "tolerance_k": OUTPUT_RESOLUTION_K,
         "io_aspect_ratio": 1.0, "thermal_limit_k": 330.0,
         "mean_steady_peak_k": 329.904867, "periodic_peak_k": 330.19,
         "hottest": "mtxu_16",
@@ -180,7 +186,7 @@ def git_state():
 
 
 def subset_tag(sub) -> str:
-    return "full" if len(sub) == len(COMPONENTS) else "-".join(sorted(sub))
+    return _subset_tag(sub, COMPONENTS)
 
 
 def reusable(dest: Path, want: dict) -> bool:
@@ -313,7 +319,8 @@ def main() -> None:
                 "diff_sha256": diff_sha, "workload": WORKLOAD, "arch": ARCH,
                 "model": MODEL, "max_step_us": STEP_US, "components": list(sub),
                 "input_hashes": input_hashes, "hotspot_sha256": hotspot_sha,
-                "ambient_k": AMBIENT_K, "tolerance_k": 0.01, "io_aspect_ratio": 1.0,
+                "ambient_k": AMBIENT_K, "tolerance_k": OUTPUT_RESOLUTION_K,
+                "io_aspect_ratio": 1.0,
                 "trace_sha256": trace_sha}
         if reusable(dest, want):
             row = json.loads((dest / "v61_row.json").read_text())
@@ -334,7 +341,7 @@ def main() -> None:
                 materials=staged["materials"], model_id=MODEL,
                 block_ids=frozen["augmented"].block_ids, trace=rows[sub].trace,
                 workspace=dest / "hotspot", max_step_s=STEP_US * 1e-6,
-                fixed_initial_k=AMBIENT_K, tolerance_k=0.01)
+                fixed_initial_k=AMBIENT_K, tolerance_k=OUTPUT_RESOLUTION_K)
             ended = time.time()
             raw = sorted(p for p in (dest / "hotspot").glob("*") if p.is_file())
             row = dict(want)
@@ -439,13 +446,7 @@ def main() -> None:
     # strictly outside that band are called crossing or not; anything inside is INDETERMINATE
     # and is excluded from the coalition analysis rather than silently counted as crossing.
     def classify(row):
-        res = row["output_resolution_k"]
-        p = row["periodic_peak_k"]
-        if p >= THERMAL_LIMIT_K + res:
-            return "crossing"
-        if p <= THERMAL_LIMIT_K - res:
-            return "below"
-        return "indeterminate"
+        return _classify(row["periodic_peak_k"], THERMAL_LIMIT_K, row["output_resolution_k"])
     status = {subset_tag(sub): classify(manifest["rows"][subset_tag(sub)])
               for sub in subsets}
     indet = [t for t, v in status.items() if v == "indeterminate"]
