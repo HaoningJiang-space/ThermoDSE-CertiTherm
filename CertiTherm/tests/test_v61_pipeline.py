@@ -94,13 +94,27 @@ def test_module_is_importable_with_repo_root_on_the_path():
 
 # --- the gate's fail-closed contract ------------------------------------------------
 
-def test_gate_declares_that_it_does_not_bind_the_registered_instance():
-    """The gate checks names and temperatures only. It must SAY so, because a changed
-    registry under the same workload/arch names would otherwise pass silently."""
-    assert F.GATE["binds_instance_hashes"] is False
-    assert F.GATE["canonical_trace_sha256"] is None
+def test_the_gate_now_binds_the_registered_instance():
+    """It used to bind names and temperatures only, so a changed registry, trace or floorplan
+    under the same workload/arch names would have passed silently. Gate policy 3 closes that."""
+    assert F.GATE["binds_instance_hashes"] is True
+    assert isinstance(F.GATE["canonical_trace_sha256"], str)
+    assert len(F.GATE["canonical_trace_sha256"]) == 64
     for key in ("workload", "arch", "model", "max_step_us", "ambient_k"):
         assert key in F.GATE, "the gate must key on the complete registered tuple"
+
+
+def test_the_canonical_hashes_are_labelled_as_canonicalised_not_preregistered():
+    """They come from the schema-4 claim-grade run, not from the originally registered run whose
+    inputs are lost. Describing them as preregistered would be a retroactive claim."""
+    import json
+    reg = json.loads(F.REGISTRATION_PATH.read_text())
+    canon = reg["canonical_instance"]
+    assert "NOT preregistered" in canon["provenance"]
+    assert canon["canonicalised_from"]["manifest"].startswith("artifacts_receipts/")
+    for field in ("input_hashes", "hotspot_sha256", "block_registry_sha256",
+                  "trace_sha256_by_subset", "component_energy_j"):
+        assert canon[field], f"the canonical instance must pin {field}"
 
 
 def test_gate_steady_tolerance_is_not_invented():
@@ -212,10 +226,13 @@ def test_importing_the_probe_does_not_reinterpret_the_callers_argv():
 
 def test_schema_and_gate_policy_are_versioned_separately():
     """"What fields does this manifest have" and "what predicate admitted it" are different
-    questions: gate policy 2 replaced exact argmax equality with resolution compatibility
-    without changing a single field."""
-    assert F.SCHEMA_VERSION == 4
-    assert F.GATE_POLICY_VERSION == 2
+    questions with different audit trails: gate policy 2 replaced exact argmax equality with
+    resolution compatibility without changing a single field. Asserted as agreement with the
+    validator rather than as literals, so a bump cannot be half-applied."""
+    from research.triangle import v61_validate as V
+    assert isinstance(F.SCHEMA_VERSION, int) and isinstance(F.GATE_POLICY_VERSION, int)
+    assert F.SCHEMA_VERSION == V.REQUIRED_SCHEMA
+    assert F.GATE_POLICY_VERSION == V.REQUIRED_GATE_POLICY
 
 
 def _v4_row(**over):

@@ -12,6 +12,7 @@ the pinned-registration loader with its citation check.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -20,7 +21,12 @@ from typing import Iterable, Sequence
 from CertiTherm.transient import OUTPUT_RESOLUTION_K  # noqa: F401  (re-exported)
 
 ROOT = Path(__file__).resolve().parents[2]
-REGISTRATION = ROOT / "docs/registration/v61_grid64_counterexample.json"
+# `V61_REGISTRATION` exists so a SYNTHETIC manifest can be rendered in a subprocess against the
+# synthetic registration it describes. Gate policy 3 binds the physical instance, so the
+# committed registration only validates the real 233-block run; monkeypatching cannot reach a
+# subprocess. Never set it for a claim-grade render.
+REGISTRATION = Path(os.environ.get("V61_REGISTRATION")
+                    or ROOT / "docs/registration/v61_grid64_counterexample.json")
 
 
 class Refuse(Exception):

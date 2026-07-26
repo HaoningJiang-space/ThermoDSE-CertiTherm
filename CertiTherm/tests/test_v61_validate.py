@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -53,7 +54,20 @@ def man(monkeypatch):
     m = FX.manifest()
     reg = FX.registration(m)
     monkeypatch.setattr(V, "load_registration", lambda path=None: reg)
+    _SYNTHETIC["registration"] = reg
     return m
+
+
+_SYNTHETIC: dict = {}
+
+
+def _synthetic_registration_file(tmp_path: Path) -> Path:
+    """A subprocess cannot see a monkeypatch, so the synthetic registration goes to a file the
+    renderer is pointed at with V61_REGISTRATION."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / "registration.json"
+    path.write_text(json.dumps(_SYNTHETIC["registration"]))
+    return path
 
 
 def _refuses(m, match):
@@ -188,12 +202,16 @@ def test_the_gate_does_not_apply_to_an_unregistered_candidate(man):
     _refuses(man, "is not the registered")
 
 
-def test_the_gate_refuses_when_the_registered_block_is_not_in_the_registry(man):
+def test_the_gate_refuses_when_the_registered_block_is_not_in_the_registry(man, monkeypatch):
+    """Rename the registered block consistently, INCLUDING in the canonical instance, so the
+    instance check passes and the gate's own registry check is the one under test."""
     hottest = man["gate"]["registered_tuple"]["hottest"]
     for r in man["rows"].values():
         r["block_ids"] = [b if b != hottest else "renamed" for b in r["block_ids"]]
         r["periodic_hottest_block"] = "renamed"
         r["mean_steady_hottest_block"] = "renamed"
+    reg = FX.registration(man)
+    monkeypatch.setattr(V, "load_registration", lambda path=None: reg)
     _refuses(man, "not in this run's block registry")
 
 
@@ -440,15 +458,12 @@ def test_a_missing_invocation_field_is_a_refusal_not_a_traceback(man, field):
 
 # --- citations ------------------------------------------------------------------------
 
-def test_a_stale_cited_line_is_a_refusal(man, monkeypatch, tmp_path):
+def test_a_stale_cited_line_is_a_refusal(man, monkeypatch):
     """Adding a paragraph above a cited table shifted every line number in the registration by
     one, within an hour of it being written. A wrong citation prints silently."""
-    pinned = json.loads(C.REGISTRATION.read_text())
-    pinned["grid128_row"]["line"] = 1
-    fake = tmp_path / "registration.json"
-    fake.write_text(json.dumps(pinned))
-    monkeypatch.setattr(C, "REGISTRATION", fake)
-    monkeypatch.setattr(V, "REGISTRATION", fake)
+    reg = FX.registration(man)
+    reg["grid128_row"] = dict(reg["grid128_row"], line=1)
+    monkeypatch.setattr(V, "load_registration", lambda path=None: reg)
     _refuses(man, "no longer contains")
 
 
@@ -466,23 +481,26 @@ def test_the_live_citations_all_resolve():
 # --- the document follows the validation ---------------------------------------------
 
 def _render(m: dict, tmp_path: Path) -> str:
-    tmp_path.mkdir(parents=True, exist_ok=True)
+    reg = _synthetic_registration_file(tmp_path)
     src = tmp_path / "m.json"
     src.write_text(json.dumps(m))
     out = tmp_path / "doc.md"
+    env = dict(os.environ, V61_REGISTRATION=str(reg))
     p = subprocess.run([sys.executable, str(SCRIPT), str(src), str(out)],
-                       capture_output=True, text=True, cwd=str(ROOT))
+                       capture_output=True, text=True, cwd=str(ROOT), env=env)
     assert p.returncode == 0, p.stdout + p.stderr
     return out.read_text()
 
 
 def test_a_refused_manifest_writes_no_document(man, tmp_path):
     man["rows"]["full"]["periodic_peak_k"] += 1.0        # scalar now contradicts its vector
+    reg = _synthetic_registration_file(tmp_path)
     src = tmp_path / "m.json"
     src.write_text(json.dumps(man))
     out = tmp_path / "doc.md"
     p = subprocess.run([sys.executable, str(SCRIPT), str(src), str(out)],
-                       capture_output=True, text=True, cwd=str(ROOT))
+                       capture_output=True, text=True, cwd=str(ROOT),
+                       env=dict(os.environ, V61_REGISTRATION=str(reg)))
     assert p.returncode == 2 and not out.exists()
 
 
@@ -595,18 +613,28 @@ def test_a_changed_energy_decomposition_is_refused(man):
     _refuses(man, "not the canonical instance's")
 
 
-def test_a_registration_that_does_not_bind_the_instance_is_refused(man, monkeypatch):
+def _repin(man, monkeypatch, **tuple_over):
+    """Change the registered tuple in the manifest AND the registration together: changing only
+    one trips the identity check, which is a different (and correct) refusal."""
+    man["gate"]["registered_tuple"] = dict(man["gate"]["registered_tuple"], **tuple_over)
     reg = FX.registration(man)
-    reg["registered_tuple"] = dict(reg["registered_tuple"], binds_instance_hashes=False)
     monkeypatch.setattr(V, "load_registration", lambda path=None: reg)
+
+
+def test_a_registration_that_does_not_bind_the_instance_is_refused(man, monkeypatch):
+    _repin(man, monkeypatch, binds_instance_hashes=False)
     _refuses(man, "requires the registration to bind instance hashes")
 
 
 def test_a_canonical_trace_hash_inconsistent_with_the_instance_is_refused(man, monkeypatch):
-    reg = FX.registration(man)
-    reg["registered_tuple"] = dict(reg["registered_tuple"], canonical_trace_sha256="d" * 64)
-    monkeypatch.setattr(V, "load_registration", lambda path=None: reg)
+    _repin(man, monkeypatch, canonical_trace_sha256="d" * 64)
     _refuses(man, "registered canonical trace hash disagrees")
+
+
+def test_changing_only_one_copy_of_the_registered_tuple_is_refused(man):
+    """The identity check, which must fire before the instance check."""
+    man["gate"]["registered_tuple"] = dict(man["gate"]["registered_tuple"], hottest="blk_4")
+    _refuses(man, "differs from the pinned registration")
 
 
 # --- schema 5: the raw outputs are retained outside the repository ---------------------
