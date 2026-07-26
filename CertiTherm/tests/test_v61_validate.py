@@ -145,7 +145,7 @@ def test_the_gate_refuses_a_forged_location_verdict(man):
 
 
 def test_the_gate_refuses_a_forged_steady_delta(man):
-    man["gate"]["steady_delta_k"] = 0.0
+    man["gate"]["steady_delta_k"] = 5.0
     _refuses(man, "steady delta disagrees")
 
 
@@ -155,8 +155,19 @@ def test_the_gate_refuses_a_registered_tuple_that_drifted(man):
 
 
 def test_the_gate_refuses_a_run_that_is_not_the_registered_candidate(man):
+    """Caught by the row/top-level identity check before the gate is even reached, which is the
+    right order: a manifest whose header disagrees with its rows is not gateable."""
     man["workload"] = "resnet50"
-    _refuses(man, "workload differs from the full row")
+    _refuses(man, "top-level workload disagrees with the rows")
+
+
+def test_the_gate_does_not_apply_to_an_unregistered_candidate(man):
+    """With header and rows consistent but naming a different candidate, the gate must refuse to
+    make a registered comparison rather than make one against the wrong registration."""
+    for r in man["rows"].values():
+        r["workload"] = "resnet50"
+    man["workload"] = "resnet50"
+    _refuses(man, "is not the registered")
 
 
 def test_the_gate_refuses_when_the_registered_block_is_not_in_the_registry(man):
@@ -172,10 +183,8 @@ def test_the_decision_uses_the_same_quantisation_rule_as_every_row(man):
     """Gate policy 1's decision was a bare `periodic >= limit`, so a full row at exactly the
     limit passed a gate that classification calls undecidable."""
     limit = man["thermal_limit_k"]
-    full = man["rows"]["full"]
-    i = full["block_ids"].index(man["gate"]["registered_tuple"]["hottest"])
-    full["periodic_block_peaks_k"][i] = limit
-    full["periodic_peak_k"] = limit
+    FX.set_peak(man["rows"]["full"], "periodic", limit)
+    man["gate"]["value_ok"] = False
     _refuses(man, "recomputation gives")
     assert C.classify(limit, limit, 0.01) == "indeterminate"
     assert C.classify(limit + 0.01, limit, 0.01) == "crossing"
@@ -229,9 +238,7 @@ def test_an_invalid_samples_per_cycle_is_refused(man):
 
 
 def test_a_steady_peak_below_ambient_is_refused(man):
-    r = _row(man)
-    r["mean_steady_block_k"] = [man["ambient_k"] - 1.0] * len(r["block_ids"])
-    r["mean_steady_peak_k"] = man["ambient_k"] - 1.0
+    FX.set_peak(_row(man), "mean_steady", man["ambient_k"] - 1.0)
     _refuses(man, "is not above ambient")
 
 
@@ -452,7 +459,7 @@ def _render(m: dict, tmp_path: Path) -> str:
 
 
 def test_a_refused_manifest_writes_no_document(man, tmp_path):
-    man["rows"]["full"]["periodic_peak_k"] += 1.0
+    man["rows"]["full"]["periodic_peak_k"] += 1.0        # scalar now contradicts its vector
     src = tmp_path / "m.json"
     src.write_text(json.dumps(man))
     out = tmp_path / "doc.md"
@@ -467,10 +474,7 @@ def test_uniqueness_prose_is_conditional(man, tmp_path):
 
     m2 = copy.deepcopy(man)
     for tag in ("a", "b-c"):                 # two incomparable crossing subsets
-        r = m2["rows"][tag]
-        i = r["block_ids"].index(m2["gate"]["registered_tuple"]["hottest"])
-        r["periodic_block_peaks_k"][i] = 330.50
-        r["periodic_peak_k"] = 330.50
+        FX.set_peak(m2["rows"][tag], "periodic", 330.50)
     v, _, _ = V.build(m2)
     assert len(v["minimal"]) == 2 and v["uniqueness_claimable"] is False
     text2 = _render(m2, tmp_path / "b")
@@ -481,10 +485,8 @@ def test_uniqueness_prose_is_conditional(man, tmp_path):
 def test_leave_one_out_prose_uses_the_quantum_aware_rule(man, tmp_path):
     assert "at least a full 0.01 K quantum more than that excess" in _render(man, tmp_path / "a")
     m2 = copy.deepcopy(man)
-    r = m2["rows"]["a-b"]                    # delta over the excess but under excess + quantum
-    i = r["block_ids"].index(m2["gate"]["registered_tuple"]["hottest"])
-    r["periodic_block_peaks_k"][i] = 329.995
-    r["periodic_peak_k"] = 329.995
+    # delta over the excess but under excess + quantum
+    FX.set_peak(m2["rows"]["a-b"], "periodic", 329.995)
     assert "not purely arithmetic" in _render(m2, tmp_path / "b")
 
 

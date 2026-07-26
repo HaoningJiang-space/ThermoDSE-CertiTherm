@@ -112,12 +112,24 @@ def test_output_resolution_is_named_once():
         "temperature_output_resolution_k"].default == OUTPUT_RESOLUTION_K
 
 
-def test_invocation_count_has_no_default():
-    """A default of 0 would let a caller print a fabricated count as if it were measured."""
+def test_the_invocation_records_have_no_default():
+    """A default would let a caller print a fabricated empty list as if nothing was recorded.
+    The count is now a property over the records, not a stored number that could disagree
+    with them."""
     import dataclasses
-    field = PeriodicTransientResult.__dataclass_fields__["hotspot_invocations"]
+    field = PeriodicTransientResult.__dataclass_fields__["invocations"]
     assert field.default is dataclasses.MISSING
     assert field.default_factory is dataclasses.MISSING
+    assert "hotspot_invocations" not in PeriodicTransientResult.__dataclass_fields__
+    assert isinstance(PeriodicTransientResult.hotspot_invocations, property)
+
+
+def test_the_peaks_are_derived_from_the_vectors_not_stored():
+    """A stored peak can disagree with the temperatures it summarises; a property cannot."""
+    for name in ("periodic_peak_k", "periodic_hottest_block", "periodic_tie_blocks",
+                 "mean_steady_peak_k", "mean_steady_hottest_block", "mean_steady_tie_blocks"):
+        assert name not in PeriodicTransientResult.__dataclass_fields__
+        assert isinstance(getattr(PeriodicTransientResult, name), property)
 
 
 def test_the_tie_set_order_is_stable_and_documented():

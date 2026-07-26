@@ -160,3 +160,19 @@ def manifest(commit: str = "c" * 40) -> dict:
         "provenance_stable": True,
         "complete": True,
     }
+
+
+def set_peak(row: dict, semantics: str, peak: float, hottest_index: int = None,
+             gap: float = 0.02) -> None:
+    """Move one row's peak, keeping the vector and the stored scalars consistent.
+
+    Tests that mutate only the vector, or only the scalar, trip the "stored scalar disagrees
+    with its own vector" check first and therefore do not test what they claim to. Five did.
+    """
+    if hottest_index is None:
+        hottest_index = BLOCKS.index(
+            json.loads(REGISTRATION.read_text())["registered_tuple"]["hottest"])
+    row[f"{semantics}_block_peaks_k" if semantics == "periodic"
+        else "mean_steady_block_k"] = _vector(peak, hottest_index, gap)
+    row[f"{semantics}_peak_k"] = peak
+    row[f"{semantics}_hottest_block"] = BLOCKS[hottest_index]
