@@ -1,0 +1,134 @@
+{
+  "registration_id": "v7-independent-model-gate",
+  "schema_version": "certitherm.preregistration.v1",
+  "state": "PREREGISTERED_UNRUN",
+  "created_utc": "2026-07-27",
+  "why": "The adopted contract's stop rule requires the independent-model gate to close before any new solver, kernel, feature family or headline theorem is added. This registers that gate: does the one transient boundary case reproduce under an independent solver class?",
+  "contract": {
+    "document": "docs/V6_DIRECTION_DECISION.md",
+    "section": "## Stop rules",
+    "document_sha256": "460717513c8e73c49aac4e0bada0c931cbbc4cf234a92d8277d15db7c929536d",
+    "note": "Bound by section heading and document hash, not by line numbers. A line reference in this project's registration was already stale within an hour of being written because a paragraph was inserted above the cited table."
+  },
+  "instance": {
+    "manifest": "artifacts_receipts/v61_cg5_schema5/v61_manifest.json",
+    "manifest_sha256": "3f13aa2163984f110a162e513241b187db8fc485948fa280493e1397e3e8911f",
+    "floorplan": "artifacts_receipts/v61_cg5_schema5/frozen_floorplan.flp",
+    "floorplan_sha256": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+    "workload": "transformer",
+    "arch": "arch_b",
+    "hotspot_model": "grid64-max",
+    "out_of_family": "grid64-max is not in the certified family (block, grid64-avg, grid128-avg), so no outcome of this gate is certificate evidence."
+  },
+  "instrument": {
+    "backend": "3D-ICE 4.0",
+    "source_commit": "e0bb6850c5e446363e26936586d625270c87f224",
+    "adapter": "sibling ChipletThermalEnvelope src/rte/backends/threedice.py::run_3dice",
+    "build_receipt": "../ChipletThermalEnvelope/vendor/3dice-build-e0bb685.json",
+    "executable_sha256": "24945a4c855db44d1f5a647ed38f5a47ed6b68b0a638efaf96cd93a6c30b59f0",
+    "instrument_regression": "official test/solid/transient/topsink.stk against its recorded reference sha256. Validates the instrument and parser path ONLY, never the scientific correspondence of this stack."
+  },
+  "observables": {
+    "S": "max over blocks of the STEADY solution under time-averaged power",
+    "P": "max over blocks and time of the converged periodic replay",
+    "U": "P - S, diagnostic only",
+    "definition_note": "S is NOT a time average of transient temperatures. CertiTherm/transient.py writes a one-row ptrace of trace.mean_power_w and runs a steady solve, so S = max_b T_b^steady(mean power). 3D-ICE must be given the identical construction.",
+    "interval_note": "Each observable is reported as an interval [X_L, X_U] whose width includes mesh and timestep closure AND the solver's own output quantisation. That is how the project's quantisation-aware rule enters: a bare comparison against the limit reintroduces exactly the inconsistency corrected in 9e3cae7, where a gate used `periodic >= limit` while classification required `>= limit + quantum`."
+  },
+  "hotspot_reference": {
+    "S": 329.9048668755,
+    "P": 330.19,
+    "U": 0.28513312450002104,
+    "limit_k": 330.0,
+    "steady_margin_k": 0.09513312450002331,
+    "ratio_note": "R = U/(limit-S) = 3.00 is DIAGNOSTIC ONLY and carries no decision information: for S < limit, R >= 1 is algebraically equivalent to P >= limit (verified over 200k random draws, 0 counterexamples). It also has a pole as S -> limit, so it must never carry an uncertainty verdict."
+  },
+  "decision_rule": {
+    "form": "ordered state machine; validation precedes classification",
+    "precedence": [
+      "INVALID_OR_UNRESOLVED",
+      "FLIP_REPRODUCES",
+      "FLIP_DOES_NOT_REPRODUCE",
+      "STEADY_CLASSIFICATION_DISAGREES",
+      "UNRESOLVED"
+    ],
+    "branches": [
+      {
+        "condition": "non-finite value, solver or parser failure, incomplete mesh/timestep closure, or P_U < S_L",
+        "outcome": "INVALID_OR_UNRESOLVED",
+        "note": "P >= S must hold for a converged periodic replay of the same instance, so a material P < S is a protocol, parser or convergence failure -- NOT evidence of non-reproduction. Validation must precede classification because a NaN makes every numeric predicate false."
+      },
+      {
+        "condition": "S_U < 330 and P_L >= 330",
+        "outcome": "FLIP_REPRODUCES"
+      },
+      {
+        "condition": "S_U < 330 and P_U < 330",
+        "outcome": "FLIP_DOES_NOT_REPRODUCE"
+      },
+      {
+        "condition": "S_L >= 330",
+        "outcome": "STEADY_CLASSIFICATION_DISAGREES"
+      },
+      {
+        "condition": "otherwise",
+        "outcome": "UNRESOLVED"
+      }
+    ],
+    "conservative_direction": "A positive verdict needs S certainly below and P certainly above: S_UPPER < 330 and P_LOWER >= 330. An earlier draft of this rule said 'the LOWER convergence bound must satisfy S < 330 <= P', which is sign-wrong for S and would have admitted a positive verdict on an unresolved steady value."
+  },
+  "consequences": {
+    "FLIP_REPRODUCES": "The transient headline gains independent-model support for this pinned instance.",
+    "FLIP_DOES_NOT_REPRODUCE": "Withdraw the transient headline per the stop rule. Both states are safely below the threshold in 3D-ICE.",
+    "STEADY_CLASSIFICATION_DISAGREES": "Also withdraws this witness as support for the headline, for a different reason: 3D-ICE is already steady-unsafe, so no steady-safe/periodic-unsafe flip exists to reproduce. Not a positive result, and not evidence of absolute solver error -- absolute agreement was neither constructed nor calibrated.",
+    "UNRESOLVED": "No verdict. Archived unchanged.",
+    "unaffected_either_way": "The spatial finding -- model choice alone moves the periodic peak by >= 0.69 K and flips a decision with 33.01% EDYP regret -- does not depend on the transient crossing and survives every outcome."
+  },
+  "prior_prediction": {
+    "type": "preregistered_prior_NOT_A_RESULT",
+    "directional_outcome": "FLIP_DOES_NOT_REPRODUCE",
+    "confidence": "low",
+    "rationale": "Within HotSpot, changing only the spatial mapping moves the periodic peak by >= 0.69 K, about 7x the 0.095 K steady margin. This establishes that the classification is FRAGILE across model constructions; it does NOT predict the direction of the 3D-ICE result, because spatial observation sensitivity and temporal transfer-function sensitivity are different quantities.",
+    "actual_outcome": null,
+    "invariant": "This block must never be overwritten with the observed result, and no consumer may read it as evidence. The result goes in a separate receipt that references this preregistration's hash."
+  },
+  "guards": [
+    "This file is committed BEFORE the first registered job. The runner refuses to start unless the checked-out preregistration hash and every input hash match what it records.",
+    "Full hashes for the mapping specification, manifest, floorplan, power trace, generated stack, executable, adapter source and configuration. Full commit SHAs, not abbreviations.",
+    "Append-only attempt ledger: job id, start time, preregistration commit, input hashes, command, environment, exit state, output hashes. Failed attempts included.",
+    "NO fitted calibration of power, temperature, conductance, convection or geometry. POWER_SCALE is 1 by construction; unit conversion is not calibration. The prior deleted POWER_SCALE=16 equivalence adapter is declared as a superseded attempt (docs/IMPLEMENTATION_AUDIT_20260721.md).",
+    "Exact power conservation checked per timestep and over a period.",
+    "Exact 233-block coverage and the same-layer DRAM mapping checked, not inferred from total energy agreement.",
+    "Mesh sequence, timestep sequence, stopping criteria, periodic-closure metric and the construction of [S_L,S_U] and [P_L,P_U] all preregistered here before the run.",
+    "Identical mapping, stack, boundary conditions and discretisation policy for the steady and the periodic 3D-ICE runs.",
+    "If more than one mapping is scientifically admissible, a positive verdict requires ALL of them to reproduce; otherwise the outcome is MAPPING_SENSITIVE/UNRESOLVED. Admissible alternatives are reported as a robustness set and never tried in sequence until one reproduces the flip -- that is the POWER_SCALE failure mode.",
+    "No stack, mesh or mapping change after unblinding except as a newly declared preregistered attempt with its own hash."
+  ],
+  "allowed_conclusions": {
+    "positive": "Under the preregistered mapping and numerical-closure protocol, this single pinned OUT-OF-FAMILY instance is steady-safe and periodic-unsafe in both HotSpot grid64-max and 3D-ICE. That is a cross-model replication of one classification. It is NOT certificate evidence, NOT solver-accuracy validation, NOT a multi-workload result and NOT a general transient theorem.",
+    "negative": "This HotSpot witness did not reproduce under the frozen mapping, so it cannot support the transient headline. It does NOT establish that transient boundary flips are absent in general, and it does NOT identify which modelling difference caused the outcome."
+  },
+  "known_risks_ranked": [
+    "Observation-operator mismatch: HotSpot's grid64-max block temperature is a max over the cells a block TOUCHES (outward-rounded), which is why 9 of 15 factorial rows are bit-identical ties; 3D-ICE reports on its own mesh. The mismatch is comparable to the 0.095 K margin and is the most likely reason this gate returns UNRESOLVED.",
+    "Mesh and timestep convergence at a ~0.1 K decision margin.",
+    "Output precision comparable to the residual margin.",
+    "Treating the topsink.stk regression as validation of this stack rather than of the instrument."
+  ],
+  "stack_determination": {
+    "verdict": "DETERMINED, one residual ambiguity",
+    "from": "the hash-pinned config.config of the schema-5 run",
+    "pinned": {
+      "die": "silicon, t_chip 0.00015 m",
+      "tim": "t 0.00002 m, k 4.0, c 4.0e6",
+      "spreader": "copper, t 0.0010 m, side 0.05 m",
+      "sink": "copper, t 0.0069 m, side 0.06 m",
+      "convection": "lumped r_convec 0.10 K/W, c_convec 140.4 J/K",
+      "secondary_path": "DISABLED (-model_secondary 0): no C4, underfill, substrate or solder balls"
+    },
+    "settled_by_the_instance": [
+      "DRAM blocks are in the same floorplan as compute blocks, so the faithful mapping is same-layer side-by-side",
+      "the 233 blocks cover all 4096 grid cells, so there is no whitespace needing a material"
+    ],
+    "residual_ambiguity": "HotSpot's LUMPED sink convection (one R and one C) versus 3D-ICE's own heat-sink representation. This is the one genuinely admissible choice, and it is therefore the robustness set."
+  }
+}

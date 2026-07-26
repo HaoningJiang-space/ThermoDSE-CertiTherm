@@ -8,9 +8,9 @@ target_venue:
   year: "TBD"
   mode: "research"
 stage:
-  current: "v6_1_transient_causal_isolation"
-  gate: "in_progress"
-  updated_at: "2026-07-25"
+  current: "v7_independent_model_gate"
+  gate: "preregistered_unrun"
+  updated_at: "2026-07-27"
 active_contract: "docs/V6_DIRECTION_DECISION.md"
 # V6 closed the physical-trace gate and REJECTED the broad transient claim: under block and
 # grid64-avg, periodic time structure changes no feasibility decision, thermal ordering or
@@ -235,6 +235,39 @@ experiments:
     command: "python -m CertiTherm.gpu_collision_benchmark"
     host: "moe-server"
     note: "zero wrong synthetic admissions, but real 681-cell tail retained 53.7% fallback at 10k iterations; gate failed"
+  - id: "V6-1"
+    status: "complete_out_of_family_diagnostic"
+    command: "python research/triangle/v61_frozen_factorial.py <out> grid64-max 0.5 transformer arch_b"
+    host: "moe-server"
+    note: >-
+      Four claim-grade runs (schemas 2-5, gate policies 1-3) agree on all 233-block temperature
+      vectors of all 15 rows. Only the full four-source set crosses, by +0.19 K; every source's
+      removal costs more than that excess, so leave-one-out necessity is an arithmetic consequence
+      rather than a second finding. The informative measurement is that NoP carries 5.377% of the
+      dissipated energy yet its removal drops the periodic peak by 0.41 K. Reported hottest-block
+      names carry NO spatial claim: 9 of 15 rows are bit-identical ties from a shared boundary
+      cell under GRID_MAX outward rounding, and 2 more are corner-DRAM symmetry with disjoint
+      rectangles.
+    disposition: >-
+      OUT OF FAMILY. grid64-max is not in ("block","grid64-avg","grid128-avg"), so this
+      counterexample cannot enter a DSOS certificate. Admitting max was costed and declined: no
+      per-cell error contract, the cell dump is %.2f while the precision patch covers only block
+      dumps, and reject LPs would go 233 -> 4096 per model. See
+      docs/INFORMATION_THEORETIC_METHOD.md.
+    evidence: "artifacts_receipts/v61_cg5_schema5/, docs/V6_1_CAUSAL_ISOLATION.md"
+  - id: "INDEPENDENT-MODEL-GATE"
+    status: "preregistered_unrun"
+    preregistration: "docs/registration/v7_independent_model_gate.json"
+    preregistration_sha256: "e6301a4b139677d55e578b21a78c09b890958984efa2507687e575a44b6ced47"
+    host: "moe-server"
+    note: >-
+      The gate the adopted contract's stop rule requires before any new solver, kernel, feature
+      family or headline theorem. Does the pinned transformer/arch_b boundary case reproduce its
+      steady-safe/periodic-unsafe classification under 3D-ICE 4.0? The decision rule, observable
+      definitions, interval construction, guards and allowed conclusions live in the
+      preregistration artifact, NOT here -- so a reader of any later checkout can tell what was
+      fixed before execution. Its prior_prediction block is a prior, never a result, must not be
+      overwritten, and the outcome goes in a separate receipt referencing the hash above.
   - id: "SCALE-SYNTH"
     status: "complete"
     command: "python -m research.dr_dsc.profile_synthesis / benchmark"
