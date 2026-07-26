@@ -256,9 +256,24 @@ experiments:
       docs/INFORMATION_THEORETIC_METHOD.md.
     evidence: "artifacts_receipts/v61_cg5_schema5/, docs/V6_1_CAUSAL_ISOLATION.md"
   - id: "INDEPENDENT-MODEL-GATE"
-    status: "preregistered_unrun"
+    status: "mapping_rejected_pending_revision"
     preregistration: "docs/registration/v7_independent_model_gate.json"
     preregistration_sha256: "e6301a4b139677d55e578b21a78c09b890958984efa2507687e575a44b6ced47"
+    stack_mapping: "docs/registration/v7_gate_stack_mapping.json"
+    stack_mapping_sha256: "b1e35686cf5be8a2d38a728d6d60d5a22ef6863f20dad32397f3fd665cab885a"
+    stack_mapping_state: "REJECTED_BEFORE_USE -- see docs/V7_GATE_MAPPING_REVIEW.md"
+    mapping_rejection_reason: >-
+      3D-ICE passive layers share one global footprint, so mapping v1 truncated HotSpot's 50 mm
+      spreader and 60 mm sink to the 21.7 x 17.95 mm chip footprint. That adds 44.921 mK/W of
+      series copper resistance, about 2.57 K at the instance's 57.18 W -- 27x the 0.095133 K
+      steady margin under test. The preregistered STEADY_CLASSIFICATION_DISAGREES outcome would
+      therefore have been produced by a known mapping limitation rather than by a model
+      disagreement: the gate would have run cleanly and answered nothing. No gate output has been
+      produced or examined. The decision rule, observables and guards are untouched; the
+      rejection is of the mapping only. Review also found member B internally inconsistent (it
+      deletes the copper resistance instead of folding it in: 10.00 W/K where 6.64 W/K is
+      correct), and that the package IS representable after all by setting the global footprint to
+      the package scale with the die centred and zero power outside it.
     host: "moe-server"
     note: >-
       The gate the adopted contract's stop rule requires before any new solver, kernel, feature

@@ -1,0 +1,111 @@
+{
+  "specification_id": "v7-gate-stack-mapping",
+  "schema_version": "certitherm.stack-mapping.v1",
+  "state": "FROZEN_PENDING_REVIEW",
+  "created_utc": "2026-07-27",
+  "preregistration": "docs/registration/v7_independent_model_gate.json",
+  "preregistration_sha256": "e6301a4b139677d55e578b21a78c09b890958984efa2507687e575a44b6ced47",
+  "purpose": "The single decision that can make the independent-model gate meaningless. Frozen and hashed BEFORE any gate output is examined, so post-hoc tuning is detectable. Every value below is either read from a hash-pinned HotSpot input or derived from one by a stated identity. Nothing is fitted.",
+  "sources": {
+    "hotspot_config_sha256": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+    "hotspot_materials_sha256": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+    "floorplan": "artifacts_receipts/v61_cg5_schema5/frozen_floorplan.flp",
+    "floorplan_sha256": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+    "note": "The config/materials hashes are the ones the schema-5 manifest records for the staged inputs; the runner must re-verify them against the manifest, not against this file.",
+    "hotspot_binary_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+    "read_from": "artifacts_receipts/v61_cg5_schema5/v61_manifest.json input_hashes -- read programmatically, never transcribed. An earlier draft of this file carried two hashes I typed from a rendered document that shows only the first 16 characters and invented the remaining 48: correct prefix, correct length, valid hex, entirely fabricated. A prefix check would have passed them."
+  },
+  "geometry": {
+    "chip_length_um": 21696.199999999997,
+    "chip_width_um": 17950.0,
+    "cell_length_um": 339.00312499999995,
+    "cell_width_um": 280.46875,
+    "mesh_note": "The 3D-ICE cell size is set to reproduce HotSpot's 64x64 grid over the same bounding box EXACTLY. This is what makes the observation operators comparable: with `output_quantity = MAXIMUM`, a floorplan element's reported temperature is the maximum over the cells covering it in both tools.",
+    "blocks": 233,
+    "coverage": "The 233 blocks cover all 4096 cells, so there is no whitespace requiring a material assignment. Verified geometrically in research/triangle/v61_tie_mechanism.py.",
+    "dram_placement": "SAME LAYER, side by side. HotSpot models the DRAM dies as named blocks in the one floorplan, so a stacked interpretation would not be the instance being replicated. The four DRAM blocks sit at the chip corners."
+  },
+  "die": {
+    "material": "silicon",
+    "thickness_um": 150.0,
+    "thermal_conductivity_w_per_um_k": 0.00013,
+    "volumetric_heat_capacity_j_per_um3_k": 1.6303e-12,
+    "source_thickness_um": 150.0,
+    "source_note": "Power is deposited in the silicon die layer, matching HotSpot, which has no separate source sublayer when a layer-configuration file is absent."
+  },
+  "passive_layers_above": [
+    {
+      "layer_id": "tim",
+      "thickness_um": 20.0,
+      "material_id": "interface",
+      "thermal_conductivity_w_per_um_k": 4e-06,
+      "volumetric_heat_capacity_j_per_um3_k": 4e-12
+    },
+    {
+      "layer_id": "spreader",
+      "thickness_um": 1000.0,
+      "material_id": "copper",
+      "thermal_conductivity_w_per_um_k": 0.00039999999999999996,
+      "volumetric_heat_capacity_j_per_um3_k": 3.5500000000000004e-12
+    },
+    {
+      "layer_id": "sink",
+      "thickness_um": 6900.0,
+      "material_id": "copper",
+      "thermal_conductivity_w_per_um_k": 0.00039999999999999996,
+      "volumetric_heat_capacity_j_per_um3_k": 3.5500000000000004e-12
+    }
+  ],
+  "passive_layers_below": [],
+  "below_note": "EMPTY, because the pinned config sets `-model_secondary 0`: no C4, underfill, package substrate or solder balls. This is a determination, not a choice.",
+  "boundary": {
+    "heat_sink_side": "top",
+    "heat_transfer_coefficient_w_per_um2_k": 2.5677448772911956e-08,
+    "heat_transfer_coefficient_w_per_m2_k": 25677.448772911957,
+    "derivation": "HotSpot pins a TOTAL convective conductance 1/r_convec = 10.00 W/K. 3D-ICE applies an HTC over the chip footprint (389.447 mm^2), so HTC = (1/r_convec)/A_chip = 25677.4 W/(m^2 K). This preserves the heat path exactly.",
+    "rejected_alternative": "Preserving HotSpot's HTC per unit area instead (1/(r_convec * A_sink) = 2777.8 W/(m^2 K)) would leave only 1.08 W/K of the 10.00 W/K path -- silently removing 90% of the cooling. Not defensible, and recorded here so the choice is visible.",
+    "ambient_temperature_k": 318.15,
+    "initial_temperature_k": 318.15
+  },
+  "known_structural_differences": [
+    {
+      "item": "c_convec has no 3D-ICE counterpart",
+      "detail": "HotSpot carries a lumped sink capacitance c_convec = 140.4 J/K. Its time constant r*c = 14.04 s is about 35,000x the 0.4051 ms workload period, so over one cycle it behaves as a fixed reservoir -- which is exactly what 3D-ICE's fixed-ambient boundary already is.",
+      "affects": "warm-up and absolute level, NOT the periodic uplift this gate measures"
+    },
+    {
+      "item": "spreader and sink lateral footprint cannot be represented",
+      "detail": "HotSpot's spreader is 50 mm and its sink 60 mm square -- 6.4x and 9.2x the chip footprint -- while 3D-ICE passive layers share the chip footprint. Lateral spreading beyond the die is therefore absent, which biases 3D-ICE HOTTER.",
+      "affects": "absolute level, and the vertical thermal mass seen over one cycle",
+      "consequence": "this is the robustness set below"
+    }
+  ],
+  "robustness_set": {
+    "why": "One genuinely admissible modelling choice remains, so per the preregistration's guard a positive verdict requires BOTH members to reproduce; otherwise the outcome is MAPPING_SENSITIVE/UNRESOLVED. They are run as a set, never in sequence until one reproduces the flip.",
+    "members": [
+      {
+        "id": "A_explicit_slabs",
+        "description": "TIM + spreader + sink as explicit chip-footprint passive layers above the die, with the derived HTC at the top boundary. Keeps the vertical thermal mass of the copper."
+      },
+      {
+        "id": "B_boundary_only",
+        "description": "TIM only, with spreader and sink folded into the top boundary condition at the same total conductance. Removes the copper's vertical thermal mass, which is the part that can change a sub-millisecond uplift."
+      }
+    ]
+  },
+  "numerics": {
+    "integration_step_s": "matched to the HotSpot replay step via rte's exact Fraction timing",
+    "reported_temperature_resolution_k": 0.001,
+    "resolution_note": "3D-ICE reports to 0.001 K, ten times finer than HotSpot's 0.01 K. The interval [X_L, X_U] for each observable must still include this quantisation, per the preregistration.",
+    "mesh_sequence": "the matched 64x64, then 128x128, for closure",
+    "timestep_sequence": "the matched step, then half it, for closure",
+    "periodic_closure": "cycle doubling until the boundary and peak residuals fall within the reported resolution, the same criterion CertiTherm.transient uses",
+    "output_quantity": "MAXIMUM",
+    "output_quantity_note": "ThreeDiceOutputQuantity.MAXIMUM, chosen so the reported element temperature is a maximum over covering cells as in HotSpot's grid_map_mode=max. AVERAGE would be a different observation operator and would not be comparable."
+  },
+  "prohibitions": [
+    "No fitted power, temperature, conductance, convection or geometric calibration.",
+    "POWER_SCALE is 1 by construction. Unit conversion (W/m-K to W/um-K, J/m^3-K to J/um^3-K) is not calibration.",
+    "No change to any value here after gate output is examined, except as a newly declared preregistered attempt with its own hash."
+  ]
+}
