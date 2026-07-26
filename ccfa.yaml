@@ -142,8 +142,13 @@ claims:
     status: "measured_on_real_operators_INTERVAL_CLAIM_WITHDRAWN"
     text: >-
       With the timeout-preservation fix, a budget-exhausted query on REAL
-      HotSpot operators now reports a genuine anytime interval instead of
-      nothing.
+      HotSpot operators reports a certified lower bound and a working cover
+      instead of nothing. The cover is NOT an oracle-certified upper bound, so
+      this is not an interval and cover-minus-bound is not an optimality gap.
+      (Aligned 2026-07-27 with the status field, which has recorded
+      INTERVAL_CLAIM_WITHDRAWN since 2026-07-22 while this text still asserted
+      the withdrawn claim -- a reader who stopped at `text:` read a retracted
+      claim as live. The caveat below is unchanged and remains authoritative.)
     evidence:
       - "resnet50/default, 3 candidates, 693 actions, 227 blocks, 300s per candidate"
       - "arch_b: LB 4.0, candidate 8.0, 1719 witnesses, 4 iterations"
