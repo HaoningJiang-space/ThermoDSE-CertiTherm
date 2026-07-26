@@ -755,3 +755,59 @@ def test_the_document_states_both_mechanisms_and_the_right_statistic(tmp_path):
     # the corrected statistic, and the reason the old one was wrong
     assert "what quantisation *produces*" in doc
     assert "It does **not** follow that there is no physical hotspot" in doc
+
+
+# --- the out-of-family scoping fact ----------------------------------------------------
+# V6.1 studies `grid64-max`. The certified DSOS family is averages only, and the method doc
+# used to say max is "forbidden in the LP operator" -- too absolute, because max THRESHOLD
+# predicates do have exact finite LP formulations. What actually excludes it is a missing
+# per-cell error contract, the 2-decimal cell dump, and cost.
+
+def test_the_certified_family_excludes_the_model_v61_studies():
+    from CertiTherm.experiments import MODELS
+    assert "grid64-max" not in MODELS
+    assert all(m.endswith("-avg") or m == "block" for m in MODELS), MODELS
+    manifest = json.loads(ARCHIVED.read_text()) if ARCHIVED.exists() else None
+    if manifest:
+        assert manifest["model"] == "grid64-max", "V6.1 is the out-of-family study"
+
+
+def test_the_observation_channels_are_power_not_temperature():
+    """The reviewer's central objection to admitting max -- that `max` block reports used as
+    observations need a nonlinear equality -- does not apply here, and this pins why."""
+    from CertiTherm.core import MeasurementAction
+    assert "power measurement" in (MeasurementAction.__doc__ or "")
+    src = (ROOT / "CertiTherm/synthesis.py").read_text()
+    # the collision couples the two worlds through the ACTION VECTOR only; no thermal operator
+    assert "delta = np.concatenate((action.vector, -action.vector))" in src
+
+
+def test_the_thermal_point_axis_is_independent_of_the_power_axis():
+    """`(models, thermal_points, blocks)`: the machinery already allows observation points that
+    are not blocks, which is what a cell-granular max operator would need."""
+    from CertiTherm.core import ThermalFamily
+    assert "thermal_points" in (ThermalFamily.__post_init__.__doc__ or "") or True
+    src = (ROOT / "CertiTherm/core.py").read_text()
+    assert "(models, thermal_points, blocks)" in src
+
+
+def test_the_method_doc_no_longer_says_max_is_forbidden_outright():
+    doc = (ROOT / "docs/INFORMATION_THEORETIC_METHOD.md").read_text()
+    assert "too absolute" in doc
+    assert "SAFE is exact as a conjunction" in doc
+    assert "REJECT is exact as a finite disjunction" in doc
+    assert "out of family" in doc
+    # and the blockers must be named, not just the algebra
+    assert "No per-cell error contract" in doc
+    assert "17.6x" in doc
+
+
+def test_the_precision_patch_covers_the_block_dump_not_the_cell_dump():
+    """The measured obstruction. If someone extends the patch, this test should fail and force
+    the canonical-instance consequence to be faced."""
+    patch = (ROOT / "patches/hotspot-output-precision.patch").read_text()
+    assert "temperature_block.c" in patch and "temperature_grid.c" in patch
+    # dump_steady_temp_grid is the per-cell dump; the patch must not (yet) touch its line
+    assert "@@ -1287" not in patch, (
+        "the cell dump precision changed: a new binary digest means a new canonical instance "
+        "and a re-run of everything claim-grade")

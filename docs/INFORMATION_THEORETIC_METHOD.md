@@ -323,8 +323,59 @@ The main family is HotSpot-only:
 - grid 64×64 with block-average mapping;
 - grid 128×128 with block-average mapping.
 
-Block average is linear in grid-cell temperatures; HotSpot's max mapping is
-not and is therefore forbidden in the LP operator. The exported build applies
+Block average is linear in grid-cell temperatures, so a block row of the
+operator is affine in power. HotSpot's max mapping is not, and the registered
+family therefore uses averages only.
+
+**That statement used to read "max mapping is not [linear] and is therefore
+forbidden in the LP operator", which is too absolute.** A `max` mapping's
+*threshold* predicates do have exact finite LP formulations, because
+`T_block(p) = max_{k in R_block} T_cell_k(p)` and each cell response is affine:
+
+- SAFE is exact as a conjunction. `max_k f_k(p) <= L` is equivalent to
+  `f_k(p) <= L` for every cell `k`, and `_robust_safe_rows` already flattens
+  every `(model, point)` row into one LP, so cell rows would drop straight in.
+- REJECT is exact as a finite disjunction. `_state_specs("REJECT")` already
+  enumerates `(model, point)` as separate LPs, so "point" becoming a cell is
+  not an algorithmic change.
+- `ThermalFamily.response_k_per_w` is declared
+  `(models, thermal_points, blocks)`: the observation axis is already distinct
+  from the power axis.
+- Observation equality is not an obstruction *here*. A reviewer raised that
+  `max` block **reports** used as observation channels would need
+  `max_k f_k(p_safe) = max_k f_k(p_unsafe)`, which is not linear. That is a
+  real objection to a temperature-report variant of DSOS, but not to this one:
+  `MeasurementAction` is a linear **power** measurement, and the collision
+  constraint is `|v . (p_safe - p_unsafe)| <= tol`, in which the thermal
+  operator does not appear.
+
+So `max` is excluded by cost and by a missing calibration contract, not by the
+algebra. What actually blocks it, measured rather than estimated on the
+registered 233-block/64x64 instance:
+
+1. **No per-cell error contract.** The frozen 0.01 K band in
+   `THERMAL_ERROR_CONTRACT.md` was established for the registered block
+   operators and cannot be reused for cell responses without its own replay
+   calibration.
+2. **Cell output precision.** `dump_steady_temp_grid` writes `%.2f`, and
+   `patches/hotspot-output-precision.patch` covers the block dumps only. An
+   impulse coefficient is a difference of two rounded runs, so the
+   quantisation does not simply add 0.01 K -- it propagates across 233
+   coefficients with no bound derived. Fixing this needs one more patch line,
+   hence a new binary digest, hence a new canonical instance and a re-run of
+   everything claim-grade.
+3. **Cost.** Every one of the 4096 grid cells is covered by at least one block
+   (median 18 cells per block, up to 396; 41.6% of cells are owned by more than
+   one block, up to 6). Reject LPs therefore go from 233 to 4096 per model,
+   17.6x, *and* every collision LP gains thousands of SAFE rows -- so the
+   measured ~91 ms per collision LP would no longer hold. Exact pruning is
+   available (drop cells that cannot be a weak argmax for their block over the
+   polytope, merge identical affine rows) but its yield is unmeasured.
+
+`grid64-max` is consequently **out of family**, and the V6.1 transient study in
+`V6_1_CAUSAL_ISOLATION.md` is an out-of-family diagnostic: its counterexample
+cannot enter a DSOS certificate as the family stands. Admitting `max` would be
+a method extension with its own preregistration, not a configuration change. The exported build applies
 an output-format-only patch from two to ten decimal places before its binary
 digest is recorded. Grid 256×256 is calibration-only. Every model receives a separate impulse
 operator and provenance digest. There is no fitted `POWER_SCALE`, no 3D-ICE
