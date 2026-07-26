@@ -444,9 +444,14 @@ def test_the_document_never_claims_independent_numerical_confirmation(man, tmp_p
 
 
 def test_external_facts_come_from_the_pinned_registration_not_a_regex(man, tmp_path):
+    """The citations must come from the registration, so this test reads them from there too.
+    Hard-coding `:148` here failed the moment the cited document gained a paragraph -- the
+    same mistake the registration itself made."""
+    pinned = json.loads(R.REGISTRATION.read_text())
     text = _render(man, tmp_path)
-    assert "docs/V6_PHYSICAL_TRACE_GATE.md:148" in text        # grid128 row
-    assert "docs/GPU_HOTSPOT_EVIDENCE.md:86" in text           # earlier binary
+    for key in ("grid128_row", "earlier_hotspot_binary_sha256"):
+        c = pinned[key]
+        assert f"{c['document']}:{c['line']}" in text, f"{key} citation is not printed"
     assert not hasattr(R, "EXTERNAL"), "prose regex parsing should be gone"
 
 
