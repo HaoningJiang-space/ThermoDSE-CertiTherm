@@ -196,6 +196,26 @@ oracle — it can reproduce the original's bug and still agree — and one of th
 carried defects the existing engine did not have. Check `research/triangle/`, `CertiTherm/`,
 and the newest `docs/*.md` before starting, not after.
 
+**Store the raw observation, not the summary you plan to report.** A manifest that recorded a
+peak, a runner-up and a tie list forced every consumer to trust the producer: a tie list can name
+any block, because nothing in it is tied to a temperature. Recording the 233 per-block
+temperatures instead made peaks, argmaxes, runners-up, gaps and tie sets all derivable, and
+**removed six trusted fields rather than adding one**. The same rule killed a gate that compared
+argmax labels: the defensible predicate was `0 <= peak - T[registered_block] <= quantum`, which
+only the raw vector can answer. Corollary: do not serialise interpretations the consumer
+recomputes anyway — two representations of one fact create a policing problem, not a check.
+
+**A test that trips an earlier check than the one it names is not testing what it claims.** Five
+tests in one round mutated a temperature vector without its scalar (or the reverse) and fired on
+"stored scalar disagrees with its own vector" while claiming to test convergence, ambient bounds
+or the gate. One asserted a forged value that already equalled the true one, so it was vacuous.
+Mutate through a helper that keeps the fixture self-consistent, and assert on the message you
+expect.
+
+**An error path must never be able to raise.** `Path.relative_to` throws for a path outside the
+tree and was called from inside a refusal message, so a refusal about a misplaced file died with
+a ValueError instead of printing. Fail-closed means the failure is *reported*.
+
 **Review is triggered by risk, not by commit count.**
 
 | tier | examples | review |

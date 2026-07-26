@@ -4,10 +4,15 @@
 `grid64-max` factorial, from a clean tree at commit `74e36a7` on `moe-server` (66.3 min,
 `complete=true`, `gate.passed=true`).
 
-It supersedes `../v61_claimgrade/` (schema 2) as the input to
-`research/triangle/v61_render_evidence.py`, which now refuses any schema below 3. The schema-2
-manifest is kept as a historical artefact, not as a renderable input: it carries neither
-execution receipts nor argmax tie evidence.
+**Superseded in turn by `../v61_cg4_schema4/`.** The pipeline now requires schema 4 and refuses
+this manifest, so it too is history rather than a renderable input: it records DERIVED tie
+scalars (a runner-up and a tie list) instead of the per-block temperature vectors those claims
+have to be recomputed from. A producer-reported tie list can name any block, because nothing in
+it is tied to a temperature -- which is why schema 4 stores the vectors and derives the ties.
+`../v61_claimgrade/` (schema 2) is one step further back and carries neither.
+
+Do not migrate these manifests forward. They were produced under their original contracts, and
+rewriting them into schema 4 would manufacture fields that were not recorded at execution time.
 
 Two facts worth reading off it directly:
 

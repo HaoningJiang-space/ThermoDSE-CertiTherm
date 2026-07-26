@@ -497,3 +497,37 @@ def test_the_document_hedges_what_it_cannot_re_derive(man, tmp_path):
     assert "producer-attested" in text
     assert "not an independent numerical confirmation" in text
     assert "compatibility test, not spatial reproduction" in text
+
+
+# --- the committed document must be this pipeline's output -----------------------------
+
+ARCHIVED = ROOT / "artifacts_receipts/v61_cg4_schema4/v61_manifest.json"
+DOCUMENT = ROOT / "docs/V6_1_CAUSAL_ISOLATION.md"
+
+
+@pytest.mark.skipif(not ARCHIVED.exists() or not DOCUMENT.exists(),
+                    reason="archived schema-4 manifest or document not present")
+def test_the_committed_document_regenerates_byte_for_byte(tmp_path):
+    """The committed document had drifted from its generator once already: a paragraph was
+    reworded after the document was committed, so the claimed generation chain was broken and
+    nothing detected it. This test is the detection."""
+    out = tmp_path / "regen.md"
+    p = subprocess.run([sys.executable, str(SCRIPT), str(ARCHIVED), str(out)],
+                       capture_output=True, text=True, cwd=str(ROOT))
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert out.read_text() == DOCUMENT.read_text(), (
+        "docs/V6_1_CAUSAL_ISOLATION.md is not the output of the current pipeline; regenerate "
+        "it from artifacts_receipts/v61_cg4_schema4/ instead of editing it")
+
+
+@pytest.mark.skipif(not ARCHIVED.exists(), reason="archived schema-4 manifest not present")
+def test_the_archived_claim_grade_manifest_validates():
+    """The negative tests use a synthetic fixture; this is the real artefact the document rests
+    on, and it must pass the same validator."""
+    v, g, ex = V.build(json.loads(ARCHIVED.read_text()))
+    assert v["uniqueness_claimable"] is True and v["indeterminate"] == []
+    assert g["location_compatible"] and g["decision_ok"] and g["value_ok"]
+    # the finding that motivated gate policy 2, asserted on the real data
+    assert len(ex["tied_rows"]) == 11 and len(v["rows"]) == 15
+    assert all(not mv["resolved"] for mv in ex["moves"]), \
+        "every reported argmax change in this run is a tie broken differently"
