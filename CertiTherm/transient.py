@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
+import time
 from typing import Sequence, Tuple
 
 import numpy as np
@@ -131,6 +133,14 @@ def _peak_and_ties(
     return winner, runner_up, ties
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _run_hotspot(
     *,
     binary: Path,
@@ -145,7 +155,15 @@ def _run_hotspot(
     init_temp_k: float = None,
     sampling_interval_s: float = None,
     timeout_s: float = 900.0,
-) -> None:
+    role: str = "",
+) -> dict:
+    """Run one HotSpot process and return a record of what it did.
+
+    Returns the role, the argv, the return code, the wall window, and the output path with its
+    SHA-256 and byte size. A consumer previously had to INFER how many processes ran from the
+    converged cycle count -- which hard-codes this function's doubling schedule into the
+    consumer, so changing `initial_cycles` would have made a valid receipt look invalid.
+    """
     command = [
         str(binary),
         "-c",
@@ -178,6 +196,7 @@ def _run_hotspot(
         command += ["-init_temp", f"{init_temp_k:.12g}"]
     if sampling_interval_s is not None:
         command += ["-sampling_intvl", f"{sampling_interval_s:.12g}"]
+    started = time.time()
     result = subprocess.run(
         command,
         stdout=subprocess.DEVNULL,
@@ -185,44 +204,114 @@ def _run_hotspot(
         text=True,
         timeout=timeout_s,
     )
+    ended = time.time()
     if result.returncode:
         raise RuntimeError(
             f"HotSpot transient failed ({result.returncode}): {result.stderr[-1000:]}"
         )
+    # The single file this invocation was asked to write. Recorded by name, hash and size so a
+    # consumer validates the artefact set instead of re-deriving the schedule that produced it.
+    produced = output if output is not None else steady
+    record = {
+        "role": role,
+        "argv": [str(part) for part in command],
+        "returncode": result.returncode,
+        "started_unix": started,
+        "ended_unix": ended,
+        "output": produced.name if produced is not None else None,
+        "output_sha256": _sha256(produced) if produced is not None else None,
+        "output_bytes": produced.stat().st_size if produced is not None else None,
+    }
+    if produced is not None and not produced.is_file():
+        raise RuntimeError(f"HotSpot returned 0 but did not write {produced}")
+    return record
 
 
 @dataclass(frozen=True)
 class PeriodicTransientResult:
+    """Raw observations from one periodic replay, plus everything derivable from them.
+
+    The per-block temperature VECTORS are the raw observation; the peak, the argmax, the
+    runner-up and the resolution-aware tie set are all properties computed from them. They
+    used to be stored fields, which meant a consumer had to trust a producer-reported tie
+    list -- a list that could name any block, since nothing tied it back to a temperature.
+    Storing 233 floats instead makes every tie claim recomputable.
+    """
+
     step_s: float
     samples_per_cycle: int
     cycles: int
     boundary_residual_k: float
     peak_residual_k: float
-    periodic_peak_k: float
-    periodic_hottest_block: str
     fixed_initial_peak_k: float
     fixed_initial_hottest_block: str
-    mean_steady_peak_k: float
-    mean_steady_hottest_block: str
-    # How many HotSpot processes this replay actually ran. Required, with no default: a
-    # default would let a caller print a fabricated 0 as if the solver had been counted.
-    hotspot_invocations: int
-    # A reported argmax block name alone cannot distinguish a relocated peak from a tie
-    # broken differently, because output is quantised to 0.01 K. These carry the runner-up
-    # and the resolution-aware tie set so the question is answerable from the receipt.
-    periodic_second_peak_k: float
-    periodic_tie_blocks: tuple
-    mean_steady_second_peak_k: float
-    mean_steady_tie_blocks: tuple
+    # Aligned with `block_ids`: the maximum over the converged cycle, and the time-mean steady
+    # temperature, for every block.
+    block_ids: tuple
+    periodic_block_peaks_k: tuple
+    mean_steady_block_k: tuple
+    # One record per HotSpot process this replay ran: role, argv, return code, wall window, and
+    # the output it wrote with that file's SHA-256 and size. Required, with no default: a
+    # default would let a caller print a fabricated empty list as if nothing was recorded.
+    invocations: tuple
     temperature_output_resolution_k: float = OUTPUT_RESOLUTION_K
+
+    def _view(self, values):
+        winner, runner_up, ties = _peak_and_ties(
+            np.asarray(values), self.block_ids, self.temperature_output_resolution_k
+        )
+        return float(values[winner]), str(self.block_ids[winner]), runner_up, ties
+
+    @property
+    def hotspot_invocations(self) -> int:
+        return len(self.invocations)
+
+    @property
+    def periodic_peak_k(self) -> float:
+        return self._view(self.periodic_block_peaks_k)[0]
+
+    @property
+    def periodic_hottest_block(self) -> str:
+        return self._view(self.periodic_block_peaks_k)[1]
+
+    @property
+    def periodic_second_peak_k(self) -> float:
+        return self._view(self.periodic_block_peaks_k)[2]
+
+    @property
+    def periodic_tie_blocks(self) -> tuple:
+        return self._view(self.periodic_block_peaks_k)[3]
 
     @property
     def periodic_top_gap_k(self) -> float:
         return self.periodic_peak_k - self.periodic_second_peak_k
 
     @property
+    def mean_steady_peak_k(self) -> float:
+        return self._view(self.mean_steady_block_k)[0]
+
+    @property
+    def mean_steady_hottest_block(self) -> str:
+        return self._view(self.mean_steady_block_k)[1]
+
+    @property
+    def mean_steady_second_peak_k(self) -> float:
+        return self._view(self.mean_steady_block_k)[2]
+
+    @property
+    def mean_steady_tie_blocks(self) -> tuple:
+        return self._view(self.mean_steady_block_k)[3]
+
+    @property
     def mean_steady_top_gap_k(self) -> float:
         return self.mean_steady_peak_k - self.mean_steady_second_peak_k
+
+    def temperature_of(self, block: str) -> float:
+        """The periodic temperature of one named block, for the gate's location predicate."""
+        try:
+            return float(self.periodic_block_peaks_k[self.block_ids.index(block)])
+        except ValueError:
+            raise KeyError(f"{block!r} is not in this replay's block registry")
 
 
 def replay_periodic(
@@ -265,12 +354,11 @@ def replay_periodic(
     model = HotSpotModel.parse(model_id)
     step_s, samples = resample_uniform(trace, max_step_s)
 
-    invocations = 0
+    invocations = []
     mean_ptrace = workspace / "mean.ptrace"
     mean_steady = workspace / "mean.steady"
     _write_ptrace(mean_ptrace, block_ids, trace.mean_power_w[None, :])
-    invocations += 1
-    _run_hotspot(
+    invocations.append(_run_hotspot(
         binary=paths[0],
         config=paths[1],
         floorplan=paths[2],
@@ -278,14 +366,14 @@ def replay_periodic(
         model=model,
         ptrace=mean_ptrace,
         steady=mean_steady,
-    )
+        role="mean-steady",
+    ))
     mean_temperatures = _parse_steady(mean_steady, block_ids)
 
     one_cycle = workspace / "one-cycle.ptrace"
     fixed_ttrace = workspace / "fixed-initial.ttrace"
     _write_ptrace(one_cycle, block_ids, samples)
-    invocations += 1
-    _run_hotspot(
+    invocations.append(_run_hotspot(
         binary=paths[0],
         config=paths[1],
         floorplan=paths[2],
@@ -295,7 +383,8 @@ def replay_periodic(
         output=fixed_ttrace,
         init_temp_k=fixed_initial_k,
         sampling_interval_s=step_s,
-    )
+        role="fixed-initial",
+    ))
     fixed = _parse_ttrace(fixed_ttrace, block_ids)
 
     cycles = initial_cycles
@@ -303,8 +392,7 @@ def replay_periodic(
         periodic_ptrace = workspace / f"periodic-{cycles}.ptrace"
         periodic_ttrace = workspace / f"periodic-{cycles}.ttrace"
         _write_ptrace(periodic_ptrace, block_ids, samples, repeats=cycles)
-        invocations += 1
-        _run_hotspot(
+        invocations.append(_run_hotspot(
             binary=paths[0],
             config=paths[1],
             floorplan=paths[2],
@@ -314,7 +402,8 @@ def replay_periodic(
             output=periodic_ttrace,
             init_file=mean_steady,
             sampling_interval_s=step_s,
-        )
+            role=f"periodic-{cycles}",
+        ))
         temperatures = _parse_ttrace(periodic_ttrace, block_ids)
         expected_rows = cycles * len(samples)
         if len(temperatures) != expected_rows:
@@ -344,31 +433,20 @@ def replay_periodic(
         cycles = min(max_cycles, cycles * 2)
 
     fixed_flat = int(np.argmax(fixed))
-    # Per-block maximum over the converged cycle: the same winner as argmax over the whole
-    # matrix, but it also gives the runner-up and the resolution-aware tie set.
+    # Per-block maximum over the converged cycle. The same winner as an argmax over the whole
+    # (sample, block) matrix, but it is the vector -- not a derived label -- that gets recorded.
     periodic_per_block = np.asarray(last, dtype=float).max(axis=0)
-    p_win, p_second, p_ties = _peak_and_ties(
-        periodic_per_block, block_ids, OUTPUT_RESOLUTION_K
-    )
-    m_win, m_second, m_ties = _peak_and_ties(
-        mean_temperatures, block_ids, OUTPUT_RESOLUTION_K
-    )
     return PeriodicTransientResult(
         step_s=step_s,
         samples_per_cycle=len(samples),
         cycles=cycles,
         boundary_residual_k=boundary_residual,
         peak_residual_k=peak_residual,
-        periodic_peak_k=float(periodic_per_block[p_win]),
-        periodic_hottest_block=str(block_ids[p_win]),
         fixed_initial_peak_k=float(fixed.flat[fixed_flat]),
         fixed_initial_hottest_block=str(block_ids[fixed_flat % len(block_ids)]),
-        mean_steady_peak_k=float(mean_temperatures[m_win]),
-        mean_steady_hottest_block=str(block_ids[m_win]),
-        hotspot_invocations=invocations,
-        periodic_second_peak_k=p_second,
-        periodic_tie_blocks=p_ties,
-        mean_steady_second_peak_k=m_second,
-        mean_steady_tie_blocks=m_ties,
+        block_ids=tuple(str(b) for b in block_ids),
+        periodic_block_peaks_k=tuple(float(v) for v in periodic_per_block),
+        mean_steady_block_k=tuple(float(v) for v in mean_temperatures),
+        invocations=tuple(invocations),
         temperature_output_resolution_k=OUTPUT_RESOLUTION_K,
     )

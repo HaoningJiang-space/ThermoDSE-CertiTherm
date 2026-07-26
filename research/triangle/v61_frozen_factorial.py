@@ -71,34 +71,33 @@ AMBIENT_K = 318.15
 
 # The gate is registered for a COMPLETE tuple, not just a model. Applying it to any
 # grid64-max run would compare a different workload/architecture against these values.
-GATE = {"workload": "transformer", "arch": "arch_b", "model": "grid64-max",
-        "max_step_us": 0.5, "ambient_k": 318.15, "tolerance_k": OUTPUT_RESOLUTION_K,
-        "io_aspect_ratio": 1.0, "thermal_limit_k": 330.0,
-        "mean_steady_peak_k": 329.904867, "periodic_peak_k": 330.19,
-        "hottest": "mtxu_16",
-        # The gate binds NAMES and TEMPERATURES only. It deliberately does NOT bind a
-        # canonical trace or input hash, because none has been preregistered: the registered
-        # values in docs/V6_PHYSICAL_TRACE_GATE.md were produced before this pipeline existed
-        # and no hash of that run's inputs survives. So the gate verifies THE PHENOMENON --
-        # that this pipeline reproduces the documented crossing at the documented location --
-        # and NOT that the underlying registry, power trace or routing are unchanged. A
-        # changed registry with the same workload/arch names could still pass. Closing that
-        # requires preregistering canonical_trace_sha256 and input hashes from a run that is
-        # itself claim-grade, which is a later step and is recorded here as an open gap.
-        "binds_instance_hashes": False,
-        "canonical_trace_sha256": None,
-        "canonical_input_hashes": None,
-        # Deliberately NOT a numeric-equality tolerance on the steady value: 1e-6 K was
-        # invented, is not tied to a documented output quantum, and has no repeatability
-        # evidence behind it. The gate enforces the DECISION plus agreement of the periodic
-        # value within one output quantum, and reports the steady delta without gating on it
-        # until a tolerance is established from repeated clean runs.
-        "steady_tolerance_k": None}
-# 3 adds the per-row execution receipt (pre-run non-existence, wall window, PID, HotSpot
-# invocation count, hash of every raw HotSpot output) and the argmax tie evidence. A v2 row
-# cannot be reused under v3 because it carries neither, and a manifest without them cannot
-# support a fresh-execution claim.
-SCHEMA_VERSION = 3
+REGISTRATION_PATH = Path(__file__).resolve().parents[2] / \
+    "docs/registration/v61_grid64_counterexample.json"
+_REG = json.loads(REGISTRATION_PATH.read_text())
+REGISTRATION_ID = _REG["registration_id"]
+REGISTRATION_SHA256 = hashlib.sha256(REGISTRATION_PATH.read_bytes()).hexdigest()
+
+# The registered tuple is READ from the pinned registration, not re-typed here: two copies of
+# one fact drift, and a test is a weaker guarantee than not having a second copy.
+#
+# The gate binds NAMES and TEMPERATURES only. It deliberately does NOT bind a canonical trace
+# or input hash, because none was ever preregistered: the registered values in
+# docs/V6_PHYSICAL_TRACE_GATE.md were produced before this pipeline existed and no hash of that
+# run's inputs survives. So the gate verifies THE PHENOMENON -- that this pipeline reproduces
+# the documented crossing at a location indistinguishable from the documented one -- and NOT
+# that the underlying registry, power trace or routing are unchanged. Closing that requires
+# preregistering canonical_trace_sha256 from a run that is itself claim-grade: an open gap.
+GATE = _REG["registered_tuple"]
+# 3 added the per-row execution receipt and argmax tie evidence.
+# 4 records the RAW per-block temperature vectors instead of derived tie scalars, one record
+#   per HotSpot invocation instead of a count, and stops serialising interpretations the
+#   consumer recomputes anyway (row_status, coalitions, leave-one-out, margins, top gaps).
+SCHEMA_VERSION = 4
+# Versioned separately from the data schema, because "what fields does this manifest have" and
+# "what predicate admitted it" are different questions with different audit trails.
+# 2 replaces exact argmax equality -- which depended on how an exact tie was broken -- with
+#   the registered block being indistinguishable from the maximum at the output resolution.
+GATE_POLICY_VERSION = 2
 NO_REUSE = os.environ.get("V61_ALLOW_REUSE", "0") != "1"
 
 
@@ -220,10 +219,16 @@ def reusable(dest: Path, want: dict) -> bool:
     # A row without an execution receipt cannot support the fresh-execution statement the
     # manifest makes about it, so it is not reusable even if every number matches.
     ex = got.get("execution") or {}
-    if not isinstance(ex, dict) or ex.get("hotspot_invocations", 0) < 3:
+    if not isinstance(ex, dict) or not isinstance(ex.get("invocations"), list):
         return False
-    if not ex.get("raw_outputs"):
+    # mean-steady + fixed-initial + at least one periodic attempt.
+    if len(ex["invocations"]) < 3 or not ex.get("workspace_files"):
         return False
+    # The raw observation, not just its summary: a row whose vectors are missing cannot have
+    # its tie set or its location predicate recomputed.
+    for f in ("block_ids", "periodic_block_peaks_k", "mean_steady_block_k"):
+        if not isinstance(got.get(f), list) or not got[f]:
+            return False
     return True
 
 
@@ -347,26 +352,33 @@ def main() -> None:
             row = dict(want)
             row.update({
                 "execution": {
+                    # Pre-run proof that nothing was inherited. An exactly reproduced number
+                    # cannot distinguish a fresh solver run from a reused one, so the receipt
+                    # has to come from the process, not from the result.
                     "dest_existed_before_run": bool(existed_before),
                     "workspace_files_before_run": workspace_before,
                     "started_unix": started, "ended_unix": ended,
                     "wall_s": ended - started, "pid": os.getpid(),
                     "run_nonce": run_nonce,
-                    # Counted inside replay_periodic, one increment per subprocess.run.
-                    "hotspot_invocations": r.hotspot_invocations,
-                    # Hashes of the RAW HotSpot artefacts, not of the parsed scalars. Their
-                    # count must match the invocations that produce a file.
-                    "raw_outputs": {p.name: sha256(p) for p in raw},
+                    # One record per HotSpot process: role, argv, return code, wall window, and
+                    # the output it wrote with that file's sha256 and byte size. A consumer no
+                    # longer has to INFER the process count from the converged cycle count --
+                    # an inference that hard-coded replay_periodic's doubling schedule.
+                    "invocations": [dict(rec) for rec in r.invocations],
+                    # Every file in the workspace, including the .ptrace inputs the driver
+                    # wrote. Kept separate from the per-invocation outputs above, because
+                    # counting all of them as "HotSpot outputs" was wrong.
+                    "workspace_files": {p.name: sha256(p) for p in raw},
                 },
-                # Argmax tie evidence: a label change within one output quantum is not a
-                # relocated peak, and without these the manifest could not tell the two apart.
-                "periodic_second_peak_k": r.periodic_second_peak_k,
-                "periodic_top_gap_k": r.periodic_top_gap_k,
-                "periodic_tie_blocks": list(r.periodic_tie_blocks),
-                "mean_steady_second_peak_k": r.mean_steady_second_peak_k,
-                "mean_steady_top_gap_k": r.mean_steady_top_gap_k,
-                "mean_steady_tie_blocks": list(r.mean_steady_tie_blocks),
+                # The RAW observation. The peak, the argmax, the runner-up and the tie set are
+                # all derivable from these, and a consumer that recomputes them does not have
+                # to trust a producer-reported tie list that nothing tied to a temperature.
+                "block_ids": list(r.block_ids),
+                "periodic_block_peaks_k": list(r.periodic_block_peaks_k),
+                "mean_steady_block_k": list(r.mean_steady_block_k),
                 "retained_source_energy_j": rows[sub].source_energy_j,
+                # Scalars kept for readability. Validated against the vectors above, so they
+                # cannot disagree with the observation they summarise.
                 "mean_steady_peak_k": r.mean_steady_peak_k,
                 "mean_steady_hottest_block": r.mean_steady_hottest_block,
                 "periodic_peak_k": r.periodic_peak_k,
@@ -377,7 +389,6 @@ def main() -> None:
                 "boundary_residual_k": r.boundary_residual_k,
                 "peak_residual_k": r.peak_residual_k,
                 "output_resolution_k": r.temperature_output_resolution_k,
-                "margin_to_limit_k": THERMAL_LIMIT_K - r.periodic_peak_k,
                 "complete": True,
             })
             # Any change to a staged input voids every row, so check after each replay too.
@@ -386,7 +397,7 @@ def main() -> None:
             print(f"  {tag:22s} steady {row['mean_steady_peak_k']:.6f} K  periodic "
                   f"{row['periodic_peak_k']:.2f} K  at {row['periodic_hottest_block']:11s} "
                   f"cyc={row['cycles']} hs={r.hotspot_invocations} "
-                  f"raw={len(raw)} gap={r.periodic_top_gap_k:.2f}K "
+                  f"files={len(raw)} gap={r.periodic_top_gap_k:.2f}K "
                   f"ties={len(r.periodic_tie_blocks)}")
         manifest["rows"][tag] = row
 
@@ -397,27 +408,50 @@ def main() -> None:
                   and AMBIENT_K == GATE["ambient_k"])
     if registered:
         res = full["output_resolution_k"]
-        # Gate the DECISION, plus the periodic value within one output quantum, plus the
-        # hottest block being in the resolution-aware tie set. The steady delta is reported
-        # but not gated: no repeatability-derived tolerance exists for it yet.
         steady_delta = abs(full["mean_steady_peak_k"] - GATE["mean_steady_peak_k"])
+        # The DECISION uses the same quantisation-aware rule as every row. It used to be a bare
+        # `periodic >= limit`, so a full row at exactly the limit could pass a gate that the
+        # classification calls undecidable.
         decision_ok = (full["mean_steady_peak_k"] < THERMAL_LIMIT_K
-                       and full["periodic_peak_k"] >= THERMAL_LIMIT_K)
+                       and _classify(full["periodic_peak_k"], THERMAL_LIMIT_K, res) == "crossing")
         value_ok = abs(full["periodic_peak_k"] - GATE["periodic_peak_k"]) <= res + 1e-9
-        loc_ok = full["periodic_hottest_block"] == GATE["hottest"]
-        ok = decision_ok and value_ok and loc_ok
-        manifest["gate"] = {"registered_tuple": GATE, "passed": bool(ok),
-                            "decision_ok": bool(decision_ok), "value_ok": bool(value_ok),
-                            "location_ok": bool(loc_ok),
-                            "steady_delta_k": steady_delta,
-                            "steady_gated": False,
-                            "steady_gate_note": "no repeatability-derived tolerance exists; "
-                                                "reported, not enforced"}
+        # LOCATION, from temperatures rather than from a label. Exact argmax equality made the
+        # gate depend on how an exact tie was broken -- and 11 of 15 rows are exact ties, so a
+        # refactor of the argmax flipped one label with every temperature unchanged. The
+        # defensible predicate is that the registered block cannot be distinguished from the
+        # maximum at HotSpot's output resolution. It is compatibility, NOT spatial reproduction.
+        registered_block_k = full["periodic_block_peaks_k"][
+            full["block_ids"].index(GATE["hottest"])] if GATE["hottest"] in full["block_ids"] \
+            else None
+        location_compatible = (registered_block_k is not None
+                               and 0.0 <= full["periodic_peak_k"] - registered_block_k
+                               <= res + 1e-9)
+        argmax_equals = full["periodic_hottest_block"] == GATE["hottest"]
+        ok = decision_ok and value_ok and location_compatible
+        manifest["gate"] = {
+            "registered_tuple": GATE,
+            "registration_id": REGISTRATION_ID,
+            "registration_sha256": REGISTRATION_SHA256,
+            # Versioned separately from the data schema: "what fields does this manifest have"
+            # and "what predicate admitted it" are different questions.
+            "gate_policy_version": GATE_POLICY_VERSION,
+            "passed": bool(ok),
+            "registered_block_periodic_k": registered_block_k,
+            "location_compatible_at_resolution": bool(location_compatible),
+            "argmax_equals": bool(argmax_equals),
+            "steady_delta_k": steady_delta,
+            "steady_gated": False,
+            "steady_gate_note": "no repeatability-derived tolerance exists; reported, "
+                                "not enforced",
+        }
         print(f"\n  GATE (registered tuple): {'PASS' if ok else 'FAIL'}")
         print(f"    decision  steady<330 and periodic>=330 : {decision_ok}")
         print(f"    value     periodic {full['periodic_peak_k']:.2f} vs registered "
               f"{GATE['periodic_peak_k']:.2f} K (+/-{res}) : {value_ok}")
-        print(f"    location  {full['periodic_hottest_block']} vs {GATE['hottest']} : {loc_ok}")
+        print(f"    location  registered {GATE['hottest']} at "
+              f"{registered_block_k if registered_block_k is None else round(registered_block_k, 2)} K "
+              f"vs peak {full['periodic_peak_k']:.2f} K (<= {res} K) : {location_compatible}"
+              f"   [argmax_equals={argmax_equals}, not gated]")
         print(f"    steady delta {steady_delta:.6f} K (reported, NOT gated)")
         if not ok:
             # summary is NULL, not a string. A consumer that merely checks for the key
@@ -440,67 +474,52 @@ def main() -> None:
         print(f"\n  UNGATED EXPLORATORY RUN: {WORKLOAD}/{ARCH}/{MODEL}/{STEP_US}us is not "
               f"the registered tuple. No gate applies and no registered comparison is made.")
 
-    # ---- summary: minimal crossing coalitions and leave-one-out -----------------
-    # Quantisation-aware classification. HotSpot reports transient temperatures to 0.01 K,
-    # so a value within one quantum of the limit cannot be classified either way. Only rows
-    # strictly outside that band are called crossing or not; anything inside is INDETERMINATE
-    # and is excluded from the coalition analysis rather than silently counted as crossing.
+    # ---- console reporting: derived HERE for the log, and deliberately NOT serialised ----
+    # The manifest used to store row_status, indeterminate_rows, crossing_subsets,
+    # minimal_crossing_coalitions, leave_one_out and uplift_k. The consumer recomputes all of
+    # them from the rows anyway, so serialising them created two representations of one fact and
+    # a policing problem: the renderer had to compare its recomputation against a stored copy it
+    # could not trust. Rows are the authority; interpretations are the consumer's job.
     def classify(row):
         return _classify(row["periodic_peak_k"], THERMAL_LIMIT_K, row["output_resolution_k"])
-    status = {subset_tag(sub): classify(manifest["rows"][subset_tag(sub)])
-              for sub in subsets}
+    status = {subset_tag(sub): classify(manifest["rows"][subset_tag(sub)]) for sub in subsets}
     indet = [t for t, v in status.items() if v == "indeterminate"]
     if indet:
-        print(f"  NOTE: {len(indet)} row(s) sit within one 0.01 K quantum of the limit and "
-              f"are INDETERMINATE: {indet}")
-    crossing = {frozenset(sub) for sub in subsets
-                if status[subset_tag(sub)] == "crossing"}
+        print(f"  NOTE: {len(indet)} row(s) sit within one {OUTPUT_RESOLUTION_K} K quantum of "
+              f"the limit and are INDETERMINATE: {indet}")
+    crossing = {frozenset(sub) for sub in subsets if status[subset_tag(sub)] == "crossing"}
     minimal = sorted(("+".join(sorted(c)) for c in crossing
                       if not any(o < c for o in crossing)), key=len)
-    loo = {}
-    for drop in COMPONENTS:
-        sub = tuple(c for c in COMPONENTS if c != drop)
-        row = manifest["rows"][subset_tag(sub)]
-        loo[drop] = {"periodic_peak_k": row["periodic_peak_k"],
-                     "status": status[subset_tag(sub)],
-                     "margin_to_limit_k": row["margin_to_limit_k"],
-                     "below_limit": status[subset_tag(sub)] == "below"}
+    loo = {drop: manifest["rows"][subset_tag(tuple(c for c in COMPONENTS if c != drop))]
+           for drop in COMPONENTS}
+
+    # Freshness is a CONJUNCTION, not a nonce match. Nonce equality alone would call a row
+    # fresh that had inherited a populated workspace.
+    def is_fresh(r) -> bool:
+        ex = r.get("execution") or {}
+        return (ex.get("run_nonce") == run_nonce
+                and ex.get("dest_existed_before_run") is False
+                and not ex.get("workspace_files_before_run")
+                and bool(ex.get("invocations"))
+                and run_started <= ex.get("started_unix", 0)
+                <= ex.get("ended_unix", 0) <= time.time())
+
     manifest["summary"] = {
-        "row_status": status,
-        "indeterminate_rows": indet,
-        "crossing_subsets": sorted("+".join(sorted(c)) for c in crossing),
-        "minimal_crossing_coalitions": minimal,
-        "leave_one_out": loo,
-        # Absolute uplift only. The uplift/steady-rise RATIO spans about 1.9-5.0% across the
-        # 15 subsets and is resolution-sensitive on the small-rise subsets (a 0.01 K output
-        # quantum over a ~2 K rise), so no uniform percentage is claimed and any
-        # source-identity effect on uplift is UNTESTED.
-        "uplift_k": {t: round(r["periodic_peak_k"] - r["mean_steady_peak_k"], 4)
-                     for t, r in manifest["rows"].items()},
+        # The only summary fields left are ones no consumer can derive from the rows.
+        "all_rows_fresh": all(is_fresh(r) for r in manifest["rows"].values()),
+        "reuse_disabled_by_policy": bool(NO_REUSE),
         "source_identity_effect_on_uplift": "UNTESTED",
-        "evidence_grade": ("diagnostic (dirty tree)" if dirty else
-                           "provenance-controlled, single-capture HotSpot evidence for the "
-                           "registered candidate and discretisation; no independent "
-                           "thermal-model validation"),
         "scope": ("Conditional necessity is bounded to THIS fixed trace, fixed routing and "
                   "timing, an additive deposition intervention, and the HotSpot model. It is "
                   "not general physical causality and says nothing about temperature-"
                   "dependent power feedback."),
-        # Evidence, not policy. This previously echoed the NO_REUSE constant, which asserts
-        # the intention and proves nothing: a row is fresh only if it carries an execution
-        # receipt stamped with THIS run's nonce.
-        "all_rows_fresh": all(
-            (r.get("execution") or {}).get("run_nonce") == run_nonce
-            for r in manifest["rows"].values()),
-        "reuse_disabled_by_policy": bool(NO_REUSE),
-        "hotspot_invocations_total": sum(
-            (r.get("execution") or {}).get("hotspot_invocations", 0)
-            for r in manifest["rows"].values()),
     }
     print(f"\n  minimal crossing coalitions: {minimal or '(none)'}")
-    for drop, v in loo.items():
-        print(f"    full-minus-{drop:5s} periodic {v['periodic_peak_k']:.2f} K -> "
-              f"{'BELOW  => conditionally necessary' if v['below_limit'] else 'still OVER'}")
+    for drop, row in loo.items():
+        st = classify(row)
+        print(f"    full-minus-{drop:5s} periodic {row['periodic_peak_k']:.2f} K -> "
+              f"{'BELOW' if st == 'below' else st.upper()}  (delta "
+              f"{manifest['rows']['full']['periodic_peak_k'] - row['periodic_peak_k']:+.2f} K)")
     manifest["run"] = {
         "run_id": run_nonce,
         "started_unix": run_started, "ended_unix": time.time(),

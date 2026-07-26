@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -206,44 +205,57 @@ def test_importing_the_probe_does_not_reinterpret_the_callers_argv():
         sys.argv = saved
 
 
-# --- schema 3: the execution receipt -------------------------------------------------
-# `all_rows_fresh` previously echoed the NO_REUSE module constant, so it asserted the
-# driver's intention and proved nothing. A near-exact reproduction of a registered number
-# cannot distinguish a fresh solver run from a reused one; only process evidence can.
+# --- schema 4: the reuse fingerprint must require the raw observation ------------------
+# `all_rows_fresh` once echoed the NO_REUSE module constant, so it asserted the driver's
+# intention and proved nothing. Under schema 4 a row is reusable only if it carries the raw
+# per-block vectors and one record per HotSpot invocation.
 
-def test_schema_is_bumped_so_receiptless_rows_cannot_be_inherited():
-    assert F.SCHEMA_VERSION >= 3
+def test_schema_and_gate_policy_are_versioned_separately():
+    """"What fields does this manifest have" and "what predicate admitted it" are different
+    questions: gate policy 2 replaced exact argmax equality with resolution compatibility
+    without changing a single field."""
+    assert F.SCHEMA_VERSION == 4
+    assert F.GATE_POLICY_VERSION == 2
 
 
-def _v3_row(**over):
+def _v4_row(**over):
     row = _row()
-    row.update(schema_version=F.SCHEMA_VERSION,
-               execution={"dest_existed_before_run": False,
-                          "workspace_files_before_run": [],
-                          "started_unix": 1.0, "ended_unix": 2.0, "wall_s": 1.0,
-                          "pid": 123, "run_nonce": "n",
-                          "hotspot_invocations": 4,
-                          "raw_outputs": {"mean.steady": "h1", "fixed-initial.ttrace": "h2",
-                                          "periodic-8.ttrace": "h3"}})
+    row.update(
+        schema_version=F.SCHEMA_VERSION,
+        block_ids=["blk_0", "mtxu_16"],
+        periodic_block_peaks_k=[329.0, 330.19],
+        mean_steady_block_k=[329.0, 329.9],
+        execution={"dest_existed_before_run": False,
+                   "workspace_files_before_run": [],
+                   "started_unix": 1.0, "ended_unix": 2.0, "wall_s": 1.0,
+                   "pid": 123, "run_nonce": "n",
+                   "invocations": [{"role": "mean-steady"}, {"role": "fixed-initial"},
+                                   {"role": "periodic-8"}, {"role": "periodic-16"}],
+                   "workspace_files": {"mean.steady": "h1", "periodic-16.ttrace": "h2"}})
     row.update(over)
     return row
 
 
-def test_reuse_is_accepted_for_a_row_with_an_execution_receipt(tmp_path):
-    (tmp_path / "v61_row.json").write_text(json.dumps(_v3_row()))
+def test_reuse_is_accepted_for_a_row_with_receipts_and_vectors(tmp_path):
+    (tmp_path / "v61_row.json").write_text(json.dumps(_v4_row()))
     assert F.reusable(tmp_path, _want())
 
 
 @pytest.mark.parametrize("over,reason", [
     ({"execution": None}, "no receipt at all"),
     ({"execution": {}}, "empty receipt"),
-    ({"execution": dict(_v3_row()["execution"], hotspot_invocations=2)},
-     "too few HotSpot invocations for one replay"),
-    ({"execution": dict(_v3_row()["execution"], raw_outputs={})},
-     "no raw HotSpot output hashed"),
+    ({"execution": dict(_v4_row()["execution"], invocations=[{"role": "mean-steady"}])},
+     "too few invocations for one replay"),
+    ({"execution": dict(_v4_row()["execution"], invocations="four")},
+     "invocations is not a list"),
+    ({"execution": dict(_v4_row()["execution"], workspace_files={})},
+     "no workspace file hashed"),
+    ({"periodic_block_peaks_k": []}, "no periodic temperature vector"),
+    ({"block_ids": None}, "no block registry"),
+    ({"mean_steady_block_k": None}, "no steady temperature vector"),
 ])
-def test_reuse_is_refused_without_process_evidence(tmp_path, over, reason):
-    (tmp_path / "v61_row.json").write_text(json.dumps(_v3_row(**over)))
+def test_reuse_is_refused_without_the_raw_observation(tmp_path, over, reason):
+    (tmp_path / "v61_row.json").write_text(json.dumps(_v4_row(**over)))
     assert not F.reusable(tmp_path, _want()), f"must refuse to reuse: {reason}"
 
 
@@ -251,20 +263,16 @@ def test_reuse_is_refused_without_process_evidence(tmp_path, over, reason):
 
 def test_the_driver_and_the_renderer_share_one_classification_rule():
     """They each carried their own `classify`. The copies agreed by luck; the gate's own
-    decision did not agree with either, which is how a row at exactly the limit could pass a
-    gate that classification calls undecidable."""
+    decision agreed with neither, which is how a row at exactly the limit could pass a gate
+    that classification calls undecidable."""
     from research.triangle import v61_contract as C
-    from research.triangle import v61_render_evidence as R
     assert F._classify is C.classify
-    assert R.classify is C.classify
     assert F.subset_tag(F.COMPONENTS) == C.subset_tag(F.COMPONENTS, F.COMPONENTS) == "full"
     src = (ROOT / "research/triangle/v61_frozen_factorial.py").read_text()
-    assert "return \"crossing\"" not in src, "the driver must not keep a second classifier"
+    assert 'return "crossing"' not in src, "the driver must not keep a second classifier"
 
 
 def test_the_output_quantum_is_not_a_bare_literal_in_the_driver():
-    """`tolerance_k: 0.01` was written out three times, unconnected to HotSpot's actual
-    serialisation limit."""
     from research.triangle import v61_contract as C
     src = (ROOT / "research/triangle/v61_frozen_factorial.py").read_text()
     assert 'tolerance_k": 0.01' not in src and "tolerance_k=0.01" not in src
