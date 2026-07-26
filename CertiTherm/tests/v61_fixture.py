@@ -22,6 +22,7 @@ REGISTRATION = ROOT / "docs/registration/v61_grid64_counterexample.json"
 BLOCKS = ["blk_0", "mtxu_16", "blk_2", "blk_3", "blk_4"]
 COMPONENTS = ["a", "b", "c"]
 ENERGY = {"a": 0.010, "b": 0.005, "c": 0.002}
+SCHEMA, GATE_POLICY = 5, 3
 LIMIT, AMBIENT, QUANTUM = 330.0, 318.15, 0.01
 RUN_T0 = 1_700_000_000.0
 
@@ -64,9 +65,40 @@ def _subsets():
     return out
 
 
+def canonical_instance(m: dict) -> dict:
+    """The canonical instance THIS fixture describes.
+
+    Gate policy 3 binds the physical instance, and the committed registration pins the real
+    233-block one. A synthetic manifest can only be validated against a synthetic canonical
+    instance, so tests monkeypatch the registration with `registration(m)`.
+    """
+    full = m["rows"]["full"]
+    return {
+        "why": "synthetic", "provenance": "synthetic fixture; not evidence",
+        "canonicalised_from": {"run_id": m["run"]["run_id"], "commit": m["commit"],
+                               "manifest": "synthetic", "schema_version": SCHEMA},
+        "input_hashes": dict(m["input_hashes"]),
+        "hotspot_sha256": m["hotspot_sha256"],
+        "block_registry_sha256": hashlib.sha256(
+            "\n".join(full["block_ids"]).encode()).hexdigest(),
+        "block_count": len(full["block_ids"]),
+        "trace_sha256_by_subset": {t: r["trace_sha256"] for t, r in sorted(m["rows"].items())},
+        "output_resolution_k": full["output_resolution_k"],
+        "component_energy_j": dict(m["component_energy_j"]),
+    }
+
+
+def registration(m: dict) -> dict:
+    """The pinned registration a synthetic manifest must be validated against."""
+    reg = json.loads(REGISTRATION.read_text())
+    reg["registered_tuple"] = dict(m["gate"]["registered_tuple"])
+    reg["canonical_instance"] = canonical_instance(m)
+    return reg
+
+
 def manifest(commit: str = "c" * 40) -> dict:
     reg = json.loads(REGISTRATION.read_text())
-    tuple_ = reg["registered_tuple"]
+    tuple_ = dict(reg["registered_tuple"])
     hotspot = _h("hotspot-binary")
     inputs = {"config": _h("config"), "floorplan": _h("floorplan"),
               "materials": _h("materials"), "hotspot": hotspot}
@@ -96,7 +128,7 @@ def manifest(commit: str = "c" * 40) -> dict:
         for n in attempts:
             workspace[f"periodic-{n}.ptrace"] = _h(f"{tag}:periodic-{n}.ptrace")
         rows[tag] = {
-            "schema_version": 4, "commit": commit, "dirty": [], "diff_sha256": None,
+            "schema_version": SCHEMA, "commit": commit, "dirty": [], "diff_sha256": None,
             "workload": tuple_["workload"], "arch": tuple_["arch"], "model": tuple_["model"],
             "max_step_us": tuple_["max_step_us"], "components": list(sub),
             "input_hashes": inputs, "hotspot_sha256": hotspot,
@@ -122,6 +154,9 @@ def manifest(commit: str = "c" * 40) -> dict:
             "complete": True,
         }
     full = rows["full"]
+    tuple_["binds_instance_hashes"] = True
+    tuple_["canonical_trace_sha256"] = full["trace_sha256"]
+    tuple_["canonical_input_hashes"] = dict(inputs)
     return {
         "commit": commit, "dirty": [], "model": tuple_["model"],
         "max_step_us": tuple_["max_step_us"], "workload": tuple_["workload"],
@@ -135,7 +170,7 @@ def manifest(commit: str = "c" * 40) -> dict:
             "registered_tuple": tuple_,
             "registration_id": reg["registration_id"],
             "registration_sha256": hashlib.sha256(REGISTRATION.read_bytes()).hexdigest(),
-            "gate_policy_version": 2,
+            "gate_policy_version": GATE_POLICY,
             "passed": True,
             "registered_block_periodic_k": full["periodic_peak_k"],
             "location_compatible_at_resolution": True,
@@ -153,8 +188,15 @@ def manifest(commit: str = "c" * 40) -> dict:
         "run": {
             "run_id": run_id, "started_unix": RUN_T0, "ended_unix": t + 10,
             "host": "fixture", "platform": "synthetic", "python": "3.8.10", "numpy": "1.24.4",
-            "argv": ["fixture"], "schema_version": 4,
+            "argv": ["fixture"], "schema_version": SCHEMA,
             "staged_inputs": {k: f"/staged/{k}" for k in inputs},
+        },
+        "raw_output_bundle": {
+            "path": "/data/run/v61_hotspot_outputs.tar.gz", "sha256": _h("bundle"),
+            "bytes": 4096, "members": sum(
+                len([i for i in r["execution"]["invocations"]]) for r in rows.values()),
+            "uncompressed_bytes": 40960, "in_repository": False,
+            "note": "synthetic",
         },
         "provenance_end": {"commit": commit, "dirty": [], "diff_sha256": None},
         "provenance_stable": True,

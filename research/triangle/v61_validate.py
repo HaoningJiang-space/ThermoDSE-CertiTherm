@@ -41,8 +41,8 @@ from research.triangle.v61_contract import (  # noqa: E402
     subset_tag,
 )
 
-REQUIRED_SCHEMA = 4
-REQUIRED_GATE_POLICY = 2
+REQUIRED_SCHEMA = 5
+REQUIRED_GATE_POLICY = 3
 
 # Fields every row must agree on. `trace_sha256` is deliberately absent -- each subset has its
 # own masked trace and the hashes must all DIFFER. `dirty`/`diff_sha256` are present: a row
@@ -243,6 +243,33 @@ def validate_gate(m: dict, v: dict) -> dict:
     check_citation(pinned["earlier_hotspot_binary_sha256"],
                    [pinned["earlier_hotspot_binary_sha256"]["sha256"]])
 
+    # INSTANCE BINDING. Until gate policy 3 the gate bound names and temperatures only, so a
+    # changed registry, trace or routing under the same workload/architecture names would have
+    # passed. The canonical hashes were canonicalised from the schema-4 claim-grade run, not
+    # preregistered ahead of it -- so they pin that FUTURE runs replay the same physical instance
+    # as the run the document rests on, not that that run replayed the original.
+    require(reg["binds_instance_hashes"] is True,
+            "gate policy 3 requires the registration to bind instance hashes")
+    canon = get(pinned, "canonical_instance", "registration")
+    require(m["input_hashes"] == get(canon, "input_hashes", "canonical_instance"),
+            "the staged inputs are not the canonical instance's")
+    require(m["hotspot_sha256"] == canon["hotspot_sha256"],
+            "the HotSpot binary is not the canonical instance's")
+    registry = hashlib.sha256("\n".join(v["block_ids"]).encode()).hexdigest()
+    require(registry == get(canon, "block_registry_sha256", "canonical_instance"),
+            f"the floorplan block registry hashes to {registry[:16]}..., not the canonical "
+            f"{canon['block_registry_sha256'][:16]}...; the geometry or its naming changed")
+    canon_traces = get(canon, "trace_sha256_by_subset", "canonical_instance")
+    require(set(canon_traces) == set(v["rows"]),
+            "the canonical instance pins a different subset set")
+    for tag in sorted(v["rows"]):
+        require(v["rows"][tag]["trace_sha256"] == canon_traces[tag],
+                f"row `{tag}` replayed a different power trace than the canonical instance")
+    require(v["comp"] == get(canon, "component_energy_j", "canonical_instance"),
+            "the source energy decomposition is not the canonical instance's")
+    require(reg["canonical_trace_sha256"] == canon_traces[v["full_tag"]],
+            "the registered canonical trace hash disagrees with the canonical instance")
+
     full, q = v["full"], v["quantum"]
     require(reg["hottest"] in v["block_ids"],
             f"the registered block {reg['hottest']!r} is not in this run's block registry")
@@ -360,12 +387,28 @@ def validate_execution(m: dict, v: dict) -> dict:
                           "resolved": (sv["block"] not in pv["ties"]
                                        and pv["block"] not in sv["ties"]
                                        and pv["gap_k"] > q and sv["gap_k"] > q)})
+    # The raw HotSpot outputs, retained as ONE bundle outside the repository. Hashes without
+    # bytes cannot be reparsed by anyone, which was the second-largest gap after instance
+    # binding. This does not defeat a dishonest producer; it makes independent reparsing
+    # possible at all.
+    bundle = get(m, "raw_output_bundle", "manifest")
+    _hash(get(bundle, "sha256", "raw_output_bundle"), "raw_output_bundle.sha256")
+    require(isinstance(bundle.get("bytes"), int) and bundle["bytes"] > 0,
+            f"the raw output bundle has no plausible size ({bundle.get('bytes')!r})")
+    members = get(bundle, "members", "raw_output_bundle")
+    expected = sum(receipts[t]["hotspot_outputs"] for t in rows)
+    require(members == expected,
+            f"the bundle holds {members} members but the receipts record {expected} HotSpot "
+            f"outputs; something was written or dropped outside the recorded invocations")
+    require(bundle.get("in_repository") is False,
+            "the bundle must be recorded as living outside the repository")
+
     fresh = all(receipts[t].get("run_nonce") == nonce for t in rows)
     require(m["summary"].get("all_rows_fresh") is fresh,
             f"summary.all_rows_fresh={m['summary'].get('all_rows_fresh')} but the receipts give "
             f"{fresh}")
     require(fresh, "at least one row does not belong to this run")
-    return {"receipts": receipts, "moves": moves, "nonce": nonce,
+    return {"receipts": receipts, "moves": moves, "nonce": nonce, "bundle": bundle,
             "tied_rows": sorted(t for t in rows if len(v["view"][t]["periodic"]["ties"]) > 1)}
 
 

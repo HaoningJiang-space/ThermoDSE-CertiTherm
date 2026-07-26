@@ -42,8 +42,18 @@ SCRIPT = ROOT / "research/triangle/v61_render_evidence.py"
 
 
 @pytest.fixture
-def man():
-    return FX.manifest()
+def man(monkeypatch):
+    """A synthetic manifest, plus the synthetic registration it must be validated against.
+
+    Gate policy 3 binds the physical instance and the committed registration pins the real
+    233-block one, so a synthetic manifest can only be checked against a synthetic canonical
+    instance. The real registration is exercised by
+    `test_the_archived_claim_grade_manifest_validates`.
+    """
+    m = FX.manifest()
+    reg = FX.registration(m)
+    monkeypatch.setattr(V, "load_registration", lambda path=None: reg)
+    return m
 
 
 def _refuses(m, match):
@@ -83,22 +93,30 @@ def test_the_driver_reads_the_registered_tuple_rather_than_re_typing_it():
 # --- schema and gate policy are required, not sniffed ---------------------------------
 
 def test_an_older_schema_is_refused(man):
-    man["run"]["schema_version"] = 3
-    _refuses(man, "accepts only schema 4")
+    man["run"]["schema_version"] = 4
+    _refuses(man, "accepts only schema 5")
 
 
-def test_a_manifest_admitted_by_an_older_gate_policy_is_refused(man):
-    """Gate policy 1 accepted exact argmax equality. A manifest it admitted must not be read
-    under policy 2's claims."""
-    man["gate"]["gate_policy_version"] = 1
-    _refuses(man, "gate policy 1")
+@pytest.mark.parametrize("policy,why", [
+    (1, "accepted exact argmax equality"),
+    (2, "did not bind the physical instance"),
+])
+def test_a_manifest_admitted_by_an_older_gate_policy_is_refused(man, policy, why):
+    """A manifest admitted by an older predicate must not be read under the current one's
+    claims -- policy 1 %s and policy 2 %s."""
+    man["gate"]["gate_policy_version"] = policy
+    _refuses(man, f"gate policy {policy}")
 
 
-def test_the_archived_schema3_manifest_is_refused():
-    legacy = ROOT / "artifacts_receipts/v61_cg3_schema3/v61_manifest.json"
+@pytest.mark.parametrize("archive", ["v61_cg3_schema3", "v61_cg4_schema4"])
+def test_superseded_archives_are_refused(man, archive):
+    """They are history, produced under their original contracts. Migrating them forward would
+    manufacture fields that were not recorded at execution time."""
+    legacy = ROOT / f"artifacts_receipts/{archive}/v61_manifest.json"
     if not legacy.exists():
-        pytest.skip("archived schema-3 manifest not present")
-    _refuses(json.loads(legacy.read_text()), "accepts only schema 4")
+        pytest.skip(f"{archive} not present")
+    with pytest.raises(C.Refuse):
+        V.build(json.loads(legacy.read_text()))
 
 
 # --- the gate: recomputed from temperatures, not from labels or lists -----------------
@@ -501,7 +519,7 @@ def test_the_document_hedges_what_it_cannot_re_derive(man, tmp_path):
 
 # --- the committed document must be this pipeline's output -----------------------------
 
-ARCHIVED = ROOT / "artifacts_receipts/v61_cg4_schema4/v61_manifest.json"
+ARCHIVED = ROOT / "artifacts_receipts/v61_cg5_schema5/v61_manifest.json"
 DOCUMENT = ROOT / "docs/V6_1_CAUSAL_ISOLATION.md"
 
 
@@ -529,5 +547,86 @@ def test_the_archived_claim_grade_manifest_validates():
     assert g["location_compatible"] and g["decision_ok"] and g["value_ok"]
     # the finding that motivated gate policy 2, asserted on the real data
     assert len(ex["tied_rows"]) == 11 and len(v["rows"]) == 15
+    assert ex["bundle"]["in_repository"] is False
     assert all(not mv["resolved"] for mv in ex["moves"]), \
         "every reported argmax change in this run is a tie broken differently"
+
+
+# --- gate policy 3: the physical instance is bound -------------------------------------
+# Until now the gate bound names and temperatures only, so a changed registry, power trace or
+# routing under the same workload/architecture names would have passed.
+
+def test_a_changed_power_trace_is_refused(man):
+    man["rows"]["a"]["trace_sha256"] = "a" * 64
+    _refuses(man, "replayed a different power trace than the canonical instance")
+
+
+def test_a_changed_floorplan_registry_is_refused(man):
+    """Same block COUNT, different names -- the geometry or its naming changed."""
+    for r in man["rows"].values():
+        r["block_ids"] = ["renamed_0"] + r["block_ids"][1:]
+    _refuses(man, "block registry hashes to")
+
+
+def test_changed_staged_inputs_are_refused(man):
+    for r in man["rows"].values():
+        r["input_hashes"] = dict(r["input_hashes"], config="b" * 64)
+    man["input_hashes"] = dict(man["input_hashes"], config="b" * 64)
+    _refuses(man, "not the canonical instance's")
+
+
+def test_a_changed_binary_is_refused(man):
+    for r in man["rows"].values():
+        r["hotspot_sha256"] = "c" * 64
+        r["input_hashes"] = dict(r["input_hashes"], hotspot="c" * 64)
+    man["hotspot_sha256"] = "c" * 64
+    man["input_hashes"] = dict(man["input_hashes"], hotspot="c" * 64)
+    _refuses(man, "not the canonical instance's")
+
+
+def test_a_changed_energy_decomposition_is_refused(man):
+    """The conclusions depend on how power was split across the four names, so that split is
+    part of the instance."""
+    man["component_energy_j"]["c"] *= 1.0000001
+    man["full_source_energy_j"] = sum(man["component_energy_j"].values())
+    for tag, r in man["rows"].items():
+        r["retained_source_energy_j"] = sum(man["component_energy_j"][c]
+                                            for c in r["components"])
+    _refuses(man, "not the canonical instance's")
+
+
+def test_a_registration_that_does_not_bind_the_instance_is_refused(man, monkeypatch):
+    reg = FX.registration(man)
+    reg["registered_tuple"] = dict(reg["registered_tuple"], binds_instance_hashes=False)
+    monkeypatch.setattr(V, "load_registration", lambda path=None: reg)
+    _refuses(man, "requires the registration to bind instance hashes")
+
+
+def test_a_canonical_trace_hash_inconsistent_with_the_instance_is_refused(man, monkeypatch):
+    reg = FX.registration(man)
+    reg["registered_tuple"] = dict(reg["registered_tuple"], canonical_trace_sha256="d" * 64)
+    monkeypatch.setattr(V, "load_registration", lambda path=None: reg)
+    _refuses(man, "registered canonical trace hash disagrees")
+
+
+# --- schema 5: the raw outputs are retained outside the repository ---------------------
+
+def test_a_missing_bundle_receipt_is_refused(man):
+    del man["raw_output_bundle"]
+    _refuses(man, "raw_output_bundle")
+
+
+def test_a_bundle_whose_member_count_disagrees_with_the_receipts_is_refused(man):
+    man["raw_output_bundle"]["members"] += 1
+    _refuses(man, "something was written or dropped outside the recorded invocations")
+
+
+def test_a_bundle_claimed_to_be_in_the_repository_is_refused(man):
+    """353 MB of ttrace text does not belong in git; the receipt must say where it is."""
+    man["raw_output_bundle"]["in_repository"] = True
+    _refuses(man, "outside the repository")
+
+
+def test_a_malformed_bundle_hash_is_refused(man):
+    man["raw_output_bundle"]["sha256"] = "short"
+    _refuses(man, "is not a sha256")

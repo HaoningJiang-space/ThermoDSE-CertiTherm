@@ -44,6 +44,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 from pathlib import Path
 
@@ -92,12 +93,17 @@ GATE = _REG["registered_tuple"]
 # 4 records the RAW per-block temperature vectors instead of derived tie scalars, one record
 #   per HotSpot invocation instead of a count, and stops serialising interpretations the
 #   consumer recomputes anyway (row_status, coalitions, leave-one-out, margins, top gaps).
-SCHEMA_VERSION = 4
+# 5 retains the raw HotSpot outputs as one bundle outside the repository and records its hash,
+#   size and member count, so the temperatures can be independently reparsed at all.
+SCHEMA_VERSION = 5
 # Versioned separately from the data schema, because "what fields does this manifest have" and
 # "what predicate admitted it" are different questions with different audit trails.
 # 2 replaces exact argmax equality -- which depended on how an exact tie was broken -- with
 #   the registered block being indistinguishable from the maximum at the output resolution.
-GATE_POLICY_VERSION = 2
+# 3 binds the physical instance: the staged inputs, the binary, the floorplan block registry,
+#   every subset's power-trace hash and the source energy decomposition must all match the
+#   canonical instance. Until now a changed registry under the same names would have passed.
+GATE_POLICY_VERSION = 3
 NO_REUSE = os.environ.get("V61_ALLOW_REUSE", "0") != "1"
 
 
@@ -520,6 +526,30 @@ def main() -> None:
         print(f"    full-minus-{drop:5s} periodic {row['periodic_peak_k']:.2f} K -> "
               f"{'BELOW' if st == 'below' else st.upper()}  (delta "
               f"{manifest['rows']['full']['periodic_peak_k'] - row['periodic_peak_k']:+.2f} K)")
+    # ---- retain the raw HotSpot outputs as ONE bundle, outside the repository -------------
+    # Hashes without bytes cannot be reparsed by anyone. The bundle is not committed: measured
+    # at 14.3 MB gzipped for 353 MB of ttrace/steady text, against a 1.1 MB repository pack.
+    bundle_path = OUT / "v61_hotspot_outputs.tar.gz"
+    produced = sorted(p for tag in manifest["rows"]
+                      for p in (OUT / f"row_{tag}_{MODEL}_{STEP_US:g}us" / "hotspot").glob("*")
+                      if p.is_file() and p.suffix != ".ptrace")
+    with tarfile.open(bundle_path, "w:gz") as bundle:
+        for path in produced:
+            bundle.add(path, arcname=str(path.relative_to(OUT)))
+    manifest["raw_output_bundle"] = {
+        "path": str(bundle_path), "sha256": sha256(bundle_path),
+        "bytes": bundle_path.stat().st_size, "members": len(produced),
+        "uncompressed_bytes": sum(p.stat().st_size for p in produced),
+        "in_repository": False,
+        "note": ("Retained so the temperatures can be independently reparsed. Lives on the "
+                 "run host's data volume, which is shared and periodically cleaned -- the hash "
+                 "identifies the bytes, it does not guarantee they still exist."),
+    }
+    print(f"\n  raw output bundle: {len(produced)} files, "
+          f"{bundle_path.stat().st_size/1e6:.1f} MB gzipped from "
+          f"{sum(p.stat().st_size for p in produced)/1e6:.1f} MB, sha "
+          f"{manifest['raw_output_bundle']['sha256'][:12]}")
+
     manifest["run"] = {
         "run_id": run_nonce,
         "started_unix": run_started, "ended_unix": time.time(),
