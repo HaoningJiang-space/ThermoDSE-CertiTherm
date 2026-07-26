@@ -17,10 +17,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
-import yaml
+
+# No YAML parser: PyYAML is not in the pinned requirements.lock, and adding it would change the
+# frozen environment that every claim-grade run bootstraps. The two facts these tests need out of
+# ccfa.yaml are a 64-hex hash and the presence of specific text, both of which a targeted match
+# reads reliably. Hand-rolling a YAML parser would be a second implementation acting as its own
+# oracle.
 
 ROOT = Path(__file__).resolve().parents[2]
 PREREG = ROOT / "docs/registration/v7_independent_model_gate.json"
@@ -33,15 +39,28 @@ def _prereg() -> dict:
     return json.loads(PREREG.read_text())
 
 
-def _entry() -> dict:
-    experiments = yaml.safe_load(CCFA.read_text())["experiments"]
-    return next(e for e in experiments if e["id"] == "INDEPENDENT-MODEL-GATE")
+def _ccfa() -> str:
+    return CCFA.read_text(encoding="utf-8")
+
+
+def _recorded_prereg_hash() -> str:
+    found = re.findall(r'preregistration_sha256:\s*"([0-9a-f]{64})"', _ccfa())
+    assert len(found) == 1, f"expected exactly one recorded preregistration hash, got {found}"
+    return found[0]
+
+
+def _gate_status() -> str:
+    block = _ccfa().split('- id: "INDEPENDENT-MODEL-GATE"', 1)
+    assert len(block) == 2, "ccfa.yaml does not register INDEPENDENT-MODEL-GATE"
+    found = re.search(r'status:\s*"([a-z_]+)"', block[1])
+    assert found, "the gate entry records no status"
+    return found.group(1)
 
 
 def test_the_state_machine_points_at_this_exact_preregistration():
     """If the artifact is edited, this fails -- which is the whole point."""
     live = hashlib.sha256(PREREG.read_bytes()).hexdigest()
-    assert _entry()["preregistration_sha256"] == live, (
+    assert _recorded_prereg_hash() == live, (
         "docs/registration/v7_independent_model_gate.json has changed since ccfa.yaml recorded "
         "its hash. Either restore it or register a new preregistered attempt with its own hash; "
         "do not silently re-point the state machine.")
@@ -52,7 +71,7 @@ def test_no_result_may_be_recorded_while_the_state_is_unrun():
     if p["state"] != "PREREGISTERED_UNRUN":
         pytest.skip("the gate has run; this invariant applies before execution")
     assert p["prior_prediction"]["actual_outcome"] is None
-    assert _entry()["status"] == "preregistered_unrun"
+    assert _gate_status() == "preregistered_unrun"
 
 
 def test_the_prior_cannot_be_read_as_a_result():
@@ -134,10 +153,12 @@ def test_no_fitted_calibration_is_permitted():
 
 
 def test_the_out_of_family_disposition_is_stated_in_both_places():
-    experiments = yaml.safe_load(CCFA.read_text())["experiments"]
-    v61 = next(e for e in experiments if e["id"] == "V6-1")
-    assert "OUT OF FAMILY" in v61["disposition"]
-    assert "cannot enter a DSOS certificate" in v61["disposition"]
+    ccfa = _ccfa()
+    v61 = ccfa.split('- id: "V6-1"', 1)
+    assert len(v61) == 2, "ccfa.yaml does not register V6-1"
+    entry = v61[1].split('- id: "', 1)[0]
+    assert "OUT OF FAMILY" in entry
+    assert "cannot enter a DSOS certificate" in entry
     assert "out_of_family" in _prereg()["instance"]
 
 
