@@ -1,13 +1,21 @@
-"""The evidence generator must recompute, not trust, the manifest's `summary`.
+"""The evidence generator must recompute, not trust, and must refuse rather than raise.
 
-The first version checked two booleans (`complete`, `gate.passed`) and then printed
-`summary.row_status`, `summary.minimal_crossing_coalitions`, `summary.leave_one_out` and
-`summary.evidence_grade` verbatim -- the exact fields a paper table rests on. It also carried
-four bare literals (a "1.9-5.0%" range, two grid128 block names) inside a document whose first
-paragraph claimed no number was hand-transcribed.
+Three generations of this generator each trusted something it should have derived:
 
-Each test below pins one of those defects. The fixture is the real archived claim-grade
-manifest, so a test cannot pass against a manifest shape that the driver does not produce.
+1. it checked two booleans (`complete`, `gate.passed`) and printed `summary.row_status`,
+   `minimal_crossing_coalitions` and `leave_one_out` verbatim -- the fields a paper table
+   rests on;
+2. it then recomputed those but still printed the manifest's own `decision_ok` / `value_ok` /
+   `location_ok`, so an edited manifest could assert a passing gate over untouched rows, and
+   it validated no convergence at all -- a 16-cycle row with a 10 K residual passed;
+3. it carried four bare literals under an opening line claiming nothing was hand-transcribed.
+
+Every test below pins one of those, or one of the fail-open holes found with them: prose
+asserting uniqueness that validation never required, `all_rows_fresh` not required to be true,
+argmax "relocation" decided from one endpoint, and a `KeyError` escaping instead of a refusal.
+
+The fixture is the real archived schema-3 claim-grade manifest, so no test can pass against a
+manifest shape the driver does not produce.
 """
 
 from __future__ import annotations
@@ -25,11 +33,12 @@ sys.path.insert(0, str(ROOT))
 
 from research.triangle import v61_render_evidence as R
 
-MANIFEST = ROOT / "artifacts_receipts/v61_claimgrade/v61_manifest.json"
+MANIFEST = ROOT / "artifacts_receipts/v61_cg3_schema3/v61_manifest.json"
+LEGACY = ROOT / "artifacts_receipts/v61_claimgrade/v61_manifest.json"
 SCRIPT = ROOT / "research/triangle/v61_render_evidence.py"
 
 pytestmark = pytest.mark.skipif(not MANIFEST.exists(),
-                                reason="archived claim-grade manifest not present")
+                                reason="archived schema-3 manifest not present")
 
 
 @pytest.fixture
@@ -39,19 +48,53 @@ def man():
 
 def _refuses(m, match):
     with pytest.raises(R.Refuse, match=match):
-        R.validate(m)
+        R.build(m)
 
 
-# --- the archived manifest must actually pass, or every negative test is vacuous ------
-
-def test_the_archived_manifest_validates(man):
-    v = R.validate(man)
-    assert v["minimal"] == ["core+dram+noc+nop"]
-    assert v["quantum"] > 0
-    assert set(v["comps"]) == {"core", "dram", "noc", "nop"}
+def _row(m, tag="core"):
+    return m["rows"][tag]
 
 
-# --- the two booleans, which were the ONLY previous check -----------------------------
+# --- the fixture must pass, or every negative test is vacuous -------------------------
+
+def test_the_archived_schema3_manifest_builds(man):
+    view, gate, ex = R.build(man)
+    assert view["minimal"] == ["core+dram+noc+nop"]
+    assert view["uniqueness_claimable"] is True
+    assert gate["decision_ok"] and gate["value_ok"] and gate["argmax_equals"]
+    assert len(ex["receipts"]) == len(view["rows"]) == 15
+
+
+def test_the_registration_is_pinned_and_matches_the_driver():
+    """The driver's GATE and the pinned registration are two copies of one fact. Nothing but
+    a test stops them drifting, and the renderer recomputes the gate from the pinned copy."""
+    from research.triangle import v61_frozen_factorial as F
+    pinned = json.loads(R.REGISTRATION.read_text())
+    assert pinned["registered_tuple"] == F.GATE, \
+        "docs/registration/ and the driver's GATE dict have drifted apart"
+
+
+# --- schema is required, not sniffed --------------------------------------------------
+
+def test_the_schema2_manifest_is_refused_not_silently_downgraded(man):
+    """It renders a document that cannot support the execution or relocation claims, so it is
+    a historical artefact, not an input. Feature-sniffing let it through before."""
+    if not LEGACY.exists():
+        pytest.skip("legacy manifest not present")
+    _refuses(json.loads(LEGACY.read_text()), "renders only schema 3")
+
+
+def test_a_receipt_bearing_manifest_that_lies_about_its_schema_is_refused(man):
+    man["run"]["schema_version"] = 2
+    _refuses(man, "renders only schema 3")
+
+
+def test_a_row_that_lies_about_its_schema_is_refused(man):
+    _row(man)["schema_version"] = 2
+    _refuses(man, "schema_version differs from the full row")
+
+
+# --- the two booleans, which were once the ONLY check ---------------------------------
 
 @pytest.mark.parametrize("patch", [{"complete": False}, {"complete": None}])
 def test_refuses_an_incomplete_manifest(man, patch):
@@ -64,36 +107,92 @@ def test_refuses_a_failed_gate(man):
     _refuses(man, "gate.passed=False")
 
 
-# --- recomputation: the summary is no longer trusted ---------------------------------
+# --- provenance: printed as CLEAN without ever being checked --------------------------
 
-def test_refuses_when_summary_row_status_disagrees_with_the_rows(man):
-    """A summary that calls the crossing row `below` must not be renderable."""
-    man["summary"]["row_status"]["full"] = "below"
-    _refuses(man, "recomputed row_status disagrees")
-
-
-def test_refuses_when_summary_hides_a_crossing_coalition(man):
-    man["summary"]["minimal_crossing_coalitions"] = []
-    _refuses(man, "minimal crossing coalitions disagree")
+def test_refuses_a_dirty_tree(man):
+    man["dirty"] = ["CertiTherm/transient.py"]
+    _refuses(man, "requires a clean tree")
 
 
-def test_refuses_when_summary_leave_one_out_is_edited(man):
-    man["summary"]["leave_one_out"]["nop"]["below_limit"] = False
-    _refuses(man, "leave-one-out nop")
+def test_refuses_an_unstable_provenance(man):
+    man["provenance_stable"] = False
+    _refuses(man, "requires a clean tree")
 
 
-def test_refuses_when_summary_claims_no_indeterminate_row_but_one_exists(man):
-    """Sit a row exactly on the limit: it becomes indeterminate and the summary is stale."""
-    man["rows"]["core-dram-noc"]["periodic_peak_k"] = man["thermal_limit_k"]
-    man["rows"]["core-dram-noc"]["margin_to_limit_k"] = 0.0
-    _refuses(man, "recomputed row_status disagrees")
+def test_refuses_when_the_run_ended_on_a_different_commit(man):
+    man["provenance_end"]["commit"] = "d" * 40
+    _refuses(man, "end-of-run provenance does not match")
 
 
-# --- subset enumeration ---------------------------------------------------------------
+def test_refuses_when_a_row_was_produced_from_a_different_tree(man):
+    _row(man)["dirty"] = ["something.py"]
+    _refuses(man, "dirty differs from the full row")
+
+
+def test_refuses_when_the_staged_binary_hash_contradicts_the_recorded_one(man):
+    man["input_hashes"]["hotspot"] = "d" * 64
+    _refuses(man, "staged hotspot hash disagrees")
+
+
+def test_refuses_when_top_level_metadata_disagrees_with_the_rows(man):
+    man["workload"] = "resnet50"
+    _refuses(man, "is not the registered")
+
+
+# --- convergence, which was not validated at all -------------------------------------
+
+def test_refuses_an_unconverged_row_despite_a_healthy_cycle_count(man):
+    """The hole: only finiteness and `cycles >= 2` were checked, so a 16-cycle row with a
+    10 K residual rendered as evidence."""
+    _row(man, "full")["peak_residual_k"] = 10.0
+    _refuses(man, "residual 10.0 K exceeds")
+
+
+def test_refuses_a_tolerance_finer_than_the_output_resolution(man):
+    for r in man["rows"].values():
+        r["tolerance_k"] = 0.001
+    _refuses(man, "finer than the")
+
+
+def test_refuses_a_step_larger_than_requested(man):
+    _row(man)["step_s"] = 1.0
+    _refuses(man, "is not in \\(0, the requested")
+
+
+@pytest.mark.parametrize("field", ["step_s", "mean_steady_peak_k", "periodic_peak_k",
+                                   "boundary_residual_k", "peak_residual_k"])
+def test_refuses_a_non_finite_number(man, field):
+    _row(man)[field] = float("nan")
+    _refuses(man, "not a finite number")
+
+
+def test_refuses_an_invalid_samples_per_cycle(man):
+    _row(man)["samples_per_cycle"] = 0
+    _refuses(man, "samples_per_cycle")
+
+
+def test_refuses_a_steady_peak_below_ambient(man):
+    """The uplift ratio divides by the rise above ambient; a non-positive rise made it
+    meaningless or a crash rather than a refusal."""
+    _row(man)["mean_steady_peak_k"] = man["ambient_k"] - 1.0
+    _refuses(man, "not above ambient")
+
+
+# --- a missing field must Refuse, not raise KeyError ---------------------------------
+
+@pytest.mark.parametrize("field", ["components", "cycles", "periodic_tie_blocks",
+                                   "periodic_top_gap_k", "execution",
+                                   "retained_source_energy_j"])
+def test_a_missing_row_field_is_a_refusal_not_a_traceback(man, field):
+    del _row(man)[field]
+    with pytest.raises(R.Refuse):
+        R.build(man)
+
+
+# --- enumeration and the ledger ------------------------------------------------------
 
 def test_refuses_a_missing_subset(man):
     del man["rows"]["noc-nop"]
-    del man["summary"]["row_status"]["noc-nop"]
     _refuses(man, "non-empty subsets")
 
 
@@ -102,91 +201,177 @@ def test_refuses_a_row_whose_components_do_not_match_its_key(man):
     _refuses(man, "do not tag to its own key")
 
 
-# --- per-row integrity ----------------------------------------------------------------
-
-def test_refuses_a_non_finite_result(man):
-    man["rows"]["core"]["periodic_peak_k"] = float("nan")
-    _refuses(man, "is not finite")
-
-
-def test_refuses_an_unconverged_row(man):
-    man["rows"]["core"]["cycles"] = 1
-    _refuses(man, "unconverged")
-
-
-def test_refuses_an_incomplete_row(man):
-    man["rows"]["core"]["complete"] = False
-    _refuses(man, "row is not complete")
-
-
-def test_refuses_rows_built_with_different_binaries(man):
-    man["rows"]["core"]["hotspot_sha256"] = "d" * 64
-    _refuses(man, "hotspot_sha256 differs")
-
-
-def test_refuses_rows_with_different_staged_inputs(man):
-    man["rows"]["core"]["input_hashes"]["config"] = "d" * 64
-    _refuses(man, "staged input hashes differ")
-
-
-def test_refuses_when_two_rows_share_a_trace(man):
-    """Equal trace hashes would mean one masked trace was replayed for two subsets."""
-    man["rows"]["core"]["trace_sha256"] = man["rows"]["noc"]["trace_sha256"]
-    _refuses(man, "share a trace hash")
-
-
-def test_per_row_trace_hashes_are_expected_to_differ(man):
-    """The converse: distinct traces per subset is correct, not a violation."""
-    hashes = {r["trace_sha256"] for r in man["rows"].values()}
-    assert len(hashes) == len(man["rows"])
-    R.validate(man)
-
-
 def test_refuses_when_the_energy_ledger_does_not_reproduce_a_row(man):
     man["component_energy_j"]["nop"] *= 1.01
-    _refuses(man, "retained energy != sum of its components")
+    _refuses(man, "retained energy")
 
 
-def test_refuses_a_margin_that_disagrees_with_the_limit(man):
-    man["rows"]["full"]["margin_to_limit_k"] = 99.0
-    _refuses(man, "margin_to_limit_k disagrees")
+def test_refuses_a_non_positive_component_energy(man):
+    man["component_energy_j"]["nop"] = 0.0
+    _refuses(man, "non-positive energy")
 
 
-# --- the exact quantisation boundary --------------------------------------------------
-
-@pytest.mark.parametrize("periodic,expect", [
-    (330.01, "crossing"),
-    (330.00, "indeterminate"),   # the ambiguous case the old doc did not state
-    (329.995, "indeterminate"),
-    (329.99, "below"),
-    (329.98, "below"),
-    (330.02, "crossing"),
-])
-def test_classification_boundary_is_exact(periodic, expect):
-    assert R.classify(periodic, 330.0, 0.01) == expect
+def test_refuses_when_two_rows_share_a_trace_hash(man):
+    man["rows"]["core"]["trace_sha256"] = man["rows"]["noc"]["trace_sha256"]
+    _refuses(man, "same trace hash")
 
 
-# --- external facts must be re-checkable, not bare literals ---------------------------
+# --- the gate is recomputed, not read ------------------------------------------------
 
-def test_external_fact_refuses_a_value_its_source_no_longer_states():
-    with pytest.raises(R.Refuse, match="matches"):
-        R.external_fact("earlier_binary_hash_doc", "`" + "f" * 64 + "`", "a bogus hash")
-
-
-def test_external_fact_refuses_an_ambiguous_pattern():
-    """A pattern matching several lines could silently pick the wrong row."""
-    with pytest.raises(R.Refuse, match="matches"):
-        R.external_fact("grid128_doc", r"\|", "a pattern that matches every table row")
+def test_refuses_a_manifest_whose_registered_tuple_drifted_from_the_pinned_one(man):
+    man["gate"]["registered_tuple"]["periodic_peak_k"] = 331.0
+    _refuses(man, "differs from the pinned registration")
 
 
-def test_external_fact_returns_the_grid128_blocks_and_a_citation():
-    (steady, periodic), cite = R.external_fact(
-        "grid128_doc", r"grid128-max.*?\(`(\w+)`\).*?\(`(\w+)`\)", "grid128 blocks")
-    assert steady.startswith("ubuf_") and periodic.startswith("ubuf_")
-    assert cite.startswith("docs/V6_PHYSICAL_TRACE_GATE.md:")
+def test_refuses_a_forged_gate_verdict_over_untouched_rows(man):
+    """The blocker: `location_ok` was printed verbatim, so flipping it changed the document
+    without changing a single temperature."""
+    man["gate"]["location_ok"] = False
+    _refuses(man, "location_ok disagrees with recomputation")
 
 
-# --- end to end: the document is generated, and its numbers move with the rows --------
+def test_refuses_a_forged_gate_value_verdict(man):
+    man["gate"]["value_ok"] = False
+    _refuses(man, "value_ok disagrees with recomputation")
+
+
+def test_refuses_a_forged_steady_delta(man):
+    man["gate"]["steady_delta_k"] = 0.0
+    _refuses(man, "steady delta disagrees")
+
+
+def test_the_gate_decision_uses_the_same_quantisation_rule_as_every_row(man):
+    """The driver gated on `periodic >= 330`, while classification needs `>= 330.01`. A row at
+    exactly the limit must NOT count as a crossing in the recomputed decision."""
+    limit = man["thermal_limit_k"]
+    full = _row(man, "full")
+    full["periodic_peak_k"] = limit
+    full["periodic_second_peak_k"] = limit
+    full["periodic_top_gap_k"] = 0.0
+    man["gate"]["value_ok"] = False          # keep the stored copy consistent
+    with pytest.raises(R.Refuse):
+        R.build(man)
+    assert R.classify(limit, limit, 0.01) == "indeterminate"
+    assert R.classify(limit + 0.01, limit, 0.01) == "crossing"
+    assert R.classify(limit - 0.01, limit, 0.01) == "below"
+
+
+# --- execution receipts --------------------------------------------------------------
+
+def test_refuses_a_row_belonging_to_another_run(man):
+    _row(man)["execution"]["run_nonce"] = "some-other-run"
+    _refuses(man, "belongs to a different execution")
+
+
+def test_refuses_a_row_whose_directory_already_existed(man):
+    _row(man)["execution"]["dest_existed_before_run"] = True
+    _refuses(man, "already existed before the row ran")
+
+
+def test_refuses_a_row_whose_workspace_was_not_empty(man):
+    _row(man)["execution"]["workspace_files_before_run"] = ["periodic-8.ttrace"]
+    _refuses(man, "was not empty before the row ran")
+
+
+def test_refuses_a_receipt_without_a_pid(man):
+    _row(man)["execution"]["pid"] = None
+    _refuses(man, "no valid PID")
+
+
+def test_refuses_a_wall_time_that_disagrees_with_its_own_window(man):
+    _row(man)["execution"]["wall_s"] = 1.0
+    _refuses(man, "wall_s disagrees")
+
+
+def test_refuses_a_row_that_ran_outside_the_run_window(man):
+    _row(man)["execution"]["ended_unix"] = man["run"]["ended_unix"] + 3600
+    _refuses(man, "wall window is outside")
+
+
+def test_refuses_an_invocation_count_that_does_not_match_the_cycle_count(man):
+    """`>= 3` accepted anything. The count is now pinned to the cycle doubling: 2 fixed solves
+    plus one attempt per doubling from 8."""
+    _row(man, "full")["execution"]["hotspot_invocations"] = 3     # full converged at 16 -> 4
+    _refuses(man, "does not match the 4 implied")
+
+
+def test_refuses_a_malformed_output_hash(man):
+    ex = _row(man)["execution"]
+    ex["raw_outputs"][sorted(ex["raw_outputs"])[0]] = "not-a-hash"
+    _refuses(man, "malformed sha256")
+
+
+def test_refuses_a_missing_converged_ttrace(man):
+    ex = _row(man, "full")["execution"]
+    del ex["raw_outputs"]["periodic-16.ttrace"]
+    _refuses(man, "each invocation writes one")
+
+
+def test_refuses_a_missing_mean_steady_output(man):
+    ex = _row(man, "full")["execution"]
+    ex["raw_outputs"]["extra.ttrace"] = ex["raw_outputs"].pop("mean.steady")
+    _refuses(man, "mean-steady or fixed-initial output is missing")
+
+
+def test_ptrace_inputs_are_not_counted_as_hotspot_outputs(man):
+    """The document claimed every hashed file was an artefact HotSpot produced. Half of them
+    are the ptrace inputs the driver wrote."""
+    _, _, ex = R.build(man)
+    r = ex["receipts"]["full"]
+    assert r["hotspot_outputs"] == r["hotspot_invocations"] == 4
+    assert r["driver_inputs"] == 4
+
+
+# --- tie evidence, both semantics ----------------------------------------------------
+
+@pytest.mark.parametrize("sem", ["periodic", "mean_steady"])
+def test_refuses_an_inconsistent_top_gap(man, sem):
+    _row(man)[f"{sem}_top_gap_k"] = 9.0
+    _refuses(man, f"{sem} top gap disagrees")
+
+
+@pytest.mark.parametrize("sem", ["periodic", "mean_steady"])
+def test_refuses_an_argmax_absent_from_its_own_tie_set(man, sem):
+    _row(man)[f"{sem}_tie_blocks"] = ["some_other_block"]
+    _refuses(man, "not in its own tie set")
+
+
+@pytest.mark.parametrize("sem", ["periodic", "mean_steady"])
+def test_refuses_a_duplicated_tie_set(man, sem):
+    b = _row(man)[f"{sem}_hottest_block"]
+    _row(man)[f"{sem}_tie_blocks"] = [b, b]
+    _refuses(man, "empty or has duplicates")
+
+
+def test_refuses_a_runner_up_above_the_peak(man):
+    r = _row(man)
+    r["periodic_second_peak_k"] = r["periodic_peak_k"] + 1.0
+    r["periodic_top_gap_k"] = -1.0
+    _refuses(man, "runner-up exceeds the peak")
+
+
+def test_a_label_change_needs_both_endpoints_resolvable(man):
+    """Deciding relocation from the periodic gap alone would call a change resolvable even
+    when the steady endpoint was itself a tie."""
+    _, _, ex = R.build(man)
+    assert ex["moves"], "the fixture has label changes to reason about"
+    assert all(not mv["resolved"] for mv in ex["moves"]), \
+        "every label change in this run is a tie broken differently"
+
+    m2 = copy.deepcopy(man)
+    tag = ex["moves"][0]["tag"]
+    r = m2["rows"][tag]
+    # make ONLY the periodic endpoint resolvable; relocation must still be refused as such
+    r["periodic_second_peak_k"] = r["periodic_peak_k"] - 0.5
+    r["periodic_top_gap_k"] = 0.5
+    r["periodic_tie_blocks"] = [r["periodic_hottest_block"]]
+    _, _, ex2 = R.build(m2)
+    moved = [mv for mv in ex2["moves"] if mv["tag"] == tag][0]
+    assert moved["resolved"] is False, \
+        "the steady endpoint is still tied, so this is not a relocation"
+
+
+# --- prose must follow validation ----------------------------------------------------
 
 def _render(manifest: dict, tmp_path: Path) -> str:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -199,175 +384,84 @@ def _render(manifest: dict, tmp_path: Path) -> str:
     return out.read_text()
 
 
-def test_render_emits_the_document(man, tmp_path):
+def test_uniqueness_prose_is_conditional_on_validation(man, tmp_path):
+    """"with no indeterminate row" and "unique" were printed unconditionally while validation
+    required neither."""
+    text = _render(man, tmp_path / "a")
+    assert "unique minimal crossing coalition" in text
+
+    m2 = copy.deepcopy(man)
+    r = m2["rows"]["core-dram-noc"]                    # push a second row over the limit
+    r["periodic_peak_k"] = 330.50
+    r["periodic_second_peak_k"] = 330.50
+    r["periodic_top_gap_k"] = 0.0
+    view, _, _ = R.build(m2)
+    assert view["uniqueness_claimable"] is False
+    text2 = _render(m2, tmp_path / "b")
+    assert "Uniqueness is **not** claimable" in text2
+    assert "unique minimal crossing coalition" not in text2
+
+
+def test_leave_one_out_prose_uses_the_quantum_aware_rule(man, tmp_path):
+    """`min(delta) > excess` is not enough: a removal only just larger than the excess can
+    land the row on the undecidable boundary."""
+    text = _render(man, tmp_path / "a")
+    assert "at least a full 0.01 K quantum more than that excess" in text
+
+    m2 = copy.deepcopy(man)
+    full, q = m2["rows"]["full"]["periodic_peak_k"], m2["rows"]["full"]["output_resolution_k"]
+    r = m2["rows"]["core-dram-noc"]                    # delta just over the excess, under +q
+    r["periodic_peak_k"] = round(full - (full - m2["thermal_limit_k"]) - q / 2, 3)
+    r["periodic_second_peak_k"] = r["periodic_peak_k"]
+    r["periodic_top_gap_k"] = 0.0
+    text2 = _render(m2, tmp_path / "b")
+    assert "not purely arithmetic" in text2
+
+
+def test_the_document_does_not_call_the_receipts_proof(man, tmp_path):
     text = _render(man, tmp_path)
-    assert "unique minimal crossing coalition in this factorial" in text
-    assert "reported-argmax changes" in text
-    assert "registry-instance-unbound" in text
-    # the necessity claim must be labelled as arithmetic, not presented as a finding
-    assert "arithmetic consequence" in text
-    # and the removal deltas must be in the table
-    assert "removal delta (K)" in text
+    assert "not proof of execution" in text
+    assert "A *dishonest* producer is not" in text
+    assert "self-attested" in text
 
 
-def test_render_refuses_and_writes_nothing_when_validation_fails(man, tmp_path):
-    man["summary"]["row_status"]["full"] = "below"
-    src = tmp_path / "m.json"
-    src.write_text(json.dumps(man))
-    out = tmp_path / "doc.md"
-    p = subprocess.run([sys.executable, str(SCRIPT), str(src), str(out)],
+def test_the_document_states_the_argmax_is_mostly_unresolvable(man, tmp_path):
+    text = _render(man, tmp_path)
+    assert "11 of 15" in text
+    assert "The location check is not a location claim" in text
+    assert "tie broken differently" in text
+
+
+def test_the_document_never_claims_independent_numerical_confirmation(man, tmp_path):
+    text = _render(man, tmp_path)
+    assert "not an independent numerical confirmation" in text
+    assert "1.245e-07" in text, "%.6f hid a nonzero residual as 0.000000"
+
+
+def test_external_facts_come_from_the_pinned_registration_not_a_regex(man, tmp_path):
+    text = _render(man, tmp_path)
+    assert "docs/V6_PHYSICAL_TRACE_GATE.md:148" in text        # grid128 row
+    assert "docs/GPU_HOTSPOT_EVIDENCE.md:86" in text           # earlier binary
+    assert not hasattr(R, "EXTERNAL"), "prose regex parsing should be gone"
+
+
+def test_a_missing_registration_is_a_refusal(man, monkeypatch, tmp_path):
+    monkeypatch.setattr(R, "REGISTRATION", tmp_path / "absent.json")
+    _refuses(man, "pinned registration")
+
+
+# --- the committed document must be this generator's output ---------------------------
+
+def test_the_committed_document_regenerates_byte_for_byte(tmp_path):
+    """The committed document had drifted from the generator: its schema-2 paragraph was
+    reworded after the document was committed, so the claimed generation chain was broken."""
+    doc = ROOT / "docs/V6_1_CAUSAL_ISOLATION.md"
+    if not doc.exists():
+        pytest.skip("evidence document not present")
+    out = tmp_path / "regen.md"
+    p = subprocess.run([sys.executable, str(SCRIPT), str(MANIFEST), str(out)],
                        capture_output=True, text=True, cwd=str(ROOT))
-    assert p.returncode == 2
-    assert not out.exists(), "a refused render must not leave a partial document"
-
-
-def test_the_uplift_ratio_range_is_computed_not_a_literal(man, tmp_path):
-    """The old generator hard-coded "1.9-5.0%". Perturbing a row must move the printed range."""
-    base = _render(man, tmp_path / "a")
-    assert "1.89%" in base and "5.02%" in base
-    hot = copy.deepcopy(man)
-    r = hot["rows"]["noc"]                                  # the widest-ratio row
-    r["periodic_peak_k"] = round(r["mean_steady_peak_k"] + 0.60, 2)
-    r["margin_to_limit_k"] = hot["thermal_limit_k"] - r["periodic_peak_k"]
-    hot["summary"]["uplift_k"]["noc"] = round(r["periodic_peak_k"] - r["mean_steady_peak_k"], 4)
-    moved = _render(hot, tmp_path / "b")
-    assert "5.02%" not in moved, "the range was transcribed, not computed"
-    rise = r["mean_steady_peak_k"] - hot["ambient_k"]
-    want = 100 * (r["periodic_peak_k"] - r["mean_steady_peak_k"]) / rise
-    assert f"{want:.2f}%" in moved, f"expected the recomputed {want:.2f}% ratio"
-
-
-def test_the_grid128_blocks_are_read_from_their_source(man, tmp_path):
-    text = _render(man, tmp_path)
-    assert "docs/V6_PHYSICAL_TRACE_GATE.md:" in text, "the citation must be printed"
-    assert "externally supplied, not from this manifest" in text
-
-
-def test_the_document_does_not_claim_fresh_execution_is_proven(man, tmp_path):
-    """`all_rows_fresh` echoes a module constant; printing it as evidence overstated it."""
-    text = _render(man, tmp_path)
-    assert "asserted by policy, not proven" in text
-    assert "15 solver executions from 15 reads of a cache" in text
-
-
-def test_the_document_does_not_present_near_exact_agreement_as_repeatability(man, tmp_path):
-    text = _render(man, tmp_path)
-    assert "not repeatability evidence" in text
-    assert "byte-identical" in text
-    # and the delta must be printed with enough precision to be non-zero
-    assert "1.245e-07" in text, "0.000000 hid a nonzero residual behind %.6f"
-
-
-# --- schema 3: execution receipts and tie evidence ------------------------------------
-
-def _with_receipts(m, **row_over):
-    """Promote the archived schema-2 manifest to a schema-3 shape."""
-    m = copy.deepcopy(m)
-    nonce = m["run"]["run_id"]
-    t0 = m["run"]["started_unix"]
-    for i, (tag, r) in enumerate(sorted(m["rows"].items())):
-        r["execution"] = {"dest_existed_before_run": False,
-                          "workspace_files_before_run": [],
-                          "started_unix": t0 + i, "ended_unix": t0 + i + 0.5,
-                          "wall_s": 0.5, "pid": 4242, "run_nonce": nonce,
-                          "hotspot_invocations": 4,
-                          "raw_outputs": {f"o{k}": f"h{i}{k}" for k in range(4)}}
-        r["periodic_second_peak_k"] = r["periodic_peak_k"] - 0.5
-        r["periodic_top_gap_k"] = 0.5
-        r["periodic_tie_blocks"] = [r["periodic_hottest_block"]]
-        r["mean_steady_second_peak_k"] = r["mean_steady_peak_k"] - 0.5
-        r["mean_steady_top_gap_k"] = 0.5
-        r["mean_steady_tie_blocks"] = [r["mean_steady_hottest_block"]]
-        r.update(row_over)
-    return m
-
-
-def test_a_schema_3_manifest_validates_and_reports_the_receipts(man, tmp_path):
-    m = _with_receipts(man)
-    v = R.validate(m)
-    assert v["has_receipts"] and v["has_ties"]
-    text = _render(m, tmp_path)
-    assert "Fresh execution is evidenced per row" in text
-    assert "60 HotSpot invocations" in text          # 15 rows x 4
-    assert "HotSpot invocations | raw outputs" in text
-
-
-def test_refuses_a_partial_set_of_receipts(man):
-    m = _with_receipts(man)
-    del m["rows"]["core"]["execution"]
-    _refuses(m, "cannot support a statement about the run as a whole")
-
-
-def test_refuses_a_row_whose_directory_already_existed(man):
-    m = _with_receipts(man)
-    m["rows"]["core"]["execution"]["dest_existed_before_run"] = True
-    _refuses(m, "already existed before the row ran")
-
-
-def test_refuses_a_row_whose_workspace_was_not_empty(man):
-    m = _with_receipts(man)
-    m["rows"]["core"]["execution"]["workspace_files_before_run"] = ["periodic-8.ttrace"]
-    _refuses(m, "was not empty before the row ran")
-
-
-def test_refuses_too_few_hotspot_invocations(man):
-    m = _with_receipts(man)
-    m["rows"]["core"]["execution"]["hotspot_invocations"] = 2
-    _refuses(m, "too few")
-
-
-def test_refuses_a_row_with_no_raw_output_hashes(man):
-    m = _with_receipts(man)
-    m["rows"]["core"]["execution"]["raw_outputs"] = {}
-    _refuses(m, "fewer raw HotSpot outputs")
-
-
-def test_refuses_a_row_that_ran_outside_the_run_window(man):
-    m = _with_receipts(man)
-    m["rows"]["core"]["execution"]["ended_unix"] = m["run"]["ended_unix"] + 3600
-    _refuses(m, "wall window is not inside")
-
-
-def test_refuses_when_a_row_carries_a_foreign_run_nonce_but_the_summary_says_fresh(man):
-    m = _with_receipts(man)
-    m["rows"]["core"]["execution"]["run_nonce"] = "some-other-run"
-    _refuses(m, "all_rows_fresh")
-
-
-def test_refuses_an_inconsistent_top_gap(man):
-    m = _with_receipts(man)
-    m["rows"]["core"]["periodic_top_gap_k"] = 9.0
-    _refuses(m, "top gap disagrees")
-
-
-def test_refuses_an_argmax_block_absent_from_its_own_tie_set(man):
-    m = _with_receipts(man)
-    m["rows"]["core"]["periodic_tie_blocks"] = ["some_other_block"]
-    _refuses(m, "not in its own tie set")
-
-
-def test_argmax_moves_inside_the_quantum_are_called_unresolvable(man, tmp_path):
-    """The appendix must say which label changes the reported resolution cannot decide."""
-    m = _with_receipts(man)
-    for tag in ("dram", "core-nop", "core-dram-nop"):     # the three rows that move
-        r = m["rows"][tag]
-        r["periodic_top_gap_k"] = 0.005                   # inside the 0.01 K quantum
-        r["periodic_second_peak_k"] = r["periodic_peak_k"] - 0.005
-        r["periodic_tie_blocks"] = [r["periodic_hottest_block"],
-                                    r["mean_steady_hottest_block"]]
-    text = _render(m, tmp_path)
-    assert "NO — inside the quantum" in text
-    assert "indistinguishable from a tie broken differently" in text
-
-
-def test_argmax_moves_outside_the_quantum_are_called_resolvable(man, tmp_path):
-    text = _render(_with_receipts(man), tmp_path)     # every gap is 0.5 K
-    assert "resolvable at the reported resolution" in text
-    assert "not a demonstrated physical mechanism" in text
-
-
-def test_the_schema_2_manifest_still_renders_and_names_the_gap(man, tmp_path):
-    """The archived claim-grade manifest predates the receipts; it must render, and say so."""
-    text = _render(man, tmp_path)
-    assert "asserted by policy, not proven" in text
-    assert "from schema 3 onward" in text
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert out.read_text() == doc.read_text(), (
+        "docs/V6_1_CAUSAL_ISOLATION.md is not the output of the current generator; "
+        "regenerate it instead of editing it")

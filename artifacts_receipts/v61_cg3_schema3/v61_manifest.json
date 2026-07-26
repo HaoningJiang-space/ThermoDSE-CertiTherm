@@ -1,0 +1,1216 @@
+{
+  "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+  "dirty": [],
+  "model": "grid64-max",
+  "max_step_us": 0.5,
+  "workload": "transformer",
+  "arch": "arch_b",
+  "input_hashes": {
+    "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+    "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+    "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+    "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+  },
+  "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+  "thermal_limit_k": 330.0,
+  "ambient_k": 318.15,
+  "superposition_worst_w": 0.0,
+  "component_energy_j": {
+    "core": 0.012747381931030737,
+    "noc": 0.0036191282639994908,
+    "nop": 0.0012455600975999756,
+    "dram": 0.005550964736000111
+  },
+  "full_source_energy_j": 0.02316303502863,
+  "rows": {
+    "core": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "core"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "b63f51221f1a0f3fd3c78de29e5fb30a8b89930b9bdf38f8eb75da0bccceed58",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785050687.118,
+        "ended_unix": 1785050826.8124394,
+        "wall_s": 139.69443941116333,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 3,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "8ae67eeaed056155913e1b81279c4fc50014603f3d166a93afe03b21f21e736d",
+          "mean.ptrace": "e262ffb3efb1a1583d7b4ef813eed02b6658197305b2f3d8fa22892e47c34c32",
+          "mean.steady": "6333c8d974cea3200f20cad67d8c6c44270b1f5110ce689a1c3de58edec3eee7",
+          "one-cycle.ptrace": "97041fa6dc346b185fa5781f6a487bd6c73262ca681164343c8cd3fe3eaceb15",
+          "periodic-8.ptrace": "4cb5e685419573c9932d1e6ca97e5e7dc543fe9986afecb2208e17e5cec26ab7",
+          "periodic-8.ttrace": "d716da6a4ce9268b407b7353b45e9e60d2c672c40c9a352cd276f268331975d0"
+        }
+      },
+      "periodic_second_peak_k": 326.54,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "ubuf_16",
+        "mtxu_16"
+      ],
+      "mean_steady_second_peak_k": 326.2688021025,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "retained_source_energy_j": 0.012747381931030737,
+      "mean_steady_peak_k": 326.2688021025,
+      "mean_steady_hottest_block": "mtxu_16",
+      "periodic_peak_k": 326.54,
+      "periodic_hottest_block": "mtxu_16",
+      "fixed_initial_peak_k": 320.17,
+      "cycles": 8,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 3.4599999999999795,
+      "complete": true
+    },
+    "noc": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "noc"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "317c08fe089e8925d5890143a3379942a15f5a9fa9ae573c326f2920792210f9",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785050826.838846,
+        "ended_unix": 1785050957.692794,
+        "wall_s": 130.8539481163025,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 3,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "74a5db916fbefbfde72fa90f8339f162ce3a52a1e397bc6921acc27c4918c95b",
+          "mean.ptrace": "baf2837de21a63b3c1b10e3d293c0bf46ec9787ca24386b939555460ec7b3e4d",
+          "mean.steady": "5a8549d1525b04149027b87515641b724c36766ed01952e6ede236532d63eaac",
+          "one-cycle.ptrace": "1b3a2f6f49c4b27a8b3762c5d0162fd1189c3a984ba581079e6cd5353ed5eb9d",
+          "periodic-8.ptrace": "a9f38ff0363a64feac4b4794c0d3832c3bdd7ff693745a0e56926014ce328115",
+          "periodic-8.ttrace": "008f41250cfc8540f587dd842bade51c41237239ada336f4950123412653eb90"
+        }
+      },
+      "periodic_second_peak_k": 320.99,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "blockX_0",
+        "io_3_0",
+        "io_2_0",
+        "ubuf_0"
+      ],
+      "mean_steady_second_peak_k": 320.854258431,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "io_3_0",
+        "io_2_0",
+        "ubuf_0",
+        "blockX_0"
+      ],
+      "retained_source_energy_j": 0.0036191282639994908,
+      "mean_steady_peak_k": 320.854258431,
+      "mean_steady_hottest_block": "ubuf_0",
+      "periodic_peak_k": 320.99,
+      "periodic_hottest_block": "ubuf_0",
+      "fixed_initial_peak_k": 318.98,
+      "cycles": 8,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 9.009999999999991,
+      "complete": true
+    },
+    "nop": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "nop"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "715e14e1904dc5709a7bef13d3a5f961ff9f8d14e8ed50ec37f556936974eca1",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785050957.7170107,
+        "ended_unix": 1785051079.6826718,
+        "wall_s": 121.96566104888916,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 3,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "22aa71f81c143fa71f4d56504aecf1199994e5c5da9315227b211748c9eaed8e",
+          "mean.ptrace": "8fa28be3e2c006cb468b6ca089543b6069630921834d4d59faf1bf71bfa2a1bc",
+          "mean.steady": "87a1d74b51527acfd7401bef14231bdb347b2298be6a947d8f033585a1565fcc",
+          "one-cycle.ptrace": "5d8e722a7ecf59493a74c310dcf63f756218376b9a0a711781d3ace22160d3ce",
+          "periodic-8.ptrace": "b9a1038b3e23937154e9b3c7ec26e34dad543015e16ec1c5d6858573b6904188",
+          "periodic-8.ttrace": "b22a8b124e94c945f6e865230ede6cf65882d8f85d0abb493839c1192b99ba14"
+        }
+      },
+      "periodic_second_peak_k": 319.75,
+      "periodic_top_gap_k": 0.6700000000000159,
+      "periodic_tie_blocks": [
+        "blockX_1"
+      ],
+      "mean_steady_second_peak_k": 319.6742859263,
+      "mean_steady_top_gap_k": 0.6517358544999752,
+      "mean_steady_tie_blocks": [
+        "blockX_1"
+      ],
+      "retained_source_energy_j": 0.0012455600975999756,
+      "mean_steady_peak_k": 320.3260217808,
+      "mean_steady_hottest_block": "blockX_1",
+      "periodic_peak_k": 320.42,
+      "periodic_hottest_block": "blockX_1",
+      "fixed_initial_peak_k": 318.94,
+      "cycles": 8,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 9.579999999999984,
+      "complete": true
+    },
+    "dram": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "dram"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "e013c1c5537058f655dfb6305d2cdcab8675665fc112cf67582909e27c4119c9",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785051079.7024918,
+        "ended_unix": 1785051428.0761771,
+        "wall_s": 348.37368535995483,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "4f91017e94a6875506bab61e00a52badabcf5137dd29f30ef2ee4a9b74eb38b8",
+          "mean.ptrace": "96703928c6130e620b81718d867e399638dcbc5b4ab6fea7a6466c34805f03e1",
+          "mean.steady": "a91a417e65fc988a746d73646ebe68caa0fc2ebdd44b425c7fcc1981f9a3ed8c",
+          "one-cycle.ptrace": "ba7d3c295561406463bbbf937821082a499cd790ed517f71f66540823d12728e",
+          "periodic-16.ptrace": "5d95ae65e0fff55df90dae1a4e8d74a90f36994863d1ec0bbd2324743f6a0b53",
+          "periodic-16.ttrace": "8ef341746ce77fb02e7cae441717aded91c5592fd23edfdfe7686336d06fbc77",
+          "periodic-8.ptrace": "79b0de7755bfa63658f09073edebeb14e005a7b80c8ed970e2b86525c766393e",
+          "periodic-8.ttrace": "42504872e53ed961621a3e01891ae1bafb1e590e4c41a804551a3814b1cbbecc"
+        }
+      },
+      "periodic_second_peak_k": 322.95,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "dram_x0_y0",
+        "dram_x0_y4",
+        "dram_x5_y0",
+        "dram_x5_y4"
+      ],
+      "mean_steady_second_peak_k": 322.8578761667,
+      "mean_steady_top_gap_k": 1.8840000848285854e-07,
+      "mean_steady_tie_blocks": [
+        "dram_x0_y4",
+        "dram_x0_y0",
+        "dram_x5_y4",
+        "dram_x5_y0"
+      ],
+      "retained_source_energy_j": 0.005550964736000111,
+      "mean_steady_peak_k": 322.8578763551,
+      "mean_steady_hottest_block": "dram_x0_y4",
+      "periodic_peak_k": 322.95,
+      "periodic_hottest_block": "dram_x0_y0",
+      "fixed_initial_peak_k": 319.28,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.009999999999990905,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 7.050000000000011,
+      "complete": true
+    },
+    "core-noc": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "core",
+        "noc"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "fcfa07f81e2b0c35cbf59091d34663e1518c16402dba42e973ad20dc2955f489",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785051428.127347,
+        "ended_unix": 1785051559.3698413,
+        "wall_s": 131.2424943447113,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 3,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "e51ca654ae0241f76a25c907b31a658fe7568b3263a07047f29879ead76e1193",
+          "mean.ptrace": "b5137aa50806788b10fd50769647bd0985dc9327ae758117ea1023dadca545a5",
+          "mean.steady": "b6bae5ad2f65154f5337d8619b33c9c3188a70131ad82a799aa7dc00692867e7",
+          "one-cycle.ptrace": "e590462aa741278f2cc2df8db5dbea3fcd86d364bcc05c14e2974a4c1b378b4f",
+          "periodic-8.ptrace": "20e10161f3bc604c525b774d24ce28d99cdb2092c3da7cb159f899a274a87286",
+          "periodic-8.ttrace": "237ab26d5b46a174d7c9350faee9ae2a3b81acdc287280da3ba070ffb195a113"
+        }
+      },
+      "periodic_second_peak_k": 328.12,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "mean_steady_second_peak_k": 327.7999615758,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "retained_source_energy_j": 0.01636651019503023,
+      "mean_steady_peak_k": 327.7999615758,
+      "mean_steady_hottest_block": "mtxu_16",
+      "periodic_peak_k": 328.12,
+      "periodic_hottest_block": "mtxu_16",
+      "fixed_initial_peak_k": 320.28,
+      "cycles": 8,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.009999999999990905,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 1.8799999999999955,
+      "complete": true
+    },
+    "core-nop": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "core",
+        "nop"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "9f869023d71d237c088d47804bc294aed463ca9963bd64a078e12841ca40fd92",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785051559.401663,
+        "ended_unix": 1785051696.6177592,
+        "wall_s": 137.21609616279602,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 3,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "6051afb110264be923de4524efc8c3fd944de77650e3c67a42e0dc0ced7b9608",
+          "mean.ptrace": "5d9a32728f100584c81b41c0548a1c8dfdb3d5091a80a83c88284f1c3e97cc65",
+          "mean.steady": "d0941e48b03f91ab0ff9d20708b7c7f7151f47112a86484bcd2b314f4d376044",
+          "one-cycle.ptrace": "4f87fd92910ed96d3cad7863b9f479f708eba818f1de2d39f3103b67d71eaee7",
+          "periodic-8.ptrace": "3183b0fe6107be4faef8254c60b94dcd9c51a527865ef59b047d04ce7f40cabd",
+          "periodic-8.ttrace": "ede72ecd11750c44b975e10dcbd0330e08063524de3d8fb8a7a265940463dfc4"
+        }
+      },
+      "periodic_second_peak_k": 326.95,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "ubuf_16",
+        "ubuf_13",
+        "mtxu_16",
+        "io_2_13"
+      ],
+      "mean_steady_second_peak_k": 326.7686484537,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "io_2_13",
+        "ubuf_13"
+      ],
+      "retained_source_energy_j": 0.013992942028630714,
+      "mean_steady_peak_k": 326.7686484537,
+      "mean_steady_hottest_block": "ubuf_13",
+      "periodic_peak_k": 326.95,
+      "periodic_hottest_block": "ubuf_13",
+      "fixed_initial_peak_k": 320.17,
+      "cycles": 8,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.009999999999990905,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 3.0500000000000114,
+      "complete": true
+    },
+    "core-dram": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "core",
+        "dram"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "d1fb27fb94d556dc5f1ac097a6087eac83d8184bbc96a5e7ce8ac06cdbf9bdec",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785051696.6448479,
+        "ended_unix": 1785052061.368161,
+        "wall_s": 364.7233130931854,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "b5af6e3678392423befc137b2b03a5741b3bfc73078dc3598e73b3f12acf3b07",
+          "mean.ptrace": "e5c61cf4439002abb7ba2f7a6233bc5cd1c9bf7737c7a2b6393d1de608367db0",
+          "mean.steady": "657faf6bdd2ffe9263f348c7eda148a6ea8833c2718aecd0fb432007b34e6536",
+          "one-cycle.ptrace": "4df861dc191e7d33368b447bc0b3fa7496830669ea7550a1a7531231f3b67f9a",
+          "periodic-16.ptrace": "9ea6a5a36a8996fdea8617020c30352a2caddf3ad68fbd3da819f39743c35838",
+          "periodic-16.ttrace": "c689290678dd74500369ed6a3ee08ad84f3038d0705919b05acf34a8d99f3267",
+          "periodic-8.ptrace": "7a11063d241a06861bd28e222277ba92c2d513731229ca9b070732a27557e276",
+          "periodic-8.ttrace": "974d9f929392af4efd1846981d7b3fb34435622d23b10494aba9efb923b0e5a3"
+        }
+      },
+      "periodic_second_peak_k": 328.2,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "ubuf_16",
+        "mtxu_16"
+      ],
+      "mean_steady_second_peak_k": 327.9751287619,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "ubuf_16",
+        "mtxu_16"
+      ],
+      "retained_source_energy_j": 0.018298346667030847,
+      "mean_steady_peak_k": 327.9751287619,
+      "mean_steady_hottest_block": "mtxu_16",
+      "periodic_peak_k": 328.2,
+      "periodic_hottest_block": "mtxu_16",
+      "fixed_initial_peak_k": 320.17,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 1.8000000000000114,
+      "complete": true
+    },
+    "noc-nop": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "noc",
+        "nop"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "e41d81066b1033e97f93d56f45512e423a2cd04792b1f500fb8250b8a18b2c0a",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785052061.4409478,
+        "ended_unix": 1785052193.2253497,
+        "wall_s": 131.78440189361572,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 3,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "afa394c814c262071da0cfcd7b597d05af8d1d5b42646437c105a6aaf96f3fb1",
+          "mean.ptrace": "588fa31e7498edcd2c7ae5aa6076046d0d93e778711d44dc4789a7f24d05ea4b",
+          "mean.steady": "91b91af7126995a4151eedccf73bd0489456fedbcc68df9da159bd7da134a871",
+          "one-cycle.ptrace": "52de76581f785178e6e850f08880c57328a7b91d7c448e40643a15e2979980fa",
+          "periodic-8.ptrace": "2ce0cc1310d0686c1dfa3594f049a8762f2771c3297cc3c56b74ced3b70a81fc",
+          "periodic-8.ttrace": "9ec971e93ba0442e309200d44f20a409989d085a3c80ec467654669514c9885e"
+        }
+      },
+      "periodic_second_peak_k": 321.46,
+      "periodic_top_gap_k": 0.3300000000000409,
+      "periodic_tie_blocks": [
+        "blockX_1"
+      ],
+      "mean_steady_second_peak_k": 321.3228293303,
+      "mean_steady_top_gap_k": 0.3532274282999879,
+      "mean_steady_tie_blocks": [
+        "blockX_1"
+      ],
+      "retained_source_energy_j": 0.004864688361599466,
+      "mean_steady_peak_k": 321.6760567586,
+      "mean_steady_hottest_block": "blockX_1",
+      "periodic_peak_k": 321.79,
+      "periodic_hottest_block": "blockX_1",
+      "fixed_initial_peak_k": 318.98,
+      "cycles": 8,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.009999999999990905,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 8.20999999999998,
+      "complete": true
+    },
+    "dram-noc": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "noc",
+        "dram"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "6e5cba9309ca3b1833ca7a4f5308e73e46e9050a493dc7703c7f184a5d8ab6b0",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785052193.2607815,
+        "ended_unix": 1785052534.6526961,
+        "wall_s": 341.39191460609436,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "a80e25bef4c2974f282883fd7213f24bb976c7f078248a8de5bfd13a53091796",
+          "mean.ptrace": "8bc05b716d86683d372a1a2fadab6f7d814e4bff9715fb12e49a50c0f1433cc9",
+          "mean.steady": "654d5dade9b883ccb7ac36c0a34dd35968a1a61a23b995a8f9b2ae32ef0967ce",
+          "one-cycle.ptrace": "d999ad3c199aaee9f063c52eb5d80c42e5b8b37ad77232eb3278720aa3c87cbb",
+          "periodic-16.ptrace": "317a667cb68b54e99d457facc963652a81bcd8d127fa8702dc3881418c92e277",
+          "periodic-16.ttrace": "b6499b9245ac49ca41308abfb9436dfa69bf92a4b39e6008abb382ae76008611",
+          "periodic-8.ptrace": "08cbbb5258118b7e17c8e15ed1ca1452f2733967a1f034a30cc98096bf60bc8c",
+          "periodic-8.ttrace": "ab346d328a6296c8d783f4d0ffd941849286259cfc4b474f96b3e6ee91141be3"
+        }
+      },
+      "periodic_second_peak_k": 324.04,
+      "periodic_top_gap_k": 0.03999999999996362,
+      "periodic_tie_blocks": [
+        "dram_x0_y0"
+      ],
+      "mean_steady_second_peak_k": 323.9312149718,
+      "mean_steady_top_gap_k": 0.03451381580003954,
+      "mean_steady_tie_blocks": [
+        "dram_x0_y0"
+      ],
+      "retained_source_energy_j": 0.009170092999999602,
+      "mean_steady_peak_k": 323.9657287876,
+      "mean_steady_hottest_block": "dram_x0_y0",
+      "periodic_peak_k": 324.08,
+      "periodic_hottest_block": "dram_x0_y0",
+      "fixed_initial_peak_k": 319.28,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 5.920000000000016,
+      "complete": true
+    },
+    "dram-nop": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "nop",
+        "dram"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "e8a680f54d55605c67200e8b88fa1279765474445badeba756a1f31422eb9932",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785052534.7177124,
+        "ended_unix": 1785052880.6650827,
+        "wall_s": 345.9473702907562,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "59586a28648f71fabf3c2267c9233e878b1e576857243ab483d9532ded879be2",
+          "mean.ptrace": "2338feb5cd0dc3081adfbe7b9a83ee2122e28489fc464355d4fe9b2d04161a4c",
+          "mean.steady": "5a95848d4db0ac7a629f5f8d7daa05cc3e99d8ea411f1a978b589abf2b7380b3",
+          "one-cycle.ptrace": "b590b984bc50de1421a88bc326a5794aed87d24fa0e44dd17fcb486163d2cdd3",
+          "periodic-16.ptrace": "a45414f6016df05d2317c9c3681e5a1f9c980419b36713537151ac562b83f83a",
+          "periodic-16.ttrace": "63330e66d99dcea77a1e0b751aeb0714a47c40c5c57f7faef0cf9a26242cf253",
+          "periodic-8.ptrace": "ab34e2f4ced2dd8997a5a6d50af6c335dfb08dee09c2dcaadade14e67906510d",
+          "periodic-8.ttrace": "41b8a540b5b11f44c50a43fac50535ea994751077fad777efd56aa4b9e9c0161"
+        }
+      },
+      "periodic_second_peak_k": 323.33,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "dram_x0_y0",
+        "dram_x5_y0"
+      ],
+      "mean_steady_second_peak_k": 323.233828909,
+      "mean_steady_top_gap_k": 6.280000093283888e-07,
+      "mean_steady_tie_blocks": [
+        "dram_x0_y0",
+        "dram_x5_y0"
+      ],
+      "retained_source_energy_j": 0.0067965248336000865,
+      "mean_steady_peak_k": 323.233829537,
+      "mean_steady_hottest_block": "dram_x0_y0",
+      "periodic_peak_k": 323.33,
+      "periodic_hottest_block": "dram_x0_y0",
+      "fixed_initial_peak_k": 319.28,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 6.670000000000016,
+      "complete": true
+    },
+    "core-noc-nop": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "core",
+        "noc",
+        "nop"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "21ee0785812b98527ab2b58b6c741167b1ff7fc04a9f0a6e6f05431727dbb1d5",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785052880.7174785,
+        "ended_unix": 1785053227.4638197,
+        "wall_s": 346.7463412284851,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "f5d3f13e8a3be99116930c79ac19c53361e06da92bf63a48e82247b14d75a824",
+          "mean.ptrace": "09712b311b8ce602a0e4e2d2b17e9766640a1bd26ad8ab48d02ef6ea61874e6f",
+          "mean.steady": "049f79f0a95b0649f7f8d7380f92c55c12d3e955b3aeeee0e73fe7bb211c4f07",
+          "one-cycle.ptrace": "c94ccdabdd1fb2b00e18c1b45ace02a1cc76ca40439bb43ded76eb19f5a34e59",
+          "periodic-16.ptrace": "a17c5e356134b8a240246e74869e3b92a5d2203a6f0f5b2a8a20608cd75886de",
+          "periodic-16.ttrace": "15a31ea3437b9a48b0c5a07f78437152004478a6720bf2fab934ebd71ad6d012",
+          "periodic-8.ptrace": "2daf1abd32973dc987722ff1594b92398a3d4e38d9a75373617fab9b288056e4",
+          "periodic-8.ttrace": "a4b447bfd0aace5a0e95cf498099f1fac34a1a6f221954bd2298a0d8d14abf13"
+        }
+      },
+      "periodic_second_peak_k": 328.51,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "ubuf_16",
+        "mtxu_16"
+      ],
+      "mean_steady_second_peak_k": 328.1983399214,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "ubuf_16",
+        "mtxu_16"
+      ],
+      "retained_source_energy_j": 0.017612070292630205,
+      "mean_steady_peak_k": 328.1983399214,
+      "mean_steady_hottest_block": "mtxu_16",
+      "periodic_peak_k": 328.51,
+      "periodic_hottest_block": "mtxu_16",
+      "fixed_initial_peak_k": 320.28,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.009999999999990905,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 1.490000000000009,
+      "complete": true
+    },
+    "core-dram-noc": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "core",
+        "noc",
+        "dram"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "532809617c9f0e0b578f2d251d00bdb8804dafb3bbad8c2cc9bd5184f10f2fce",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785053227.5487247,
+        "ended_unix": 1785053582.8538897,
+        "wall_s": 355.30516505241394,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "1c268bdbd6191c6b4db7e42206eb01c652746acad2de5aeb545a1690b0b7b0be",
+          "mean.ptrace": "d51d32e2bc6a41682de66cb3b0a9084cce4719f02c8828c2d42fcbc8633d6ff7",
+          "mean.steady": "0d0e58d95867450f4656643d7224e562f0ae283e2d919912911d6050347967d5",
+          "one-cycle.ptrace": "f3bf37b1e2123489bf77a65acf49aa00642b8e99ae83a54babfa09e8fe96cdd9",
+          "periodic-16.ptrace": "dfc6870c219999e22d3782fd79b894467cf469008f8672f368808495115a3db6",
+          "periodic-16.ttrace": "0744a26c0b6eef2e90e3a456e92243d4341aa94d5e8ae66df357b79bc0c1003f",
+          "periodic-8.ptrace": "64732b05db45dfd0e16a3e675ec7d6d806bb66e9740fc302294a9d23a2ce09ec",
+          "periodic-8.ttrace": "fd7c8ca9ff1e56fdd7d47673d103cafa64bf062293bf868024ceb98fb36ca888"
+        }
+      },
+      "periodic_second_peak_k": 329.78,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "mean_steady_second_peak_k": 329.5064517954,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "ubuf_16",
+        "mtxu_16"
+      ],
+      "retained_source_energy_j": 0.02191747493103034,
+      "mean_steady_peak_k": 329.5064517954,
+      "mean_steady_hottest_block": "mtxu_16",
+      "periodic_peak_k": 329.78,
+      "periodic_hottest_block": "mtxu_16",
+      "fixed_initial_peak_k": 320.28,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.009999999999990905,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 0.22000000000002728,
+      "complete": true
+    },
+    "core-dram-nop": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "core",
+        "nop",
+        "dram"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "2b26d67186d31063a4ad6448eab5cc82e27e4d043a49dd243d8e3b4cdffcb28f",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785053582.9400957,
+        "ended_unix": 1785053947.3866313,
+        "wall_s": 364.4465355873108,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "007062a1c088a85bb6a0923ed09222a9a703a416bae9499b81bba2ffe6319d56",
+          "mean.ptrace": "3cae1dddb59f8f2e2f3deb78c9f9d63364eb4dc009d92ef48d5d5b44a5e66fe5",
+          "mean.steady": "f79e3182569015ea80cc936a64c2ed6adea8350649f12d2a8840ad01101eaaef",
+          "one-cycle.ptrace": "d573ea192abc37350648567ecf901d4c8bf07fa0c03bad46242a4c7702fe125d",
+          "periodic-16.ptrace": "8bd9fe08ec36731813fc607c90fe9f085db822f7d912bcc9e940eacc67f3dc38",
+          "periodic-16.ttrace": "9ef85e45630c9db31263ba3c2fdb4bd53bfef31624b61452b41aa24b5630ae5d",
+          "periodic-8.ptrace": "56520594412322e90e74816e633256e486a48ff76bc1f337f257cb0ecab0cd08",
+          "periodic-8.ttrace": "200a892b608899f0ff12bc7b1f2bcef58fc5de55ee3357878733cbbc4fd2b010"
+        }
+      },
+      "periodic_second_peak_k": 328.61,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "mean_steady_second_peak_k": 328.4128974907,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "ubuf_13",
+        "io_2_13"
+      ],
+      "retained_source_energy_j": 0.019543906764630824,
+      "mean_steady_peak_k": 328.4128974907,
+      "mean_steady_hottest_block": "ubuf_13",
+      "periodic_peak_k": 328.61,
+      "periodic_hottest_block": "mtxu_16",
+      "fixed_initial_peak_k": 320.17,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 1.3899999999999864,
+      "complete": true
+    },
+    "dram-noc-nop": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "noc",
+        "nop",
+        "dram"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "68e0fb0d5e817c62c590a8c59f68662089ec00d48b426713542ba254b47c0727",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785053947.4605138,
+        "ended_unix": 1785054290.650353,
+        "wall_s": 343.18983912467957,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "5c7e753cd431e7c5aac2c3536f63aa82b22b7554811e6f11abcd217e25a43adf",
+          "mean.ptrace": "779e70ef304044e4ab0692244d7ae4aeb83dad2fd7a0c6cd15d2d2870a416f7a",
+          "mean.steady": "19e90492af1392eab7e2c17d3a47932b55555dba9c332ac31df737ca5f2d4ca4",
+          "one-cycle.ptrace": "1a42e8ae6a02a15815a75470ae1432461dac43fbba5aa7c66157552702616a49",
+          "periodic-16.ptrace": "01c719f687ee3b1298d8ca968d447a8f7cd8173d3d22033e38ac6e45ae982c9f",
+          "periodic-16.ttrace": "a57427cfedfa4d7146b9b20c1c18044fec34e8e3fdadabc8c7476d14cb7ab541",
+          "periodic-8.ptrace": "4a906097a6623b708a3946a7ffe141bd78ddd76dc80698f2c14e4d71306fcdaa",
+          "periodic-8.ttrace": "472c8ff36fcdea1d8218923d6903fe6e86e57df8c115986c90e1c8325a2dc7cc"
+        }
+      },
+      "periodic_second_peak_k": 324.43,
+      "periodic_top_gap_k": 0.040000000000020464,
+      "periodic_tie_blocks": [
+        "dram_x0_y0"
+      ],
+      "mean_steady_second_peak_k": 324.3071685585,
+      "mean_steady_top_gap_k": 0.03451635260000785,
+      "mean_steady_tie_blocks": [
+        "dram_x0_y0"
+      ],
+      "retained_source_energy_j": 0.010415653097599578,
+      "mean_steady_peak_k": 324.3416849111,
+      "mean_steady_hottest_block": "dram_x0_y0",
+      "periodic_peak_k": 324.47,
+      "periodic_hottest_block": "dram_x0_y0",
+      "fixed_initial_peak_k": 319.28,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": 5.529999999999973,
+      "complete": true
+    },
+    "full": {
+      "schema_version": 3,
+      "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+      "dirty": [],
+      "diff_sha256": null,
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "components": [
+        "core",
+        "noc",
+        "nop",
+        "dram"
+      ],
+      "input_hashes": {
+        "floorplan": "97fd0c067b9d7b3ad7e6d17b45a4fc367415695b8ea039df5673c9aeab2bb045",
+        "config": "b5956b0d44880986ce29e1f20a38b813fb9e9f9ec755486b5e6cfe2d41e755e6",
+        "materials": "d958a3263b1966599a4dddf6b1a943298ab0eb415ec4430214bca3b1a2047a82",
+        "hotspot": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4"
+      },
+      "hotspot_sha256": "b0040b3ecb82897e4f95dc827de643d9b545ef6cca9a2e5c1bdc8a6d7a1c68f4",
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "trace_sha256": "4b5ded2fb08d452d2f3a0aaff2e2993a3268d24cc675f72e2559636e4261e64d",
+      "execution": {
+        "dest_existed_before_run": false,
+        "workspace_files_before_run": [],
+        "started_unix": 1785054290.722193,
+        "ended_unix": 1785054645.4858146,
+        "wall_s": 354.7636215686798,
+        "pid": 2815038,
+        "run_nonce": "74e36a79-grid64-max-0.5us-1785050668",
+        "hotspot_invocations": 4,
+        "raw_outputs": {
+          "fixed-initial.ttrace": "65d2abe016134a931c85d2396cd6fac3286a6797ddda07470f0fffd0741b5a6b",
+          "mean.ptrace": "f335b1357b9c2a8e9ddf531a675c77aba9b741b258b5a0909c4e1b053a2a7d42",
+          "mean.steady": "1741edb68e7c8081d3c08c8c835ea2955943a5858ba0071ef20cfcbf41cde3f4",
+          "one-cycle.ptrace": "5b59e5487781773b29d746a6597daf4287c45601cc48de61ad5c425b2bc99fc7",
+          "periodic-16.ptrace": "121d77000d66b79b372a79baed75484098bc21b96a07d7ff1b0a06aca857366d",
+          "periodic-16.ttrace": "3b282f08dfb3eda417682efb0d3bcf188c8a43bcaf29182269ddda30a8dc19cd",
+          "periodic-8.ptrace": "0373f352f5d502bd09ccc5e7ad6f2f241b470a897c8c9995a8bd6f89a9048756",
+          "periodic-8.ttrace": "145bbc9e69d574a73deed66f6d05c4ab59480c4b28d22b91de01f067c071000e"
+        }
+      },
+      "periodic_second_peak_k": 330.19,
+      "periodic_top_gap_k": 0.0,
+      "periodic_tie_blocks": [
+        "ubuf_16",
+        "mtxu_16"
+      ],
+      "mean_steady_second_peak_k": 329.9048668755,
+      "mean_steady_top_gap_k": 0.0,
+      "mean_steady_tie_blocks": [
+        "mtxu_16",
+        "ubuf_16"
+      ],
+      "retained_source_energy_j": 0.023163035028630315,
+      "mean_steady_peak_k": 329.9048668755,
+      "mean_steady_hottest_block": "mtxu_16",
+      "periodic_peak_k": 330.19,
+      "periodic_hottest_block": "mtxu_16",
+      "fixed_initial_peak_k": 320.28,
+      "cycles": 16,
+      "step_s": 4.994533497739416e-07,
+      "samples_per_cycle": 811,
+      "boundary_residual_k": 0.010000000000047748,
+      "peak_residual_k": 0.0,
+      "output_resolution_k": 0.01,
+      "margin_to_limit_k": -0.18999999999999773,
+      "complete": true
+    }
+  },
+  "gate": {
+    "registered_tuple": {
+      "workload": "transformer",
+      "arch": "arch_b",
+      "model": "grid64-max",
+      "max_step_us": 0.5,
+      "ambient_k": 318.15,
+      "tolerance_k": 0.01,
+      "io_aspect_ratio": 1.0,
+      "thermal_limit_k": 330.0,
+      "mean_steady_peak_k": 329.904867,
+      "periodic_peak_k": 330.19,
+      "hottest": "mtxu_16",
+      "binds_instance_hashes": false,
+      "canonical_trace_sha256": null,
+      "canonical_input_hashes": null,
+      "steady_tolerance_k": null
+    },
+    "passed": true,
+    "decision_ok": true,
+    "value_ok": true,
+    "location_ok": true,
+    "steady_delta_k": 1.2450004760466982e-07,
+    "steady_gated": false,
+    "steady_gate_note": "no repeatability-derived tolerance exists; reported, not enforced"
+  },
+  "summary": {
+    "row_status": {
+      "core": "below",
+      "noc": "below",
+      "nop": "below",
+      "dram": "below",
+      "core-noc": "below",
+      "core-nop": "below",
+      "core-dram": "below",
+      "noc-nop": "below",
+      "dram-noc": "below",
+      "dram-nop": "below",
+      "core-noc-nop": "below",
+      "core-dram-noc": "below",
+      "core-dram-nop": "below",
+      "dram-noc-nop": "below",
+      "full": "crossing"
+    },
+    "indeterminate_rows": [],
+    "crossing_subsets": [
+      "core+dram+noc+nop"
+    ],
+    "minimal_crossing_coalitions": [
+      "core+dram+noc+nop"
+    ],
+    "leave_one_out": {
+      "core": {
+        "periodic_peak_k": 324.47,
+        "status": "below",
+        "margin_to_limit_k": 5.529999999999973,
+        "below_limit": true
+      },
+      "noc": {
+        "periodic_peak_k": 328.61,
+        "status": "below",
+        "margin_to_limit_k": 1.3899999999999864,
+        "below_limit": true
+      },
+      "nop": {
+        "periodic_peak_k": 329.78,
+        "status": "below",
+        "margin_to_limit_k": 0.22000000000002728,
+        "below_limit": true
+      },
+      "dram": {
+        "periodic_peak_k": 328.51,
+        "status": "below",
+        "margin_to_limit_k": 1.490000000000009,
+        "below_limit": true
+      }
+    },
+    "uplift_k": {
+      "core": 0.2712,
+      "noc": 0.1357,
+      "nop": 0.094,
+      "dram": 0.0921,
+      "core-noc": 0.32,
+      "core-nop": 0.1814,
+      "core-dram": 0.2249,
+      "noc-nop": 0.1139,
+      "dram-noc": 0.1143,
+      "dram-nop": 0.0962,
+      "core-noc-nop": 0.3117,
+      "core-dram-noc": 0.2735,
+      "core-dram-nop": 0.1971,
+      "dram-noc-nop": 0.1283,
+      "full": 0.2851
+    },
+    "source_identity_effect_on_uplift": "UNTESTED",
+    "evidence_grade": "provenance-controlled, single-capture HotSpot evidence for the registered candidate and discretisation; no independent thermal-model validation",
+    "scope": "Conditional necessity is bounded to THIS fixed trace, fixed routing and timing, an additive deposition intervention, and the HotSpot model. It is not general physical causality and says nothing about temperature-dependent power feedback.",
+    "all_rows_fresh": true,
+    "reuse_disabled_by_policy": true,
+    "hotspot_invocations_total": 54
+  },
+  "run": {
+    "run_id": "74e36a79-grid64-max-0.5us-1785050668",
+    "started_unix": 1785050668.4759622,
+    "ended_unix": 1785054645.5740983,
+    "host": "hpclab03",
+    "platform": "Linux-5.15.0-71-generic-x86_64-with-glibc2.29",
+    "python": "3.8.10",
+    "numpy": "1.24.4",
+    "argv": [
+      "research/triangle/v61_frozen_factorial.py",
+      "artifacts/v61_cg3_grid64",
+      "grid64-max",
+      "0.5",
+      "transformer",
+      "arch_b"
+    ],
+    "schema_version": 3,
+    "staged_inputs": {
+      "floorplan": "artifacts/v61_cg3_grid64/staged/floorplan.flp",
+      "config": "artifacts/v61_cg3_grid64/staged/config.config",
+      "materials": "artifacts/v61_cg3_grid64/staged/materials.materials",
+      "hotspot": "artifacts/v61_cg3_grid64/staged/hotspot"
+    }
+  },
+  "provenance_end": {
+    "commit": "74e36a79f1cc634a9a90f34e81c7e155f33e4cfc",
+    "dirty": [],
+    "diff_sha256": null
+  },
+  "provenance_stable": true,
+  "complete": true
+}
