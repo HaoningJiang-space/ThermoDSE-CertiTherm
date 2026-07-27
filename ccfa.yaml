@@ -8,8 +8,8 @@ target_venue:
   year: "TBD"
   mode: "research"
 stage:
-  current: "v7_independent_model_gate"
-  gate: "preregistered_unrun"
+  current: "v7_transient_locality"
+  gate: "gate_closed_without_verdict_locality_result_recorded"
   updated_at: "2026-07-27"
 active_contract: "docs/V6_DIRECTION_DECISION.md"
 # V6 closed the physical-trace gate and REJECTED the broad transient claim: under block and
@@ -256,7 +256,23 @@ experiments:
       docs/INFORMATION_THEORETIC_METHOD.md.
     evidence: "artifacts_receipts/v61_cg5_schema5/, docs/V6_1_CAUSAL_ISOLATION.md"
   - id: "INDEPENDENT-MODEL-GATE"
-    status: "mapping_rejected_pending_revision"
+    status: "CLAIM_WITHDRAWN_WITHOUT_INDEPENDENT_VERDICT"
+    terminal_outcome: >-
+      Closed WITHOUT a verdict. No 3D-ICE or FEM run was performed and no gate output exists. The
+      instrument cannot represent this package: ThreeDicePassiveLayerSpec carries no footprint and
+      the chip dimensions are global, so a 21.7 x 17.95 mm die, a 50 mm spreader and a 60 mm sink
+      cannot coexist; truncating them adds 44.921 mK/W (about 2.57 K at 57.18 W against a
+      0.095133 K margin) and enlarging the global footprint would extend the silicon die as
+      fictitious material. A composite predicate over two instruments was rejected as a category
+      error: P* = S_FEM + U_3DICE is predicted by no solver. Best case was instance-bound
+      diagnostic support for one out-of-family case, which could not promote the headline or enter
+      a certificate.
+    withdrawn_claim: >-
+      That the grid64-max transformer/arch_b 330 K crossing is model-robust. Withdrawn BECAUSE
+      MODEL-ROBUST SUPPORT COULD NOT BE ESTABLISHED -- explicitly NOT because an independent model
+      disproved it. The >= 0.69 K intra-HotSpot spatial spread establishes fragility, not an
+      in-family counterexample to transient flipping. This is not a convergence result and must
+      never be described as one.
     preregistration: "docs/registration/v7_independent_model_gate.json"
     preregistration_sha256: "e6301a4b139677d55e578b21a78c09b890958984efa2507687e575a44b6ced47"
     stack_mapping: "docs/registration/v7_gate_stack_mapping.json"
@@ -283,6 +299,31 @@ experiments:
       preregistration artifact, NOT here -- so a reader of any later checkout can tell what was
       fixed before execution. Its prior_prediction block is a prior, never a result, must not be
       overwritten, and the outcome goes in a separate receipt referencing the hash above.
+  - id: "V7-TRANSIENT-LOCALITY"
+    status: "complete_measured_from_committed_data"
+    command: "python research/triangle/v7_locality_report.py docs/V7_TRANSIENT_LOCALITY.md"
+    host: "local (no solver run; derived from the schema-5 manifest)"
+    note: >-
+      The positive result the closed gate produced. Going from the core-only subset to the full
+      four-source set adds 45.0% of the dissipated energy and moves the steady rise by +3.636 K
+      while the periodic uplift moves by at most 0.024 K once the 0.01 K output quantum is bounded
+      in -- a sensitivity ratio of at least 152x. Across the 8 core-containing subsets, where
+      energy still varies 1.8x, corr(energy, steady rise) = +0.989 against corr(energy, uplift) =
+      +0.164. The explanation is a diffusion length: at the 2469 Hz workload period the silicon
+      penetration depth is 101.4 um against a 150 um die, and 11.4 um in the 20 um TIM, so the
+      periodic component never reaches the package.
+    criterion: >-
+      Transient refinement is decision-relevant exactly when the steady margin is smaller than the
+      LOCAL ripple. The ripple follows from die properties and workload frequency with no package
+      model; the absolute level, which is what a threshold crossing depends on, is precisely the
+      package-dependent part. Hence the uplift is a robust feature while the crossing is not
+      certifiable at 0.1 K.
+    scope: >-
+      One candidate, one workload period, one HotSpot model, and grid64-max is out of the
+      certified family -- NOT certificate evidence. delta is a 1-D semi-infinite estimate giving
+      the scale, not a predicted uplift; the sensitivity ratio is the measurement. No independent
+      thermal model has validated any number.
+    evidence: "docs/V7_TRANSIENT_LOCALITY.md, artifacts_receipts/v61_cg5_schema5/"
   - id: "SCALE-SYNTH"
     status: "complete"
     command: "python -m research.dr_dsc.profile_synthesis / benchmark"

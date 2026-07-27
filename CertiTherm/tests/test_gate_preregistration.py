@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -58,7 +59,7 @@ def _recorded_mapping_hash() -> str:
 def _gate_status() -> str:
     block = _ccfa().split('- id: "INDEPENDENT-MODEL-GATE"', 1)
     assert len(block) == 2, "ccfa.yaml does not register INDEPENDENT-MODEL-GATE"
-    found = re.search(r'status:\s*"([a-z_]+)"', block[1])
+    found = re.search(r'status:\s*"([A-Za-z_.0-9]+)"', block[1])
     assert found, "the gate entry records no status"
     return found.group(1)
 
@@ -78,16 +79,16 @@ def test_no_result_may_be_recorded_before_the_gate_runs():
         pytest.skip("the gate has run; this invariant applies before execution")
     assert p["prior_prediction"]["actual_outcome"] is None
     # the mapping was rejected before use, so the gate is registered but not runnable
-    assert _gate_status() in ("preregistered_unrun", "mapping_rejected_pending_revision")
+    assert _gate_status() in ("preregistered_unrun", "mapping_rejected_pending_revision",
+                              "CLAIM_WITHDRAWN_WITHOUT_INDEPENDENT_VERDICT")
 
 
 def test_a_rejected_mapping_records_why_and_keeps_the_artifact_unedited():
     """The point of hashing the mapping is that it cannot be revised in place. A rejection is
     recorded beside it; a corrected mapping is a new attempt with its own hash."""
-    if _gate_status() != "mapping_rejected_pending_revision":
-        pytest.skip("no mapping rejection recorded")
     ccfa = _ccfa()
-    assert "REJECTED_BEFORE_USE" in ccfa
+    if "REJECTED_BEFORE_USE" not in ccfa:
+        pytest.skip("no mapping rejection recorded")
     assert "docs/V7_GATE_MAPPING_REVIEW.md" in ccfa
     assert (ROOT / "docs/V7_GATE_MAPPING_REVIEW.md").is_file()
     # and the artifact itself must still hash to what was registered
@@ -291,3 +292,86 @@ def test_fitted_calibration_is_prohibited_here_too():
     p = " ".join(_mapping()["prohibitions"])
     assert "POWER_SCALE is 1 by construction" in p
     assert "not calibration" in p
+
+
+# --- the terminal outcome and the locality result --------------------------------------
+# The gate closed without a verdict. The one thing that must never drift is the WORDING: no
+# 3D-ICE or FEM run happened, so nothing here may be presented as a convergence result.
+
+DOC = ROOT / "docs/V7_TRANSIENT_LOCALITY.md"
+
+
+def test_the_gate_closed_without_a_verdict():
+    assert _gate_status() == "CLAIM_WITHDRAWN_WITHOUT_INDEPENDENT_VERDICT"
+    ccfa = _ccfa()
+    assert "MODEL-ROBUST SUPPORT COULD NOT BE ESTABLISHED" in ccfa
+    assert "NOT because an independent model" in ccfa
+    assert "not a convergence result" in ccfa
+
+
+@pytest.mark.skipif(not DOC.exists(), reason="locality report not present")
+def test_the_withdrawal_is_never_phrased_as_a_refutation():
+    doc = DOC.read_text()
+    assert "No 3D-ICE or FEM run was performed and no gate output exists" in doc
+    assert "not because an independent model disproved it" in doc
+    assert "Nothing here is a convergence result" in doc
+    for forbidden in ("3D-ICE disproved", "FEM disproved", "refuted by an independent",
+                      "independent model showed"):
+        assert forbidden.lower() not in doc.lower(), forbidden
+
+
+@pytest.mark.skipif(not DOC.exists(), reason="locality report not present")
+def test_every_number_in_the_report_is_recomputed_not_transcribed():
+    """The report is generated. Regenerating it must reproduce the committed file byte for byte,
+    which is the only way to know no figure was typed in by hand."""
+    import subprocess
+    out = ROOT / "docs/V7_TRANSIENT_LOCALITY.md"
+    p = subprocess.run([sys.executable, str(ROOT / "research/triangle/v7_locality_report.py")],
+                       capture_output=True, text=True, cwd=str(ROOT))
+    assert p.returncode == 0, p.stderr
+    assert p.stdout == out.read_text(), (
+        "docs/V7_TRANSIENT_LOCALITY.md is not the output of v7_locality_report.py; regenerate it "
+        "instead of editing it")
+
+
+MANIFEST_S5 = ROOT / "artifacts_receipts/v61_cg5_schema5/v61_manifest.json"
+
+
+@pytest.mark.skipif(not MANIFEST_S5.exists(), reason="schema-5 manifest not present")
+def test_the_locality_measurement_holds_and_is_quantisation_safe():
+    """The load-bearing measurement: adding 45% of the dissipated energy moves the steady rise by
+    3.6 K and the uplift by at most one or two output quanta."""
+    sys.path.insert(0, str(ROOT / "research/triangle"))
+    from research.triangle.v7_locality_report import analyse
+    a = analyse()
+    assert 0.44 < a["added_energy_frac"] < 0.46
+    assert a["d_rise_k"] > 3.0, "the steady rise must move substantially"
+    # the raw uplift change is only a couple of quanta, so the claim is an upper bound
+    assert a["d_uplift_quanta"] < 3.0, "if this grows, the bound-based phrasing must be revisited"
+    assert a["sensitivity_ratio"] > 100.0
+    # and the correlation split is the sharper statement
+    assert a["corr_core_energy_rise"] > 0.9
+    assert abs(a["corr_core_energy_uplift"]) < 0.5, "uplift must show no energy trend"
+
+
+def test_the_penetration_depth_is_below_the_die_thickness():
+    """The explanation offered for the measurement. delta < t_die is why remote sources cannot
+    contribute local ripple."""
+    from research.triangle.v7_locality_report import analyse, penetration_depth_m
+    a = analyse()
+    assert a["delta_si_um"] < a["t_die_um"], "the argument requires the wave to stay inside the die"
+    assert a["delta_tim_um"] < a["tim_thickness_um"]
+    # the formula, checked independently of the report
+    import math
+    expected = math.sqrt(2.0 * (a["k_si"] / a["c_si"]) / a["omega"]) * 1e6
+    assert a["delta_si_um"] == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.skipif(not DOC.exists(), reason="locality report not present")
+def test_the_report_states_its_scope_limits():
+    doc = DOC.read_text()
+    assert "out of the certified family" in doc
+    assert "none of this is certificate evidence" in doc
+    assert "1-D" in doc or "one-dimensional" in doc
+    assert "no cross-workload predictor is claimed" in doc
+    assert "No independent thermal model has validated any number" in doc
