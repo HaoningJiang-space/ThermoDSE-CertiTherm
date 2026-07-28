@@ -67,10 +67,22 @@ def test_anytime_respects_one_end_to_end_budget(monkeypatch) -> None:
     assert result.upper_seconds + result.lower_seconds <= budget * 1.5
 
 
+# Both tests below are written so that EVERY branch asserts something. A run that
+# exhausts its budget legitimately has no U, so requiring one would make these
+# timing-dependent; but `U is None` is equivalent to `contract is None`, which is
+# equivalent to `upper_source == "none"` and an empty action list. Asserting that
+# equivalence on the empty branch costs no timing dependence and stops a regression
+# that returned nothing at all from passing silently. (On this deterministic fixture
+# the populated branch is the one that runs: L = 10.0, U = 16.0.)
+
+
 def test_upper_bound_only_from_a_certified_contract() -> None:
     cands, acts = _instance()
     result = anytime_dsos(cands, acts, budget_s=6.0)
-    if result.upper_bound is not None:
+    if result.upper_bound is None:
+        assert result.upper_source == "none", "a missing U must identify itself as absent"
+        assert result.upper_action_ids == ()
+    else:
         assert result.upper_source in ("width", "exact")
         assert len(result.upper_action_ids) > 0 or result.upper_bound == 0
 
@@ -78,12 +90,17 @@ def test_upper_bound_only_from_a_certified_contract() -> None:
 def test_interval_is_ordered_or_flagged() -> None:
     cands, acts = _instance()
     result = anytime_dsos(cands, acts, budget_s=6.0)
-    if result.upper_bound is not None and result.lower_bound is not None:
+    if result.upper_bound is None or result.lower_bound is None:
+        assert result.upper_bound is not None or result.upper_source == "none"
+        # No interval exists, so none may be reported.
+        assert result.absolute_gap is None
+    else:
         # Either the interval is ordered, or the violation is recorded loudly.
         assert result.interval_violation or result.lower_bound <= result.upper_bound
         if not result.interval_violation:
-            assert result.absolute_gap is not None
-            assert result.absolute_gap >= 0.0
+            assert result.absolute_gap == pytest.approx(
+                result.upper_bound - result.lower_bound
+            ), "the reported gap must be the interval it claims to summarise"
 
 
 def test_same_run_carries_upper_plan_and_bound_metadata(monkeypatch) -> None:
