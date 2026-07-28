@@ -104,6 +104,18 @@ def test_override_survives_a_still_armed_method_signal_timer() -> None:
 
     from CertiTherm.solver_budget import highs_options
 
+    def _expired(_signum, _frame):
+        raise AssertionError(
+            "the 0.5 s method timer expired inside the test body -- the body took "
+            "longer than the timer, so nothing below was actually measured"
+        )
+
+    # SIGALRM's default disposition TERMINATES the process, so an expiry here would
+    # kill the whole pytest session with no failing test to point at. The handler
+    # converts that into an ordinary failure. It cannot change what is under test:
+    # `_signal_budget` reads the deadline from `getitimer`, which is unaffected by
+    # the handler, and `ignore_signal` bypasses that read entirely.
+    previous = signal.signal(signal.SIGALRM, _expired)
     # Arm a short method timer, as _call_under_budget does, WITHOUT a matching
     # budget_scope -- the signal is the only ambient deadline.
     signal.setitimer(signal.ITIMER_REAL, 0.5)
@@ -119,3 +131,4 @@ def test_override_survives_a_still_armed_method_signal_timer() -> None:
             assert _anytime_lower_bound(*_tiny_instance()) == pytest.approx(2.0)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
