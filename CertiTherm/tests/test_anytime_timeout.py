@@ -81,12 +81,16 @@ def test_timeout_preserves_anytime_evidence(monkeypatch) -> None:
     )
     assert injection.fired == 1, "the injected timeout never fired; nothing was tested"
     assert plan.status == "UNRESOLVED"
-    assert plan.iterations > 0, "iteration count was discarded"
-    assert plan.witnesses, "accumulated witnesses were discarded"
+    # Each of these is asserted STRICTLY, because the failure being guarded is "the evidence was
+    # discarded" and a discarded field comes back as 0, None or empty. `lower_bound >= 0.0` and
+    # `candidate_covered_cuts is not None` both accepted exactly that: the real values here are
+    # 1.0 and 2, so a reset to zero would have passed the old assertions.
+    assert plan.iterations >= 2, "iteration count was discarded"
+    assert len(plan.witnesses) >= 1, "accumulated witnesses were discarded"
     assert plan.lower_bound is not None, "the anytime lower bound was discarded"
-    assert plan.lower_bound >= 0.0
+    assert plan.lower_bound > 0.0, "a zero bound is what a discarded bound looks like"
     assert plan.candidate_action_ids, "the working cover was discarded"
-    assert plan.candidate_covered_cuts is not None
+    assert plan.candidate_covered_cuts, "an empty covered-cut set covers nothing"
     # The candidate is explicitly NOT a certified plan or an upper bound.
     assert plan.selected_action_ids == ()
     assert plan.exact_cost is None
