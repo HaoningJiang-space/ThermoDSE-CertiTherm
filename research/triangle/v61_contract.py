@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -62,6 +63,24 @@ def rel(path: Path) -> str:
         return str(Path(path).resolve().relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def positional_script_argument(index: int, default, cast=str, *, module_name: str):
+    """Read `sys.argv[index]`, but ONLY when the calling module is the script being run.
+
+    Reading `sys.argv` at module level makes a module unsafe to import: the importer's own
+    command line gets reinterpreted as this module's arguments. That has bitten twice.
+    `complete_trace_probe` died with "could not convert string to float: 'transformer'" when
+    the factorial driver imported it. `v61_frozen_factorial` had the same defect and silently
+    bound its model id to "CertiTherm/tests" under `pytest -q CertiTherm/tests`; one extra
+    pytest flag turned that into a ValueError that broke collection of the WHOLE suite.
+
+    Pass `module_name=__name__` from the caller: only the module Python is executing as
+    `__main__` owns the command line.
+    """
+    if module_name != "__main__" or len(sys.argv) <= index:
+        return default
+    return cast(sys.argv[index])
 
 
 def subset_tag(components: Iterable[str], all_components: Sequence[str]) -> str:

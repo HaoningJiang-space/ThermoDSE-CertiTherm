@@ -61,13 +61,18 @@ from research.triangle.complete_trace_probe import capture_frozen_inputs
 # did NOT agree with them.
 from research.triangle.v61_contract import OUTPUT_RESOLUTION_K
 from research.triangle.v61_contract import classify as _classify
+from research.triangle.v61_contract import positional_script_argument as _argument
 from research.triangle.v61_contract import subset_tag as _subset_tag
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("artifacts/v61frozen")
-MODEL = sys.argv[2] if len(sys.argv) > 2 else "grid64-max"
-STEP_US = float(sys.argv[3]) if len(sys.argv) > 3 else 0.5
-WORKLOAD = sys.argv[4] if len(sys.argv) > 4 else "transformer"
-ARCH = sys.argv[5] if len(sys.argv) > 5 else "arch_b"
+# Positional run parameters. `module_name=__name__` is what keeps these at their defaults on
+# import: before it, `pytest -q CertiTherm/tests` bound MODEL to "CertiTherm/tests", and
+# `pytest -q CertiTherm/tests -k anything` made `float(sys.argv[3])` raise during collection
+# and took the whole suite down with it.
+OUT = _argument(1, Path("artifacts/v61frozen"), Path, module_name=__name__)
+MODEL = _argument(2, "grid64-max", module_name=__name__)
+STEP_US = _argument(3, 0.5, float, module_name=__name__)
+WORKLOAD = _argument(4, "transformer", module_name=__name__)
+ARCH = _argument(5, "arch_b", module_name=__name__)
 AMBIENT_K = 318.15
 
 # The gate is registered for a COMPLETE tuple, not just a model. Applying it to any

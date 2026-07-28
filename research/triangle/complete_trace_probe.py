@@ -38,31 +38,22 @@ from CertiTherm.thermodse_trace import lower_monitor_trace
 from CertiTherm.trace_runner import floorplan_units
 from research.triangle.order_trace_probe import monitor_snapshot
 from research.triangle.route_event_probe import capture_route_events
+from research.triangle.v61_contract import positional_script_argument as _argument
 
 
-# Parse argv ONLY when run as a script. Reading sys.argv at module level made this module
-# unsafe to import: a caller with its own arguments had them reinterpreted as this probe's,
-# and `float(sys.argv[4])` died on the importer's workload name. capture_frozen_inputs() is
-# imported by the factorial driver, so import must have no side effects on argv.
-_AS_SCRIPT = __name__ == "__main__"
-
-
-def _arg(index: int, default, cast=str):
-    if not _AS_SCRIPT or len(sys.argv) <= index:
-        return default
-    return cast(sys.argv[index])
-
-
-OUTPUT = _arg(1, Path("artifacts/v6complete"), Path)
-WORKLOAD = _arg(2, "resnet50")
-ARCH_ID = _arg(3, "arch_c")
-IO_ASPECT_RATIO = _arg(4, 1.0, float)
+# Parse argv ONLY when run as a script -- see `positional_script_argument` for the two
+# failures this prevents. `capture_frozen_inputs()` is imported by the factorial driver, so
+# import must have no side effects on argv.
+OUTPUT = _argument(1, Path("artifacts/v6complete"), Path, module_name=__name__)
+WORKLOAD = _argument(2, "resnet50", module_name=__name__)
+ARCH_ID = _argument(3, "arch_c", module_name=__name__)
+IO_ASPECT_RATIO = _argument(4, 1.0, float, module_name=__name__)
 # Optional comma-separated component mask over {core,noc,nop,dram} for V6.1 causal
 # isolation. Absent means the full trace, i.e. the existing behaviour. The mask is
 # encoded in the emitted filenames so an ablation cannot overwrite the full-trace
 # evidence, and it is recorded in the JSON receipt.
-COMPONENTS = (tuple(sys.argv[5].split(","))
-              if _AS_SCRIPT and len(sys.argv) > 5 and sys.argv[5] else None)
+_MASK = _argument(5, "", module_name=__name__)
+COMPONENTS = tuple(_MASK.split(",")) if _MASK else None
 SUFFIX = "" if COMPONENTS is None else "_" + "-".join(sorted(COMPONENTS))
 
 
