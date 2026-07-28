@@ -1,17 +1,13 @@
-"""Pytest path configuration for CertiTherm tests.
+"""Pytest configuration for the CertiTherm test suite.
 
-Allows `python3 -m pytest -q` from the repository root without a manual
-PYTHONPATH, per the post-closure integrity audit repair requirement.
+Deliberately free of path manipulation. Every remaining test imports through the
+`CertiTherm` package from the repository root, so `python -m pytest -q` needs no
+`PYTHONPATH` and no `sys.path` insertion.
+
+This file used to prepend `CertiTherm/exact`, `CertiTherm/audit` and
+`CertiTherm/robust_dse` to `sys.path` so that six pre-DSOS regression tests could
+import their modules by bare name. Those trees and those tests were removed; they
+stay reachable in git history under the `legacy-g1-g4-archived` tag.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
-import sys
-
-
-_CERTITHERM = Path(__file__).resolve().parents[1]
-for _sub in ("exact", "audit", "robust_dse"):
-    _path = str(_CERTITHERM / _sub)
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
