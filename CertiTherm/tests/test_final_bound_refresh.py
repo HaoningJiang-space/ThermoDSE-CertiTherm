@@ -112,9 +112,11 @@ def test_override_survives_a_still_armed_method_signal_timer() -> None:
 
     # SIGALRM's default disposition TERMINATES the process, so an expiry here would
     # kill the whole pytest session with no failing test to point at. The handler
-    # converts that into an ordinary failure. It cannot change what is under test:
-    # `_signal_budget` reads the deadline from `getitimer`, which is unaffected by
-    # the handler, and `ignore_signal` bypasses that read entirely.
+    # converts that into an ordinary failure. It does not affect the deadline
+    # calculation BEFORE expiry -- `_signal_budget` reads `getitimer`, which a handler
+    # does not change, and `ignore_signal` bypasses that read entirely -- which is the
+    # only window the assertions below run in. After expiry it does change control
+    # flow, but that path is the backstop, not the measurement.
     previous = signal.signal(signal.SIGALRM, _expired)
     # Arm a short method timer, as _call_under_budget does, WITHOUT a matching
     # budget_scope -- the signal is the only ambient deadline.

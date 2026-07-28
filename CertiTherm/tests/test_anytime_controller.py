@@ -95,11 +95,17 @@ def test_interval_is_ordered_or_flagged() -> None:
         # No interval exists, so none may be reported.
         assert result.absolute_gap is None
     else:
+        # `interval_violation` only fires once L exceeds U by MORE than this slack, so
+        # both assertions below must use the property's own tolerance. Requiring exact
+        # ordering, or an exactly negative gap, would fail where the property does not.
+        slack = 1e-6 * max(1.0, abs(result.upper_bound))
         # Either the interval is ordered, or the violation is recorded loudly.
-        assert result.interval_violation or result.lower_bound <= result.upper_bound
-        if not result.interval_violation:
+        assert result.interval_violation or result.lower_bound <= result.upper_bound + slack
+        if result.interval_violation:
+            assert result.absolute_gap is None, "a violated interval summarises nothing"
+        else:
             assert result.absolute_gap == pytest.approx(
-                result.upper_bound - result.lower_bound
+                max(0.0, result.upper_bound - result.lower_bound)
             ), "the reported gap must be the interval it claims to summarise"
 
 

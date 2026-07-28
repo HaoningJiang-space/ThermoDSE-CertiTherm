@@ -114,6 +114,10 @@ def test_timeout_on_ordered_query_still_reports_a_bound(monkeypatch) -> None:
     )
     assert injection.fired == 1, "the injected timeout never fired; nothing was tested"
     assert plan.lower_bound is not None, "query-level bound was discarded"
+    # Measured: this fixture reports 1.0. Zero is a legitimate bound in general, but not
+    # here -- and zero is exactly what a discarded bound looks like, so `is not None`
+    # alone accepts the regression this test is named for.
+    assert plan.lower_bound > 0.0, "a zero bound is what a discarded bound looks like"
     assert plan.status == "UNRESOLVED"
     assert plan.plan_validity == "UNRESOLVED"
     assert plan.cost_optimality == "UNKNOWN"
