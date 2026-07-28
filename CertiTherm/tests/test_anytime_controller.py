@@ -4,6 +4,9 @@ import time
 import numpy as np
 from types import SimpleNamespace
 from CertiTherm.core import CandidateSpace, PowerPolytope, ThermalFamily, MeasurementAction
+import pytest
+
+from CertiTherm import experiments
 from CertiTherm.experiments import anytime_dsos
 from CertiTherm.policies import PolicyResult
 
@@ -20,17 +23,47 @@ def _instance(n: int = 8):
     return cands, acts
 
 
-def test_anytime_respects_one_end_to_end_budget() -> None:
-    """The whole point of v2.1's budget clause: not two full budgets."""
+def test_anytime_respects_one_end_to_end_budget(monkeypatch) -> None:
+    """The whole point of v2.1's budget clause: not two full budgets.
+
+    Asserted on the budget each phase RECEIVES, not on wall-clock elapsed. The previous version
+    measured elapsed and required it under `budget * 1.5` = 9.0 s, but this instance runs in
+    about 0.7 s -- so it had 13x headroom and could not fire. Under the very bug it is named for,
+    two full budgets would take roughly 1.4 s and still pass. Phase 2 is handed
+    `budget_s - elapsed`, so under the bug it would receive the full budget instead: comparing
+    the two handed-out budgets detects that with no timing dependence at all.
+    """
     cands, acts = _instance()
     budget = 6.0
+
+    handed_out: list[float] = []
+    real = experiments._budgeted_call
+
+    def recording(function, budget_s):
+        handed_out.append(budget_s)
+        return real(function, budget_s)
+
+    monkeypatch.setattr(experiments, "_budgeted_call", recording)
+
     started = time.perf_counter()
     result = anytime_dsos(cands, acts, budget_s=budget)
     elapsed = time.perf_counter() - started
-    assert elapsed <= budget * 1.5, (
-        f"took {elapsed:.1f}s against a {budget}s end-to-end budget; the phases "
-        "are not sharing one budget"
+
+    assert len(handed_out) == 2, (
+        f"expected both phases to run, got {len(handed_out)} budgeted call(s); this instance "
+        f"must not short-circuit or the sharing property is untested"
     )
+    assert handed_out[0] == budget, "the upper-bound phase should receive the whole budget"
+    assert handed_out[1] < handed_out[0], (
+        f"phase 2 received {handed_out[1]}s against phase 1's {handed_out[0]}s -- the phases are "
+        f"NOT sharing one budget, they are each getting a full one"
+    )
+    # and it is specifically the remainder, not some other reduction
+    assert handed_out[1] == pytest.approx(budget - result.upper_seconds, abs=0.05)
+
+    # Generous wall-clock backstop, kept only to catch a runaway. It is not the property under
+    # test: see the docstring for why it cannot detect the two-budget bug on its own.
+    assert elapsed <= budget * 1.5
     assert result.upper_seconds + result.lower_seconds <= budget * 1.5
 
 
