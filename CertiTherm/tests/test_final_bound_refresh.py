@@ -130,5 +130,10 @@ def test_override_survives_a_still_armed_method_signal_timer() -> None:
         with override_budget(30.0):
             assert _anytime_lower_bound(*_tiny_instance()) == pytest.approx(2.0)
     finally:
+        # Disarm BEFORE restoring, so a pending alarm cannot land on a restored
+        # SIG_DFL and terminate the process in the window between the two calls.
         signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
+        # `signal.signal` returns None when the previous handler was installed from
+        # outside Python, and handing None back raises TypeError -- from inside a
+        # `finally`, which would mask whatever actually failed above.
+        signal.signal(signal.SIGALRM, signal.SIG_DFL if previous is None else previous)
