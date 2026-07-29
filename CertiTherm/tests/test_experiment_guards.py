@@ -333,6 +333,13 @@ def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
         "c" * 64,
     )
 
+    # Both stubs are asserted THROUGH the receipt. Without this the substitutions were pure
+    # noise suppression: nothing checked that `_run_receipt` routed their output anywhere, so
+    # if either function were moved to another module the patch would silently stop applying
+    # and this test would keep passing against real digests.
+    assert receipt["git_sha"] == "b" * 40, "_git_revision was not the function that ran"
+    assert receipt["architectures_registry_sha256"] == "a" * 64, "_sha256 did not reach the receipt"
+
     assert receipt["query_workers"] == experiments.QUERY_WORKERS
     assert receipt["method_workers"] == experiments.METHOD_WORKERS
     assert receipt["query_parallelism"] == "persistent-query-spawn-pool"
@@ -362,3 +369,9 @@ def test_gpu_run_receipt_records_the_visible_device_mapping(monkeypatch) -> None
 
     assert receipt["gpu_device"] == "0"
     assert receipt["cuda_visible_devices"] == "0"
+    # As above: prove each stub reached the receipt, so that moving any of these three
+    # functions out of `experiments` breaks this test instead of silently un-patching it.
+    assert receipt["git_sha"] == "b" * 40, "_git_revision was not the function that ran"
+    assert receipt["architectures_registry_sha256"] == "a" * 64, "_sha256 did not reach the receipt"
+    assert receipt["gpu_exporter_sha256"] == "c" * 64, "_verified_binary_digest did not reach the receipt"
+    assert receipt["gpu_solver_sha256"] == "c" * 64
