@@ -94,6 +94,7 @@ CertiTherm/hotspot.py    build_family()     → ThermalFamily (registered HotSpo
 CertiTherm/measurements.py                  → obtainable module/chiplet/region/post-route action library
 CertiTherm/synthesis.py  synthesize_ordered_query() → ObservationPlan (MILP hitting-set + LP separation oracle)
 CertiTherm/kernelized_collision.py          → OPTIONAL accelerated oracle; imports synthesis, never the reverse
+CertiTherm/blind_direction_cuts.py          → structural two-action cuts + vertex-cover lower bound; imports synthesis
 CertiTherm/policies.py                      → matched fixed / width / dual-price baselines, same oracle
 CertiTherm/spectral.py                      → interpretability-only spectral/mode analysis (never the certificate)
 CertiTherm/experiments.py                   → end-to-end ThermoDSE→HotSpot→DSOS driver, resumable NPZ evidence
@@ -106,8 +107,9 @@ CertiTherm/tools/private_api_census.py      → regenerates experiments/private_
 **The import graph is acyclic and the direction is load-bearing.** `core` and
 `solver_budget` are leaves; `thermal_constraints` sits above `core` alone; `synthesis` — the
 certified oracle — depends on `core`, `solver_budget` and `thermal_constraints` and on
-nothing else in the package. `kernelized_collision` is a research extension that imports
-*from* `synthesis`; deleting that file leaves the certified path producing identical
+nothing else in the package. `kernelized_collision` and `blind_direction_cuts` are research
+extensions that import
+*from* `synthesis`; deleting either file leaves the certified path producing identical
 verdicts, which is the audit boundary and is verified, not assumed. Do not add an import
 from `synthesis` to `kernelized_collision` or `thermal_kernel`: that is the edge that used
 to force a lazy import inside a function.
