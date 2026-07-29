@@ -79,11 +79,14 @@ cuts held so far, at geometric checkpoints:
 | 500 | 18.0 | 3 | 19.1 | -1.1 | 2.8 s |
 | 1 000 | 24.0 | 3 | 23.8 | +0.2 | 13.1 s |
 | 2 000 | 29.0 | 5 | 28.5 | +0.5 | 25.2 s |
-| 3 619 | 32.0 | 4 | 32.4 | -0.4 | 83.5 s |
+| 4 000 | 32.0 | 4 | 32.8 | -0.8 | 72.7 s |
 
-Least squares over the six points, spanning a 29x range in cut count:
+Least squares over these six points from one trajectory, spanning a 32x range in cut count:
 
-    L(n) = -22.77 + 4.67 * log2(n)       R^2 = 0.987, every residual within 1.6
+    L(n) = -21.94 + 4.57 * log2(n)       R^2 = 0.985, every residual within 1.5
+
+An independent run reached 3 619 cuts and measured 32.0 against a predicted 32.5, so the fit
+holds across runs as well as across the range.
 
 Doubling the number of discovered cuts buys about **4.7** of certified lower bound. The
 certified upper bound for this candidate is about 1450. Extrapolating:
@@ -101,15 +104,37 @@ This is what makes the conclusion structural rather than a matter of budget. No 
 speed-up, no master frequency, no amount of compute, and no spatial pruning of reject cells
 changes a logarithm into what would be needed.
 
-### What the measurement does NOT settle
+### Measured: cut selection does not change it either
 
-The curve is measured along the trajectory the production loop actually follows: greedy cover
-over the active cuts, one collision, one cut. A different CUT SELECTION policy -- inspecting
-several candidate collisions and keeping the one that lifts the bound most, or that is least
-redundant against the existing antichain -- generates a different sequence, and this
-experiment says nothing about its exponent. That is the one place where an algorithmic
-contribution could still live inside this formulation, and it is worth measuring before being
-assumed either way.
+The curve above is measured along the trajectory the loop follows, and the collision LP has a
+zero objective, so its witness is arbitrary among the feasible ones. Whether the logarithm
+belonged to the CUTS or to that ARBITRARY ORDER was the last opening inside this formulation.
+
+`cut_selection_probe.py` settles it. After warming up 200 cuts along the production
+trajectory, one exhaustive batch yields 677 usable candidate cuts from the same selection, so
+the separation cost is identical across rules and only the choice differs. Exact hitting-set
+optimum over each prefix:
+
+| cuts kept | arbitrary (spec order) | max cheapest-separator cost | narrowest | least redundant |
+| ---: | ---: | ---: | ---: | ---: |
+| 25 | 8.0 | 8.0 | 8.0 | 8.0 |
+| 50 | 8.0 | 8.0 | 8.0 | 8.0 |
+| 100 | 8.0 | 8.0 | 8.0 | 8.0 |
+| 200 | **16.0** | 12.0 | 8.0 | 8.0 |
+| 400 | **16.0** | 16.0 | 12.0 | 12.0 |
+
+Arbitrary spec order is the BEST of the four. Every heuristic designed to pick more
+informative cuts performed the same or worse.
+
+The reason is instructive rather than disappointing. Selecting by cheapest-separator cost or
+by narrowness picks cuts that name the same few expensive or rare actions, so they are highly
+correlated and the antichain and master see little new. Deterministic spec order sweeps
+across the floorplan, which is already a diversity heuristic -- and on a problem whose
+structure is spatial, diversity is what a cut set needs.
+
+So the logarithm is a property of the cuts, not of the order. Within this formulation there
+is no cut-selection policy left to try that would plausibly change the exponent; three of the
+obvious ones were tried and all lost to doing nothing.
 
 ## Consequence for what would count as an improvement
 
