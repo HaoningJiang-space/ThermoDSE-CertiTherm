@@ -112,9 +112,16 @@ def main() -> None:
 
     # Spread the sample across the floorplan rather than taking a contiguous prefix: adjacent
     # blocks have near-identical responses, so a prefix would sample one region.
-    stride = max(1, (n_models * n_points) // cells)
+    #
+    # The indices are computed to give EXACTLY `cells` of them. A plain
+    # `range(0, total, total // cells)` overshoots -- with 681 cells and cells=2 it yields
+    # [0, 340, 680], three runs under a header announcing two, which is the kind of quiet
+    # mismatch between reported and actual that makes a diagnostic untrustworthy.
+    total = n_models * n_points
+    count = min(cells, total)
+    indices = [round(index * (total - 1) / max(1, count - 1)) for index in range(count)]         if count > 1 else [0]
     best = 0.0
-    for flat in range(0, n_models * n_points, stride):
+    for flat in indices:
         model, point = flat // n_points, flat % n_points
         restricted = _single_cell_family(family, model, point)
         record = {"model": model, "point": point, "flat_index": flat}
