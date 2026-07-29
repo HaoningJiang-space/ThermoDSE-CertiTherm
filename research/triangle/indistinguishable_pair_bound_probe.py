@@ -21,15 +21,15 @@ Two consequences the generic search cannot reach:
    per-cell minima ADD. Disjoint supports are what makes a structural bound additive where
    overlapping generic cuts are not.
 
-Soundness. Nothing here is a new relaxation. A pair is declared confusable only when the
-EXISTING oracle returns a witness for the selection "every action except post_route(b) and
-post_route(b')", and that witness is then re-validated in exact rational arithmetic by
-`certificate.validate_witness`, with its cut recomputed by `certificate.separator_set` and
-asserted to be exactly those two actions. A pair whose search finds nothing is recorded as
-`unestablished`, never as non-confusable: the reject scan is deliberately restricted (below), so
-absence of a witness is absence of evidence. Restricting which pairs are tested only shrinks the
-graph, and a subgraph's minimum vertex cover is a lower bound on the whole graph's -- so every
-number printed is valid for the real instance.
+Soundness. Nothing here is a new relaxation. The collision LP is the existing one, with the
+delta's shape added as equalities; the resulting witness is then SNAPPED to make that shape
+exact in rational arithmetic and re-proved by `certificate.validate_witness`, with its cut
+recomputed by `certificate.separator_set`. Only a pair that survives all of that counts. A pair
+whose search finds nothing, or whose snapped witness fails validation, is recorded as
+`unestablished` and never as non-confusable -- the reject scan is deliberately restricted
+(below), so absence of a witness is absence of evidence. Restricting which pairs are tested only
+shrinks the graph, and a subgraph's minimum vertex cover is a lower bound on the whole graph's,
+so every number printed is valid for the real instance.
 
 Scan restriction. For the pair (b, b') the delta raises block b at the expense of b', so the
 reject cells scanned are (m, b) and (m, b') over every model -- 2 * models LPs per pair instead
@@ -51,6 +51,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from dataclasses import replace
 from fractions import Fraction
 from itertools import combinations
 from pathlib import Path
@@ -69,7 +70,7 @@ from CertiTherm.certificate import (
 from CertiTherm.experiments import _measurement_costs, _power_space, _rows, ROOT
 from CertiTherm.hotspot import load_family
 from CertiTherm.measurements import build_measurement_library
-from CertiTherm.synthesis import _collision_search
+from CertiTherm.synthesis import _build_collision_problem, _solve_collision_spec
 
 LIMIT_MARGIN_K = 0.05
 FEASIBILITY_TOLERANCE = 1e-9
@@ -141,55 +142,86 @@ def _confusable(
     family,
     actions,
     pair_action_indices: Tuple[int, int],
+    block_pair: Tuple[int, int],
     reject_specs: Tuple[Tuple[int, int], ...],
 ):
-    """Ask the EXISTING oracle for a witness, then re-prove it in exact arithmetic.
+    """Constrain the delta's SHAPE in the LP, then snap the witness and prove it exactly.
 
-    Returns the validated `WorldPair` and its exactly recomputed cut, or None when the
-    restricted scan produced nothing. A witness that fails exact validation, or whose exact cut
-    is not precisely the pair's two post-route actions, raises: that would mean the structural
-    argument does not hold and must stop the probe rather than be averaged away.
+    A first version merely dropped the two post-route actions from the selection and hoped the
+    resulting delta would be confined to those two blocks. It was not: an action constraint is
+    `|a . delta| <= tol_a`, not an equality, and the LP is free to spend that tolerance
+    everywhere. The exactly recomputed cut of the first witness had NINE actions, seven of them
+    coarse and each barely over tolerance -- and a cut containing a coarse action is worthless
+    here, because the master can hit it with one module action at cost 1.0 instead of two
+    post-route actions at 8.0. Asserting the cut was two elements would have been assuming the
+    property the probe exists to establish.
+
+    So the shape is imposed as EQUALITIES on the LP instead: `delta_c = 0` for every block
+    outside the pair, plus `delta_b + delta_b' = 0` so that a coarse action containing both
+    blocks reads zero rather than their sum. Selected-action constraints are then unnecessary
+    and are dropped, which also makes the LP far smaller.
+
+    Equalities still hold only to the solver's tolerance, so the witness is SNAPPED before it is
+    believed: the safe world is taken as exact rationals, `t` is read off as `delta_b`, and the
+    unsafe world is redefined as `p_safe - t * (e_b - e_b')`. That pair's delta is EXACTLY
+    `t (e_b - e_b')` in rational arithmetic, so `separator_set` returns exactly the actions
+    containing one of the two blocks -- within a cell, precisely their two post-route actions.
+    The snap perturbs the unsafe world by about the feasibility tolerance, which is what
+    `validate_witness`'s declared `slack` absorbs; the slack stays far below the 0.05 K margin,
+    so the SAFE/REJECT sides remain robustly separated.
+
+    Returns `(safe_w, unsafe_w, cut, reject_cell)` on success, or None when the restricted scan
+    found nothing or the snapped pair fails exact validation. Both are recorded as
+    `unestablished`: this probe only ever needs positives, so a negative is never a claim.
     """
 
-    excluded = set(pair_action_indices)
-    selected = tuple(index for index in range(len(actions)) if index not in excluded)
-    witnesses = _collision_search(
-        polytope,
-        family,
-        actions,
-        selected,
-        LIMIT_MARGIN_K,
-        FEASIBILITY_TOLERANCE,
-        1,
-        False,
-        reject_specs,
+    left, right = block_pair
+    n = polytope.dimension
+    problem = _build_collision_problem(
+        polytope, family, actions, (), LIMIT_MARGIN_K, FEASIBILITY_TOLERANCE
     )
-    if not witnesses:
-        return None
-    witness = witnesses[0]
-    # `WorldPair` names its reject cell by model ID, not model index; the exact validator
-    # indexes the response array, so the ID is mapped back here rather than assumed to be
-    # position 0.
-    reject_model = list(family.model_ids).index(witness.unsafe_model_id)
-    safe_w = tuple(Fraction(float(v)) for v in witness.safe_power_w)
-    unsafe_w = tuple(Fraction(float(v)) for v in witness.unsafe_power_w)
-    validate_witness(
-        safe_w,
-        unsafe_w,
-        reject_model,
-        witness.unsafe_point,
-        polytope,
-        family,
-        LIMIT_MARGIN_K,
-        Fraction(FEASIBILITY_TOLERANCE).limit_denominator(10 ** 12),
+    shape_rows = []
+    for block in range(n):
+        if block in (left, right):
+            continue
+        row = np.zeros(2 * n)
+        row[block], row[n + block] = 1.0, -1.0
+        shape_rows.append(row)
+    antisymmetry = np.zeros(2 * n)
+    antisymmetry[left], antisymmetry[n + left] = 1.0, -1.0
+    antisymmetry[right], antisymmetry[n + right] = 1.0, -1.0
+    shape_rows.append(antisymmetry)
+    shaped = replace(
+        problem,
+        a_eq=np.vstack((problem.a_eq, np.asarray(shape_rows))),
+        b_eq=np.concatenate((problem.b_eq, np.zeros(len(shape_rows)))),
     )
-    cut = separator_set(safe_w, unsafe_w, actions, Fraction(0))
-    if set(cut) != excluded:
-        raise SystemExit(
-            "the exact cut of a within-cell witness was not the pair's two post-route "
-            f"actions: |cut|={len(cut)}; the structural argument does not hold"
+
+    slack = Fraction(FEASIBILITY_TOLERANCE).limit_denominator(10 ** 12)
+    for spec in reject_specs:
+        witness = _solve_collision_spec(shaped, spec)
+        if witness is None:
+            continue
+        safe_w = tuple(Fraction(float(v)) for v in witness.safe_power_w)
+        step = safe_w[left] - Fraction(float(witness.unsafe_power_w[left]))
+        unsafe_w = tuple(
+            value - step if index == left else value + step if index == right else value
+            for index, value in enumerate(safe_w)
         )
-    return witness, cut
+        try:
+            validate_witness(
+                safe_w, unsafe_w, spec[0], spec[1], polytope, family, LIMIT_MARGIN_K, slack
+            )
+            cut = separator_set(safe_w, unsafe_w, actions, Fraction(0))
+        except (CertificateError, CertificateUnresolved):
+            continue
+        if set(cut) != set(pair_action_indices):
+            raise SystemExit(
+                "the exact cut of a shape-constrained witness was not the pair's two "
+                f"post-route actions: |cut|={len(cut)}; the structural argument does not hold"
+            )
+        return safe_w, unsafe_w, cut, spec
+    return None
 
 
 def main() -> None:
@@ -270,16 +302,14 @@ def main() -> None:
                 (m, q) for m in range(models) for q in (b, other) if q < points
             )
             tested += 1
-            try:
-                found = _confusable(
-                    polytope,
-                    family,
-                    actions,
-                    (post_route_index[b], post_route_index[other]),
-                    specs,
-                )
-            except (CertificateError, CertificateUnresolved) as exc:
-                raise SystemExit(f"witness for ({b},{other}) failed exact validation: {exc}")
+            found = _confusable(
+                polytope,
+                family,
+                actions,
+                (post_route_index[b], post_route_index[other]),
+                (b, other),
+                specs,
+            )
             if found is None:
                 unestablished += 1
             else:
