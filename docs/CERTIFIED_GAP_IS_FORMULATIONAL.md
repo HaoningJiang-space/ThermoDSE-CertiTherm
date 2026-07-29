@@ -72,29 +72,30 @@ tuning of the loop or the master changes the exponent.
 accumulates cuts exactly as the loop does and evaluates the EXACT hitting-set optimum over the
 cuts held so far, at geometric checkpoints:
 
-| cuts held | exact hitting-set optimum | actions in it | master solve |
-| ---: | ---: | ---: | ---: |
-| 125 | 9.0 | 2 | 0.0 s |
-| 250 | 16.0 | 2 | 0.7 s |
-| 500 | 18.0 | 3 | 2.8 s |
-| 1 000 | 24.0 | 3 | 13.1 s |
-| 3 619 | 32.0 | 4 | 83.5 s |
+| cuts held | exact hitting-set optimum | actions in it | fit | residual | master solve |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 125 | 9.0 | 2 | 9.8 | -0.8 | 0.0 s |
+| 250 | 16.0 | 2 | 14.4 | +1.6 | 0.7 s |
+| 500 | 18.0 | 3 | 19.1 | -1.1 | 2.8 s |
+| 1 000 | 24.0 | 3 | 23.8 | +0.2 | 13.1 s |
+| 2 000 | 29.0 | 5 | 28.5 | +0.5 | 25.2 s |
+| 3 619 | 32.0 | 4 | 32.4 | -0.4 | 83.5 s |
 
-Least squares over these points:
+Least squares over the six points, spanning a 29x range in cut count:
 
-    L(n) = -22.2 + 4.60 * log2(n)      (every prediction within 1.6 of measurement)
+    L(n) = -22.77 + 4.67 * log2(n)       R^2 = 0.987, every residual within 1.6
 
-Doubling the number of discovered cuts buys about **4.6** of certified lower bound. The
+Doubling the number of discovered cuts buys about **4.7** of certified lower bound. The
 certified upper bound for this candidate is about 1450. Extrapolating:
 
 | target | cuts required |
 | --- | ---: |
-| 1370 (the `dual` baseline's cost, per candidate) | ~2^303 ~ 10^91 |
-| 1450 (this candidate's certified U) | ~2^320 ~ 10^96 |
+| 1370 (the `dual` baseline's cost, per candidate) | ~2^298 ~ 10^90 |
+| 1450 (this candidate's certified U) | ~2^315 ~ 10^95 |
 
 For scale, the observable universe holds on the order of 10^80 atoms. The master solve time
-also grows superlinearly -- 0.0, 0.7, 2.8, 13.1, 83.5 seconds -- so even generating the cuts
-is not the only wall.
+also grows superlinearly -- 0.0, 0.7, 2.8, 13.1, 25.2, 83.5 seconds, roughly 3-5x per
+doubling -- so even holding the cuts is a second wall, independent of discovering them.
 
 This is what makes the conclusion structural rather than a matter of budget. No separation
 speed-up, no master frequency, no amount of compute, and no spatial pruning of reject cells
