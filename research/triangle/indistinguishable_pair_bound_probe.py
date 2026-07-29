@@ -167,13 +167,17 @@ def _confusable(
     if not witnesses:
         return None
     witness = witnesses[0]
+    # `WorldPair` names its reject cell by model ID, not model index; the exact validator
+    # indexes the response array, so the ID is mapped back here rather than assumed to be
+    # position 0.
+    reject_model = list(family.model_ids).index(witness.unsafe_model_id)
     safe_w = tuple(Fraction(float(v)) for v in witness.safe_power_w)
     unsafe_w = tuple(Fraction(float(v)) for v in witness.unsafe_power_w)
     validate_witness(
         safe_w,
         unsafe_w,
-        witness.reject_model,
-        witness.reject_point,
+        reject_model,
+        witness.unsafe_point,
         polytope,
         family,
         LIMIT_MARGIN_K,
