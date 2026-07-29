@@ -1479,6 +1479,44 @@ def _timed_call(function: Callable[[], _T]) -> TimedResult[_T]:
     return TimedResult(value, seconds, error)
 
 
+def _run_query_method(
+    candidates: Sequence[CandidateSpace],
+    actions: Sequence[MeasurementAction],
+    fixed_order: Sequence[int],
+    method: str,
+):
+    """The single definition of how each query method is invoked.
+
+    Both evaluation paths route through here: the batch path, which runs all five for one
+    query, and the per-method path, which runs one. They previously each spelled out all
+    five invocations, so a change to how a method is called had to be made twice and
+    nothing checked that it was.
+
+    Only `anytime` is unbudgeted here -- `anytime_dsos` owns one end-to-end budget and
+    subdivides it internally, so wrapping it in `_timed_call` would impose a second.
+    """
+
+    if method == "anytime":
+        return anytime_dsos(candidates, actions, QUERY_METHOD_TIMEOUT_S)
+    if method == "width":
+        return _timed_call(
+            lambda: sequential_early_stop(
+                candidates,
+                actions,
+                uncertainty_width_order(candidates, actions),
+            )
+        )
+    if method == "dual":
+        return _timed_call(lambda: dual_price_greedy(candidates, actions))
+    if method == "fixed":
+        return _timed_call(
+            lambda: sequential_early_stop(candidates, actions, fixed_order)
+        )
+    if method == "exact":
+        return _timed_call(lambda: synthesize_ordered_query(candidates, actions))
+    raise ValueError(f"unknown query method: {method}")
+
+
 def _evaluate_query_methods(
     candidates: tuple[CandidateSpace, ...],
     actions: Sequence[MeasurementAction],
@@ -1486,25 +1524,20 @@ def _evaluate_query_methods(
     *,
     include_anytime: bool,
 ) -> QueryMethodResults:
-    """Run exact, matched baselines, and Anytime-DSOS with explicit budgets."""
+    """Run exact, matched baselines, and Anytime-DSOS with explicit budgets.
 
-    exact = _timed_call(lambda: synthesize_ordered_query(candidates, actions))
-    fixed = _timed_call(
-        lambda: sequential_early_stop(candidates, actions, fixed_order)
-    )
-    width = _timed_call(
-        lambda: sequential_early_stop(
-            candidates,
-            actions,
-            uncertainty_width_order(candidates, actions),
-        )
-    )
-    dual = _timed_call(lambda: dual_price_greedy(candidates, actions))
-    anytime = (
-        anytime_dsos(candidates, actions, QUERY_METHOD_TIMEOUT_S)
-        if include_anytime
-        else None
-    )
+    Evaluation order is exact -> fixed -> width -> dual -> anytime and is load-bearing:
+    a shared solver budget is consumed in this sequence.
+    """
+
+    def run(method: str):
+        return _run_query_method(candidates, actions, fixed_order, method)
+
+    exact = run("exact")
+    fixed = run("fixed")
+    width = run("width")
+    dual = run("dual")
+    anytime = run("anytime") if include_anytime else None
     return QueryMethodResults(exact, fixed, width, dual, anytime)
 
 
@@ -1564,33 +1597,16 @@ def _evaluate_prepared_method(
 
 
 def _dispatch_prepared_method(query: PreparedQuery, method: str):
-    """Run one method. Every branch is independently budgeted."""
+    """Run one method for one prepared query. Every branch is independently budgeted.
 
-    if method == "anytime":
-        return anytime_dsos(query.candidates, query.actions, QUERY_METHOD_TIMEOUT_S)
-    if method == "width":
-        return _timed_call(
-            lambda: sequential_early_stop(
-                query.candidates,
-                query.actions,
-                uncertainty_width_order(query.candidates, query.actions),
-            )
-        )
-    if method == "dual":
-        return _timed_call(
-            lambda: dual_price_greedy(query.candidates, query.actions)
-        )
-    if method == "fixed":
-        return _timed_call(
-            lambda: sequential_early_stop(
-                query.candidates, query.actions, query.fixed_order
-            )
-        )
-    if method == "exact":
-        return _timed_call(
-            lambda: synthesize_ordered_query(query.candidates, query.actions)
-        )
-    raise ValueError(f"unknown query method: {method}")
+    Kept as a two-argument function taking the whole `PreparedQuery` because it is the
+    seam the containment tests substitute; the invocation itself lives in
+    `_run_query_method`, which the batch path shares.
+    """
+
+    return _run_query_method(
+        query.candidates, query.actions, query.fixed_order, method
+    )
 
 
 def _failed_query_methods(
