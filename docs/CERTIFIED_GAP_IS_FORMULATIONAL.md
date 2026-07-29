@@ -145,8 +145,10 @@ Both trajectories, same instance, exact hitting-set optimum at the same cut coun
 | 125 | **9.0** | 8.0 | 23 | 8 |
 | 250 | **16.0** | 11.0 | 37 | 11 |
 | 500 | **18.0** | 13.0 | 31 | 13 |
+| 1 000 | **24.0** | 15.0 | 42 | 15 |
 
-The master-driven trajectory is consistently WORSE, and the cover-cost columns say why. The
+The master-driven trajectory is worse at every checkpoint and the margin widens -- 1.13x,
+1.45x, 1.38x, 1.60x. The cover-cost columns say why. The
 master returns the CHEAPEST cover consistent with the evidence, so it stays at 8, 11, 13;
 separating a cheap plan yields witnesses that are cheap to fix. Greedy's cover is more
 expensive, so its witnesses are correspondingly more informative.
