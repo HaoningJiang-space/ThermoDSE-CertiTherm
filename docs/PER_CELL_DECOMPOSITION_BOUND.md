@@ -83,7 +83,11 @@ not merely start higher -- it converges at a different rate. Cell (model 0, poin
 | ---: | ---: | ---: | ---: |
 | 120 s | 6 150 | 5 742 | 215.0 |
 | 266 s | 10 000 (hit the default iteration cap) | 9 385 | 229.2 |
-| 1 502 s | 25 031 | 23 593 | **316.4** |
+| 1 502 s | 25 031 | 23 593 | 316.4 |
+| 3 605 s | 38 770 | 36 559 | **345.1** |
+
+At 900 s each, four cells reach 283.1, 255.6, 181.3 and 83.2 -- every one above the whole
+instance's 32.0 from twice that budget, and the spread across cells persists at every budget.
 
 The middle row is worth noting on its own: that run stopped at the default `max_iterations`
 after 266 s of an 1 800 s budget, so the cap and not the compute was binding. Making it a
@@ -94,16 +98,16 @@ Fitting both trajectories in log-cut space:
 | trajectory | fit | R^2 | points |
 | --- | --- | ---: | ---: |
 | whole instance | `L = -21.94 + 4.57 log2(n)` | 0.985 | 6 |
-| **one cell** | `L = -440.47 + 51.78 log2(n)` | 0.952 | 3 |
+| **one cell** | `L = -443.25 + 51.99 log2(n)` | 0.977 | 4 |
 
-**A doubling of cuts buys 11.3x more certified bound inside one cell than across the whole
+**A doubling of cuts buys 11.4x more certified bound inside one cell than across the whole
 instance.** At matched cut counts the gap is about 7x -- at 5 742 cuts the whole-instance fit
 gives 35.1 against the cell's 215.0, and at 23 593 it gives 44.5 against 316.4.
 
-Caveats, since the same overreach was already corrected once in this project: three points do
-not establish a rate, all three are still UNRESOLVED, this is one cell of one candidate, and
+Caveats, since the same overreach was already corrected once in this project: four points do
+not establish a rate, none of the runs terminated, this is one cell of one candidate, and
 the per-cell optimum is unknown (it is at most the whole instance's ~1450, and the interval
-for this candidate now stands at 4.6x rather than 45x). What is measured is that the same
+for this candidate now stands at 4.2x rather than 45x). What is measured is that the same
 machinery, applied to one cell instead of all of them, is an order of magnitude better
 conditioned.
 
