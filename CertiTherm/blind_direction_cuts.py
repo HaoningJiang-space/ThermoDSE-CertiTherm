@@ -29,6 +29,12 @@ Nothing here is a relaxation of the certified problem. Every pair counted is bac
 that survives exact rational re-validation (`certificate.validate_witness`) and whose cut is
 recomputed exactly (`certificate.separator_set`); a pair that is not established is dropped, and
 dropping pairs only shrinks the graph, whose cover is still a lower bound.
+
+**Composing with the bound `synthesize_minimum_observation` already reports is `max`, never a
+sum.** Both lower-bound the SAME selection cost, and the generic cuts can be hit by the very
+post-route actions this cover charges for, so adding them double-counts. The sound way to get
+more than `max` is not arithmetic at all: seed these individual two-element cuts into the
+master's cut ledger and let one hitting-set optimisation combine them with the discovered ones.
 """
 
 from __future__ import annotations
@@ -46,7 +52,11 @@ from .certificate import (
     validate_witness,
 )
 from .core import MeasurementAction, PowerPolytope, ThermalFamily
-from .synthesis import _build_collision_problem, _solve_collision_spec
+from .synthesis import (
+    UnresolvedComputation,
+    _build_collision_problem,
+    _solve_collision_spec,
+)
 
 POST_ROUTE_MARKER = "::post_route::"
 
@@ -104,24 +114,40 @@ def minimum_weight_vertex_cover(
     vertices: Sequence[int],
     edges: Sequence[Tuple[int, int]],
     weight: Mapping[int, float],
+    node_budget: int = 2_000_000,
 ) -> Tuple[float, Tuple[int, ...]]:
-    """Exact minimum-weight vertex cover, by branching on an uncovered edge.
+    """PROVEN minimum-weight vertex cover, by branching on a still-uncovered edge.
 
     Exact rather than the usual matching lower bound because a cell holds tens of blocks, and
-    the recursion depth is the cover size rather than the vertex count: pick any still-uncovered
-    edge, and every cover must take one of its two endpoints.
+    the recursion depth is the cover size rather than the vertex count: pick any uncovered edge,
+    and every cover must take one of its two endpoints.
 
     Weighted so the bound stays correct if post-route costs ever differ per block. With equal
     costs it reduces to `cost * |cover|`, and on a k-clique to `cost * (k - 1)`.
+
+    **The search must run to proven optimality or fail.** Any feasible cover's weight is an
+    UPPER bound on the minimum, so returning an incumbent after a truncated search and using it
+    as a lower bound on the observation cost would overstate it -- the one direction in which
+    this whole construction can be unsound rather than merely weak. Peer review named this as
+    the principal overestimation risk. Exhausting `node_budget` therefore raises
+    `UnresolvedComputation`, which is the package's UNRESOLVED status and not a number.
     """
 
     for vertex in vertices:
         if vertex not in weight:
             raise ValueError(f"vertex {vertex} has no weight")
-    best_weight, best_cover = float("inf"), ()
+        if not float(weight[vertex]) >= 0.0:
+            raise ValueError(f"vertex {vertex} has a negative or non-finite weight")
+    best_weight, best_cover, nodes = float("inf"), (), 0
 
     def branch(chosen: Tuple[int, ...], chosen_weight: float, pending: List[Tuple[int, int]]):
-        nonlocal best_weight, best_cover
+        nonlocal best_weight, best_cover, nodes
+        nodes += 1
+        if nodes > node_budget:
+            raise UnresolvedComputation(
+                f"vertex cover search exceeded {node_budget} nodes; an incumbent cover is an "
+                "upper bound on the minimum and must not be reported as a lower bound"
+            )
         if chosen_weight >= best_weight:
             return
         taken = set(chosen)
@@ -209,6 +235,16 @@ def certify_blind_pair(
             value - step if index == left else value + step if index == right else value
             for index, value in enumerate(safe_w)
         )
+        # The snap makes these true by construction; they are asserted anyway because they are
+        # the shape the whole cover argument rests on, and an edit to the snap that quietly broke
+        # one of them would otherwise only show up as a wrong bound.
+        delta = tuple(s - u for s, u in zip(safe_w, unsafe_w))
+        if any(d != 0 for i, d in enumerate(delta) if i not in (left, right)):
+            raise CertificateError("the snapped delta is supported outside the pair")
+        if delta[left] != -delta[right]:
+            raise CertificateError("the snapped delta is not antisymmetric on the pair")
+        if delta[left] == 0:
+            continue
         try:
             validate_witness(
                 safe_w, unsafe_w, model, point, polytope, thermal, margin_k, slack
@@ -217,10 +253,19 @@ def certify_blind_pair(
         except (CertificateError, CertificateUnresolved):
             continue
         if set(cut) != expected_cut:
-            raise CertificateError(
-                "a blind-direction witness separated "
-                f"{len(cut)} actions rather than the pair's two post-route actions"
-            )
+            # With the delta exactly along the blind direction, every action outside the pair
+            # reads exactly zero, so the cut can only ever be a SUBSET of the two post-route
+            # actions. It is a strict subset when |t| falls at or below an action's tolerance --
+            # a degenerate witness, not a broken argument, so it is dropped as unestablished
+            # rather than raising. Anything else would mean an action distinguishes two blocks
+            # of one cell, which contradicts how the cells were built, and must stop the caller.
+            if not set(cut) <= expected_cut:
+                raise CertificateError(
+                    "a blind-direction witness separated an action outside the pair's two "
+                    f"post-route actions (cut size {len(cut)}); the cell partition and the "
+                    "action library disagree"
+                )
+            continue
         return BlindPairWitness(
             left_block=left,
             right_block=right,
@@ -243,13 +288,34 @@ def blind_direction_lower_bound(
     `confusable_edges` maps a cell's index to the pairs established by `certify_blind_pair`.
     Cells with no established edge contribute nothing, which is why an incomplete scan can only
     understate the bound.
+
+    Additivity is the one place this can go UNSOUND rather than merely weak: if two summed cells
+    shared a block, that block's post-route action would be paid for twice and the total could
+    exceed the true optimum. Both preconditions are therefore checked here rather than assumed
+    of the caller -- the cells must be pairwise disjoint, and every edge must join two blocks of
+    the cell it is filed under. A caller that files an edge in the wrong cell would otherwise
+    produce a cover drawn from blocks another cell also charges for.
     """
+
+    seen: set = set()
+    for cell in cells:
+        members = set(cell)
+        if len(members) != len(cell) or members & seen:
+            raise ValueError("cells must be pairwise disjoint for the bound to be additive")
+        seen |= members
 
     total, detail = 0.0, []
     for cell_index, edges in sorted(confusable_edges.items()):
         if not edges:
             continue
         cell = cells[cell_index]
+        members = set(cell)
+        stray = [(u, v) for u, v in edges if u not in members or v not in members]
+        if stray:
+            raise ValueError(
+                f"cell {cell_index} was given {len(stray)} edge(s) whose blocks it does not "
+                "contain; the per-cell minima would no longer be additive"
+            )
         cover_weight, cover = minimum_weight_vertex_cover(cell, edges, post_route_cost)
         total += cover_weight
         detail.append({

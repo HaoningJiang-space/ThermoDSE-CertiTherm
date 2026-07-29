@@ -219,3 +219,101 @@ def test_cells_are_a_partition_of_every_block() -> None:
     assert sorted(flat) == list(range(8)) and len(flat) == len(set(flat))
     assert sorted(len(cell) for cell in cells) == [3, 5]
     assert sorted(post_route_index) == list(range(8))
+
+
+def test_overlapping_cells_are_refused_because_the_sum_would_double_count() -> None:
+    """The only way this bound can exceed the true optimum, guarded at its source.
+
+    Additivity is what turns per-cell covers into one number. If two summed cells shared a
+    block, that block's post-route action would be charged twice and the total could rise above
+    the optimum -- the unsound direction, as opposed to merely a weak bound.
+    """
+
+    weight = {0: 8.0, 1: 8.0, 2: 8.0}
+    overlapping = ((0, 1), (1, 2))
+    with pytest.raises(ValueError, match="pairwise disjoint"):
+        blind_direction_lower_bound(overlapping, {0: [(0, 1)], 1: [(1, 2)]}, weight)
+
+
+def test_an_edge_filed_under_the_wrong_cell_is_refused() -> None:
+    """A misfiled edge draws a cover from blocks another cell also charges for."""
+
+    weight = {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0}
+    cells = ((0, 1), (2, 3))
+    with pytest.raises(ValueError, match="does not contain"):
+        blind_direction_lower_bound(cells, {0: [(1, 2)]}, weight)
+
+
+def test_a_witness_whose_step_is_below_tolerance_is_dropped_not_raised() -> None:
+    """A degenerate witness is missing evidence, not a broken argument.
+
+    With the delta exactly along the blind direction, every action outside the pair reads
+    exactly zero, so the cut can only be a SUBSET of the pair's two post-route actions. It is a
+    strict subset when the step falls at or below an action's tolerance. Raising there would
+    abort a whole scan over one degenerate pair; the bound simply loses that edge.
+    """
+
+    polytope, thermal, actions = _instance()
+    huge_tolerance = tuple(
+        MeasurementAction(a.action_id, a.vector, a.cost, 1e6, a.candidate_id)
+        for a in actions
+    )
+    post_route_index, cells = coarse_indistinguishability_cells(
+        huge_tolerance, thermal.blocks
+    )
+    left, right = cells[0][0], cells[0][1]
+    assert (
+        certify_blind_pair(
+            polytope,
+            thermal,
+            huge_tolerance,
+            (left, right),
+            (post_route_index[left], post_route_index[right]),
+            [(0, left), (0, right)],
+            MARGIN_K,
+            TOLERANCE,
+        )
+        is None
+    )
+    # Non-vacuity: the same pair IS established once the tolerance is realistic, so the drop
+    # above is caused by the tolerance and not by the pair being unreachable.
+    assert (
+        certify_blind_pair(
+            polytope,
+            thermal,
+            actions,
+            (left, right),
+            (post_route_index[left], post_route_index[right]),
+            [(0, left), (0, right)],
+            MARGIN_K,
+            TOLERANCE,
+        )
+        is not None
+    )
+
+
+def test_a_truncated_cover_search_refuses_rather_than_returning_an_incumbent() -> None:
+    """Peer review's principal overestimation risk, guarded and checked.
+
+    Any feasible cover's weight is an UPPER bound on the minimum, so reporting an incumbent from
+    a truncated search as a LOWER bound on observation cost would overstate it -- the only way
+    this construction can be unsound rather than merely weak. The search must therefore fail
+    closed, not degrade gracefully.
+    """
+
+    from CertiTherm.synthesis import UnresolvedComputation
+
+    unit = {v: 1.0 for v in range(12)}
+    clique = [(i, j) for i, j in combinations(range(12), 2)]
+    with pytest.raises(UnresolvedComputation, match="upper bound on the minimum"):
+        minimum_weight_vertex_cover(range(12), clique, unit, node_budget=5)
+    # Non-vacuity: the same call succeeds with a real budget, so the refusal is caused by the
+    # budget and not by the graph being unsolvable.
+    assert minimum_weight_vertex_cover(range(12), clique, unit)[0] == 11.0
+
+
+def test_a_negative_vertex_weight_is_refused() -> None:
+    """A negative weight would let a larger cover cost less and break the bound's monotonicity."""
+
+    with pytest.raises(ValueError, match="negative or non-finite"):
+        minimum_weight_vertex_cover(range(2), [(0, 1)], {0: -1.0, 1: 1.0})
