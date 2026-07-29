@@ -45,6 +45,7 @@ from CertiTherm.experiments import (
 )
 from CertiTherm.core import CandidateSpace
 from CertiTherm.measurements import build_measurement_library
+from CertiTherm import kernelized_collision as kernelized
 
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "artifacts" / "diag150b"
 BUDGET_S = float(sys.argv[2]) if len(sys.argv) > 2 else 14400.0
@@ -136,7 +137,7 @@ def collision_free(cand, actions, cover, *, exhaustive: bool, kernel=None) -> bo
         batch = syn._collisions(cand.power, cand.thermal, actions, cov,
                                 MARGIN_K, FEAS_TOL, None)
         return len(batch) == 0
-    return syn.first_collision(cand.power, cand.thermal, actions, cov,
+    return kernelized.first_collision(cand.power, cand.thermal, actions, cov,
                                MARGIN_K, FEAS_TOL, None, kernel) is None
 
 
@@ -238,7 +239,7 @@ def main():
     print(f"manifest -> {mpath}")
 
     if USE_KERNEL and not deletion_exhaustive:
-        s = syn.kernel_oracle_stats()
+        s = kernelized.kernel_oracle_stats()
         n_pool = s["pool_reached"]
         print(f"item-2 gate: kernelized queries={s['queries']} probe_resolved="
               f"{s['probe_resolved']} POOL_REACHED(N)={n_pool} seq={s['sequential']}"

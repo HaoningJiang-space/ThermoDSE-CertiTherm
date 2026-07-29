@@ -13,7 +13,10 @@ import pytest
 from dataclasses import replace
 
 from CertiTherm.core import MeasurementAction, PowerPolytope, ThermalFamily
-from CertiTherm.synthesis import _collision, first_collision, _full_safe_satisfied
+from CertiTherm.synthesis import _collision
+# first_collision and the kernel machinery moved out of the certified oracle into the
+# research extension; the import path is where the boundary now is.
+from CertiTherm.kernelized_collision import first_collision, _full_safe_satisfied
 from CertiTherm.thermal_kernel import build_kernel
 
 MARGIN, TOL = 1.0, 1e-9

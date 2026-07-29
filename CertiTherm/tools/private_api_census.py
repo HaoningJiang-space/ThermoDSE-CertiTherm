@@ -66,8 +66,14 @@ def _caller_kind(path: str) -> str:
 def collect() -> dict:
     """symbol -> {"module": str, "callers": {path: kind}} for every crossing private name."""
 
+    # --others --exclude-standard so a NEW module counts before it is staged. With plain
+    # `ls-files` a freshly written file is invisible, and the census would report a
+    # coupling surface that silently excludes exactly the code being added -- which is
+    # when the census matters most. Ignored files stay excluded.
     tracked = subprocess.check_output(
-        ["git", "ls-files", "*.py"], text=True, cwd=REPO_ROOT
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.py"],
+        text=True,
+        cwd=REPO_ROOT,
     ).split()
     found: dict = collections.defaultdict(
         lambda: {"module": "", "callers": {}}
