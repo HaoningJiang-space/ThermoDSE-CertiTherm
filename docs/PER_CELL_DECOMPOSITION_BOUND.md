@@ -209,12 +209,19 @@ existing plan is near-optimal.
 The prediction is testable through the working cover the plan already returns. Cell
 (model 0, point 0) at 600 s, certified lower bound 260.7, working cover cost 505.0:
 
-| class | bought | of available | cost | share of cover cost |
+| class | cell (0,0) | share of its cover | cell (1,113) | share of its cover |
 | --- | ---: | ---: | ---: | ---: |
-| `chiplet` | 2 | **100%** | 4 | 0.8% |
-| `placement_region` | 4 | **100%** | 16 | 3.2% |
-| `module` | 5 | 50% | 5 | 1.0% |
-| `post_route` | **60** | 26% | 480 | **95.0%** |
+| `chiplet` | 2 of 2, **100%** | 0.8% | 2 of 2, **100%** | 2.1% |
+| `placement_region` | 4 of 4, 100% | 3.2% | 3 of 4, 75% | 6.3% |
+| `module` | 5 | 1.0% | 6 | 3.2% |
+| `post_route` | **60** | **95.0%** | **21** | **88.4%** |
+| total cover cost | **505.0** | | **190.0** | |
+| certified lower bound | 260.7 | | 80.6 | |
+
+Both cells at 600 s. Two things hold in both and one does not. Every chiplet read is taken
+immediately in both, and per-block extraction dominates the cover cost in both -- 95% and 88%.
+What differs is the difficulty: 60 post-route actions against 21, and a bound of 260.7 against
+80.6, a factor of about three, the same spread the seven-cell sweep showed.
 
 The cover is not yet sufficient -- the run is UNRESOLVED, so separation still finds
 collisions against it -- so 505 is not a certified plan and the per-cell optimum is not
