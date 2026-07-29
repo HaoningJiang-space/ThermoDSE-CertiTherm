@@ -37,6 +37,9 @@ physics. The 16-block case is not a 16-block chip.
 | 32 | 33 | 372.07 | OPTIMAL | 168 | 5.25 | 218 | 35.7 |
 | 40 | 41 | 376.24 | OPTIMAL | 208 | 5.20 | 852 | 273.4 |
 | **48** | 49 | 381.49 | **UNRESOLVED** | — | — | 774 | 601.5 |
+| 64 | 65 | 389.00 | UNRESOLVED | — | — | 450 | 602.7 |
+| 96 | 98 | 404.80 | UNRESOLVED | — | — | 157 | 604.4 |
+| 128 | 132 | 419.44 | UNRESOLVED | — | — | 71 | 601.8 |
 
 Every instance up to 40 blocks returns OPTIMAL with `lower_bound == exact_cost`, so each is a
 proof and not a bound. **At 48 the method collapses**, and it does so abruptly rather than
@@ -44,9 +47,18 @@ gradually: 40 blocks needed 351 active cuts and closed in 273 s; 48 accumulated 
 ninety-five times as many -- and after 601 s certified a lower bound of **27.3**, an order of
 magnitude BELOW the 208 it proved exactly one size earlier.
 
+Past the cliff the bound does not merely stop improving, it gets monotonically worse with
+size, and the number of iterations completed falls as each one costs more:
+
+| blocks | 40 | 48 | 64 | 96 | 128 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| certified lower bound | **208** (exact) | 27.3 | 17.6 | 13.2 | 9.1 |
+| iterations in ~600 s | 852 | 774 | 450 | 157 | 71 |
+
 So the frontier at a 600 s budget lies between 40 and 48 blocks. The real instance is 227,
-**5.7x beyond it**. The method works, and the problem it is being asked to solve is simply on
-the other side of the cliff.
+**5.7x beyond it**, and the whole-instance bound of 32 measured elsewhere in this project sits
+on the continuation of this curve rather than being a separate phenomenon. The method works,
+and the problem it is being asked to solve is on the other side of a cliff.
 
 ## Two trends, pointing opposite ways
 
