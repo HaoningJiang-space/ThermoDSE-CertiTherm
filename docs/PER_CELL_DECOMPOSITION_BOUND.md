@@ -169,7 +169,33 @@ the footprint is what separation requires, the per-cell optimum would be on the 
 would mean the interval is much closer to closed than the current 4.6x suggests and that the
 existing plan is near-optimal.
 
-**Stated as a prediction, not a result.** Contributing to a temperature is not the same as
+### The direct test, and what it shows
+
+The prediction is testable through the working cover the plan already returns. Cell
+(model 0, point 0) at 600 s, certified lower bound 260.7, working cover cost 505.0:
+
+| class | bought | of available | cost | share of cover cost |
+| --- | ---: | ---: | ---: | ---: |
+| `chiplet` | 2 | **100%** | 4 | 0.8% |
+| `placement_region` | 4 | **100%** | 16 | 3.2% |
+| `module` | 5 | 50% | 5 | 1.0% |
+| `post_route` | **60** | 26% | 480 | **95.0%** |
+
+The cover is not yet sufficient -- the run is UNRESOLVED, so separation still finds
+collisions against it -- so 505 is not a certified plan and the per-cell optimum is not
+bounded above by it. Both the bound and the cover were still growing at cutoff.
+
+So the ~1520 figure is neither confirmed nor refuted. What IS measured is sharper than the
+prediction and does not depend on it: **separating a single reject cell already takes every
+coarse read available and 60 per-block extractions on top**, and the coarse reads it exhausts
+cost 20 of the 505. The pattern matches the whole-candidate cover, which took 100% of chiplet
+and region reads and then 178 of 227 post-route actions.
+
+That is the EDA statement at single-cell resolution: certifying one block's peak needs
+per-block resolution across a large fraction of the die, and cheap coarse instrumentation is
+bought out immediately without materially reducing the requirement.
+
+**The 1520 estimate remains a prediction, not a result.** Contributing to a temperature is not the same as
 requiring an independent measurement of it: a chiplet read covers 112 blocks at 2.0, so a
 large footprint may be coverable far more cheaply than one action per block. What the
 measurement establishes is only that the kernel is delocalised, which rules out the "one cell
