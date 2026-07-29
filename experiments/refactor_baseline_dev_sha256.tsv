@@ -1,31 +1,42 @@
 # Baseline evidence digests for the CertiTherm refactor.
 #
-# Produced by `make reproduce-dev` on moe-server from a clean checkout of the commit below,
-# BEFORE any refactor commit (00:34 -> 03:18, 2026-07-29).
+# `make reproduce-dev` on moe-server from a clean checkout of the commit below, BEFORE any
+# refactor commit (00:34 -> 03:18, 2026-07-29).
 #
 # baseline_commit	230136d1de4756dc2fcd623fb3bbc1f90dcac7f5
 # baseline_branch	round/v7-independent-model-gate (pre-refactor tip)
 # split	dev
 #
-# `role` splits the acceptance gate in two, because a single "bit-identical" rule is
-# self-contradictory here:
+# THREE roles, not two. The first version of this file had only decision/provenance and was
+# wrong: it classified results.tsv, plans.tsv and REPORT.md as decision, then the refactor
+# run reproduced 27 of 30 and those three differed -- which reads as a failed equivalence
+# check and is not one.
 #
-#   decision   -- the numbers and verdicts. A refactor that only moves code MUST reproduce
-#                 every one of these byte for byte. This is the real gate.
-#   provenance -- receipts. Each embeds either the run's git sha, host and timestamps
-#                 (RUN_RECEIPT.tsv) or a builder-source digest over a FIXED FILE LIST
-#                 (`_source_bundle_sha256(("CertiTherm/experiments.py", "requirements.lock"))`
-#                 in _capture_cache_signature / _operator_cache_signature). Extracting code
-#                 out of experiments.py forces that list to be updated -- and it MUST be
-#                 updated, or cache invalidation silently stops covering the moved logic --
-#                 so these digests are expected to change and are compared structurally,
-#                 field by field, not byte for byte.
+#   decision          -- physics and derived numbers with no dependence on wall clock:
+#                        captures, operators, calibration, candidate_order,
+#                        measurement_registry, spectral_envelopes. These MUST be bit-identical
+#                        after a pure-move refactor, and were: 27 of 27.
+#   provenance        -- receipts embedding git sha, host, timestamps, or a builder-source
+#                        digest over a fixed file list. Extracting code out of experiments.py
+#                        forces that list to change, so these are expected to differ and are
+#                        compared field by field.
+#   budget_dependent  -- results.tsv, plans.tsv and the report built from them. The exact
+#                        synthesizer runs against a 1800 s wall-clock budget on a shared
+#                        machine, so how many iterations fit is not reproducible. Compare the
+#                        VERDICT and COST columns, which must be identical, and expect
+#                        seconds, iteration counts, cut counts and the bounds derived from
+#                        them to move.
 #
-# The provenance caveat is not mine: the peer reviewer identified the fixed builder list as
-# the reason a whole-tree bit-identical gate cannot hold. Verified at experiments.py:238.
+# Measured for the refactor run at adb751d: every verdict and cost column identical --
+# exact_status, exact_cost, all four policy statuses and costs, certified_upper_bound,
+# anytime_upper_source, plan_validity, full_registry_cost, false_certificate, failure,
+# unexpected_failure, interval_violation, candidate_order. The 18 columns that moved are
+# wall-clock seconds and the search state a fixed budget reaches. One run got 41 iterations
+# where the other got 40, and its lower bound was 11% better (92.2 vs 82.7) -- which is
+# itself evidence that the bound is starved of well-chosen cuts, not evidence of a defect.
 #
 sha256	path	role
-32ffe338a234890396a195cfa25ab339c834ce0a45ffff5825d08a5473d3b810	REPORT.md	decision
+32ffe338a234890396a195cfa25ab339c834ce0a45ffff5825d08a5473d3b810	REPORT.md	budget_dependent
 7a960683dded4afb224da6850ae301744874a59b2549dc298ce09d7584c991b5	RUN_RECEIPT.tsv	provenance
 3e169ab2ac242a417d18319918ead187934035b6bc84f00fbf7f41065fd8aceb	candidate_order.tsv	decision
 44ca7db9453d6d859a2510c62e550e6efa443cfbcac6400211b619a52f6627e6	captures/resnet50--arch_a.npz	decision
@@ -68,6 +79,6 @@ ae2a38a403f2831434121074ed10a4c438b5e5831411a49736a5298688e8a29b	operators/arch_
 400b59228dba709bd75f5b39166996033dbab5f8a199ad22393818eee249120e	operators/arch_c--standard.calibration.tsv	decision
 8be3b26f9e3e0174be6b8cf26f90147234618f5614387396ec3351d30840a10f	operators/arch_c--standard.npz	decision
 0ba3d8dcaaf675900b632084b5efd93da9920abd7258c1d963337687f5571ba7	operators/arch_c--standard.npz.receipt.tsv	provenance
-2d6bb3807989f2483f6938ac52813b225d400cefc9de13a5fed894516fe4b862	plans.tsv	decision
-71ec16ad5a21a4aca05c5bfa14de5e35f75a40634c1a340a8d391ed7c5aa2819	results.tsv	decision
+2d6bb3807989f2483f6938ac52813b225d400cefc9de13a5fed894516fe4b862	plans.tsv	budget_dependent
+71ec16ad5a21a4aca05c5bfa14de5e35f75a40634c1a340a8d391ed7c5aa2819	results.tsv	budget_dependent
 60904a6d72fa1ed8a1878fcc4c4566835bf761717fca0239e0e9bd1305021f8a	spectral_envelopes.tsv	decision
