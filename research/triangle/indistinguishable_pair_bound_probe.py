@@ -18,11 +18,17 @@ points -- was leaving valid edges undiscovered. Either way this is a heuristic a
 LOOK, never an assumption about what is not there: a pair no scanned cell establishes is
 recorded as unestablished, which only ever lowers the bound.
 
-NON-CLAIM diagnostic. Reads committed artifacts, writes nothing.
+With `seeds_out` the established cuts are written as action-ID lists so the 27-minute pair scan
+does not have to be repeated to try a different synthesis budget, and with `synthesis_budget_s`
+they are fed straight into `synthesize_minimum_observation` as `seed_cuts` -- the master then
+starts from the structural constraints instead of from nothing.
+
+NON-CLAIM diagnostic. Reads committed artifacts; writes only the seed file it is asked for.
 
 Usage (on moe-server, from the repo root):
     .venv/bin/python research/triangle/indistinguishable_pair_bound_probe.py <artifact-root> \
-        <candidate> <package> <workload> [max_pairs] [total_budget_s] [scan_points]
+        <candidate> <package> <workload> [max_pairs] [total_budget_s] [scan_points] \
+        [seeds_out] [synthesis_budget_s]
 
 `max_pairs = 0` prints the structural section and stops: if the common refinement is all
 singletons there is no cut of this shape and the direction dies for zero LPs.
@@ -50,6 +56,8 @@ from CertiTherm.blind_direction_cuts import (
 from CertiTherm.experiments import _measurement_costs, _power_space, _rows, ROOT
 from CertiTherm.hotspot import load_family
 from CertiTherm.measurements import build_measurement_library
+from CertiTherm.solver_budget import budget_scope
+from CertiTherm.synthesis import synthesize_minimum_observation
 
 LIMIT_MARGIN_K = 0.05
 FEASIBILITY_TOLERANCE = 1e-9
@@ -61,6 +69,8 @@ def main() -> None:
     max_pairs = int(sys.argv[5]) if len(sys.argv) > 5 else 0
     budget_s = float(sys.argv[6]) if len(sys.argv) > 6 else 3600.0
     scan_points = int(sys.argv[7]) if len(sys.argv) > 7 else 8
+    seeds_out = Path(sys.argv[8]) if len(sys.argv) > 8 and sys.argv[8] != "-" else None
+    synthesis_budget_s = float(sys.argv[9]) if len(sys.argv) > 9 else 0.0
 
     polytope, blocks, _placed, floorplan_text = _power_space(
         artifacts / "captures" / f"{workload}--{candidate}.npz"
@@ -120,6 +130,7 @@ def main() -> None:
 
     tested = confusable = unestablished = 0
     edges_by_cell: Dict[int, List[Tuple[int, int]]] = {}
+    seed_cuts: List[Tuple[str, ...]] = []
     started = time.monotonic()
     stopped_early = None
     for cell_index, cell in enumerate(multi):
@@ -154,10 +165,18 @@ def main() -> None:
             else:
                 confusable += 1
                 edges_by_cell[cell_index].append((b, other))
+                seed_cuts.append(found.cut_action_ids)
         if stopped_early:
             break
 
     bound, per_cell = blind_direction_lower_bound(multi, edges_by_cell, cost)
+
+    if seeds_out is not None:
+        seeds_out.write_text(json.dumps({
+            "candidate": candidate, "package": package, "workload": workload,
+            "vertex_cover_bound": float(bound),
+            "cuts": [list(cut) for cut in seed_cuts],
+        }))
 
     print(json.dumps({
         "pairs_tested": tested,
@@ -175,6 +194,31 @@ def main() -> None:
             "existing certified bound by max, never by addition."
         ),
     }, indent=2), flush=True)
+
+    if synthesis_budget_s > 0 and seed_cuts:
+        started = time.monotonic()
+        record = {"seeded_cuts": len(seed_cuts), "budget_s": synthesis_budget_s}
+        try:
+            with budget_scope(synthesis_budget_s):
+                plan = synthesize_minimum_observation(
+                    polytope, family, actions,
+                    max_iterations=500000,
+                    seed_cuts=[list(cut) for cut in seed_cuts],
+                )
+            record.update(
+                status=plan.status,
+                exact_cost=plan.exact_cost,
+                lower_bound=plan.lower_bound,
+                iterations=plan.iterations,
+            )
+        except Exception as exc:  # noqa: BLE001 - a probe records the failure, it does not raise
+            record.update(status="RAISED", detail=f"{type(exc).__name__}: {exc}")
+        record["elapsed_s"] = round(time.monotonic() - started, 1)
+        record["note"] = (
+            "the seeded master's lower bound must be at least the vertex-cover bound above, "
+            "since the seeds are exactly those cuts; anything less means a seed was dropped"
+        )
+        print(json.dumps(record, indent=2), flush=True)
 
 
 if __name__ == "__main__":
