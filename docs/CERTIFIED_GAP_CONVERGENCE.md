@@ -310,7 +310,7 @@ Both are stated here as directions, not results. What the measurements establish
 that the enumerative route is closed.
 
 This is consistent with the two other measured negatives recorded in
-`docs/THERMAL_SIGNOFF_IRREDUCIBILITY.md`: the upper bound cannot be lowered much either,
+`docs/COARSE_INSTRUMENTATION_OBSERVATIONS.md`: the upper bound cannot be lowered much either,
 because per-block resolution is forced by the physics. Both ends of the interval are
 structural.
 
