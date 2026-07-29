@@ -138,6 +138,34 @@ certified per-cell OPTIMUM rather than a bound; how the maximum grows with the n
 cells sampled; and whether the same decomposition applied to pairs or small groups of cells
 is stronger still without returning to the pooled regime.
 
+## These bounds are about the REAL instance, unlike the frontier study
+
+This is easy to lose, and it has already been lost once in review, so it is stated plainly.
+`per_cell_bound_probe` and `cell_subset_bound_probe` restrict ONE thing: which reject cells
+are included. Everything else is the real candidate --
+
+| | these probes | `tractability_frontier_probe` |
+| --- | --- | --- |
+| power polytope | **real, 227 blocks** | truncated to k blocks |
+| response row width | **all 227 columns** | truncated |
+| `limit_k` | **the registered value** | rescaled into the achievable range |
+| action library | **the real 243 actions** | n+1 actions |
+
+The frontier study is a synthetic scaling experiment and says so. These are not. Restricting
+reject cells is exactly the operation the subset argument licenses, which is why the result
+transfers.
+
+**So 311.83 is a valid certified lower bound on the real instance.** By Theorem 2 the ordered
+query's cost is the SUM over required candidates of their local optima, and all three are
+required here, so a bound on one candidate bounds the query. Against the production path's
+certified lower bounds of 22.8-88.3 on the same six dev queries, that is **3.5x to 13.7x
+better on the same quantity**, from the same unmodified synthesizer, at 600 s against the
+production 1800 s.
+
+That is the one place in this session where a measurement improves what can be certified about
+the actual problem rather than characterising the method. It still is not in the shipped path
+-- see the next section for what that would take.
+
 ## Wiring it into the shipped method -- proposal, not a change
 
 Everything above lives in a research probe. The production path still reports certified
