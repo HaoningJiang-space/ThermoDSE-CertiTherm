@@ -125,6 +125,35 @@ This is what makes the conclusion structural rather than a matter of budget. No 
 speed-up, no master frequency, no amount of compute, and no spatial pruning of reject cells
 changes a logarithm into what would be needed.
 
+### Measured: the standard cutting-plane trajectory is WORSE, not better
+
+The strongest objection to everything above is that all of it drives separation from
+`_greedy_cover`, which always buys the cheapest covering action. The selection therefore
+stays cheap and every witness is one more thing a cheap plan fails to distinguish. If the
+logarithm came from that, this result would be about the implementation's search strategy and
+not about the formulation.
+
+The textbook alternative is to separate the MASTER's optimum -- the cheapest plan consistent
+with all evidence so far, so a witness against it is violated by the current optimum by
+construction. That is the usual reason branch-and-cut converges where greedy enumeration does
+not, and `synthesize_minimum_observation` never does it during ordinary iterations.
+
+Both trajectories, same instance, exact hitting-set optimum at the same cut counts:
+
+| cuts | greedy-driven bound | master-driven bound | greedy cover cost | master cover cost |
+| ---: | ---: | ---: | ---: | ---: |
+| 125 | **9.0** | 8.0 | 23 | 8 |
+| 250 | **16.0** | 11.0 | 37 | 11 |
+| 500 | **18.0** | 13.0 | 31 | 13 |
+
+The master-driven trajectory is consistently WORSE, and the cover-cost columns say why. The
+master returns the CHEAPEST cover consistent with the evidence, so it stays at 8, 11, 13;
+separating a cheap plan yields witnesses that are cheap to fix. Greedy's cover is more
+expensive, so its witnesses are correspondingly more informative.
+
+The objection is therefore refuted by measurement rather than argued away, and the negative
+result survives its strongest available attack.
+
 ### Measured: cut selection does not change it either
 
 The curve above is measured along the trajectory the loop follows, and the collision LP has a
