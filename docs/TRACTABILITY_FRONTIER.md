@@ -36,16 +36,25 @@ physics. The 16-block case is not a 16-block chip.
 | 24 | 25 | 369.12 | OPTIMAL | 128 | 5.33 | 165 | 16.9 |
 | 32 | 33 | 372.07 | OPTIMAL | 168 | 5.25 | 218 | 35.7 |
 | 40 | 41 | 376.24 | OPTIMAL | 208 | 5.20 | 852 | 273.4 |
+| **48** | 49 | 381.49 | **UNRESOLVED** | — | — | 774 | 601.5 |
 
-Every one returns OPTIMAL with `lower_bound == exact_cost`, so each is a proof and not a
-bound. The method works; the full instance is simply out of its reach.
+Every instance up to 40 blocks returns OPTIMAL with `lower_bound == exact_cost`, so each is a
+proof and not a bound. **At 48 the method collapses**, and it does so abruptly rather than
+gradually: 40 blocks needed 351 active cuts and closed in 273 s; 48 accumulated **33 415** --
+ninety-five times as many -- and after 601 s certified a lower bound of **27.3**, an order of
+magnitude BELOW the 208 it proved exactly one size earlier.
+
+So the frontier at a 600 s budget lies between 40 and 48 blocks. The real instance is 227,
+**5.7x beyond it**. The method works, and the problem it is being asked to solve is simply on
+the other side of the cliff.
 
 ## Two trends, pointing opposite ways
 
-**Time explodes.** 32 to 40 blocks is a 1.25x increase in size and a **7.7x** increase in
-time. Extrapolating that rate to 227 blocks puts the full instance far beyond any budget,
-which is consistent with every recorded run being UNRESOLVED and is the same wall the
-convergence document measures from inside.
+**Time explodes, then the method falls off a cliff.** 32 to 40 blocks is a 1.25x increase in
+size and a **7.7x** increase in time; 40 to 48 crosses from a 273 s proof to no proof at all
+with ninety-five times the cuts. That is consistent with every recorded run of the real
+instance being UNRESOLVED, and it is the same wall the convergence document measures from
+inside -- seen here from outside, with a location.
 
 **Cost per block settles.** From 24 blocks on it is 5.33, 5.25, 5.20 -- flat. A linear fit
 over those points gives
