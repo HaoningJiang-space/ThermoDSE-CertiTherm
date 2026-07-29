@@ -58,20 +58,6 @@ def _width_score(
     return width / action.cost, candidate_rank, action.action_id, index
 
 
-def _cut(
-    candidate_id: str,
-    witness: WorldPair,
-    actions: Sequence[MeasurementAction],
-    selected: Sequence[int],
-) -> np.ndarray:
-    """Candidate-local Theorem-1 separator cut. The rule itself lives in
-    `synthesis.separating_action_cut`; the baselines must not carry a second copy of it."""
-
-    return separating_action_cut(
-        witness, actions, selected, candidate_id=candidate_id
-    )
-
-
 def _local_collision(
     candidates: Sequence[CandidateSpace],
     actions: Sequence[MeasurementAction],
@@ -240,7 +226,9 @@ def dual_price_greedy(
                 sum(actions[index].cost for index in selected),
                 calls + 1,
             )
-        cut = _cut(witness[0], witness[1], actions, selected)
+        cut = separating_action_cut(
+            witness[1], actions, selected, candidate_id=witness[0]
+        )
         if not np.any(cut):
             return PolicyResult(
                 "UNSYNTHESIZABLE",

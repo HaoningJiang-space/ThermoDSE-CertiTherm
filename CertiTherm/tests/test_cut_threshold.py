@@ -16,7 +16,10 @@ from __future__ import annotations
 import numpy as np
 
 from CertiTherm.core import MeasurementAction, WorldPair
-from CertiTherm.policies import _cut
+# Tests the canonical rule directly. It used to reach through `policies._cut`, which was a
+# second copy of it and is now deleted; testing the wrapper rather than the definition
+# would have left the definition untested the moment the wrapper went away.
+from CertiTherm.synthesis import separating_action_cut
 
 
 def _actions(tol: float):
@@ -42,7 +45,7 @@ def test_borderline_separator_is_included_not_dropped() -> None:
     # axis 0: gap in the (tol, tol+sep] danger zone -> a TRUE separator the old
     # `> tol + sep` code dropped. axis 1: clearly separating. axis 2: not.
     delta = np.array([tol + sep / 2, tol * 10, tol / 2])
-    cut = _cut("c", _witness(delta), actions, selected=())
+    cut = separating_action_cut(_witness(delta), actions, (), candidate_id="c")
 
     assert cut[0] == 1.0, "borderline separator (gap in (tol, tol+sep]) was dropped"
     assert cut[1] == 1.0, "clear separator missing"
@@ -55,7 +58,7 @@ def test_selected_action_is_excluded_by_index() -> None:
     # axis 0 clearly separates, but it is already selected -> must NOT be in the
     # cut (a selected action cannot separate a collision found under it).
     delta = np.array([tol * 10, tol * 10, 0.0])
-    cut = _cut("c", _witness(delta), actions, selected=(0,))
+    cut = separating_action_cut(_witness(delta), actions, (0,), candidate_id="c")
     assert cut[0] == 0.0, "already-selected separator leaked into the cut"
     assert cut[1] == 1.0, "unselected separator missing"
 
@@ -64,7 +67,7 @@ def test_clear_nonseparator_stays_out() -> None:
     tol = 1e-8
     actions = _actions(tol)
     delta = np.array([tol / 2, tol / 4, 0.0])          # all gaps <= tolerance
-    cut = _cut("c", _witness(delta), actions, selected=())
+    cut = separating_action_cut(_witness(delta), actions, (), candidate_id="c")
     assert cut.sum() == 0.0
 
 
@@ -72,5 +75,5 @@ def test_cut_excludes_other_candidates() -> None:
     tol = 1e-8
     actions = _actions(tol)
     delta = np.array([tol * 10, 0.0, 0.0])
-    cut = _cut("other", _witness(delta), actions, selected=())
+    cut = separating_action_cut(_witness(delta), actions, (), candidate_id="other")
     assert cut.sum() == 0.0

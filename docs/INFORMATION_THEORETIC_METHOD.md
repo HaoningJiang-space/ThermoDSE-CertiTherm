@@ -98,8 +98,17 @@ model/point to obey
 model/point with
 \(T_m\ge T_{\rm limit}+\delta-\epsilon_m\). The two cells share the same
 upper-bound convention and cannot overlap. The registered LP
-feasibility tolerance is \(10^{-10}\), one order tighter than the
-\(10^{-9}\) action-separation guard.
+feasibility tolerance is \(10^{-10}\).
+
+Correction (2026-07-29): this paragraph used to add "one order tighter than the
+\(10^{-9}\) action-separation guard". Both halves of that sentence were wrong. There is no
+separate separation guard — an action separates a pair iff \(|v_a\cdot\delta| >\)
+`action.tolerance`, the action's own registered tolerance, and the vestigial
+`separation_tolerance` parameter that once carried \(10^{-9}\) was removed after it stopped
+reaching any cut. And `MeasurementAction.tolerance` defaults to \(10^{-8}\)
+(`CertiTherm/core.py`), so the feasibility tolerance is two orders tighter than the default
+separation threshold, not one order tighter than \(10^{-9}\). The theorem above is
+unaffected; only this numerical aside was false.
 
 This is a non-incremental algorithm: it synthesizes the entire least-cost
 observation contract before any physical measurement value is known. The

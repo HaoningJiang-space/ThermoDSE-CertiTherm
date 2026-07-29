@@ -420,8 +420,17 @@ def _collision_search_kernelized(
 ) -> Optional[WorldPair]:
     """First collision using a VerifiedThermalKernel: the collision LP is built with
     only the kernel's SAFE-row subset and only the kernel's REJECT specs. Sibling of
-    `_collision_search` (which is left byte-for-byte unchanged and is the fallback);
-    reuses `_CollisionProblem`/`_solve_collision_spec`/`two_world_polytope_rows`/`robust_safe_cell_rows`.
+    `_collision_search`, which remains the authoritative exhaustive fallback.
+
+    This used to claim the fallback was "left byte-for-byte unchanged". That stopped being
+    true when both searches were moved onto `_build_collision_problem`; the claim is
+    withdrawn rather than restated, because what protects the fallback now is not textual
+    identity but a field-by-field differential against its former inline construction over
+    1 500 random instances. The remaining audit concern is real and unresolved: the
+    authoritative oracle now calls a builder whose `safe_row_indices` parameter exists only
+    for this extension. Moving the kernelized search into its own module -- so the
+    dependency runs extension -> shared algebra rather than baseline -> extension-shaped
+    interface -- is the fix, and is not done yet.
 
     NON-EXHAUSTIVE existence only (the deletion path): returns the first collision or
     None. A None result is trusted ONLY for a structurally valid, correctly bound,

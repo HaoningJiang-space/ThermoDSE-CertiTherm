@@ -235,8 +235,17 @@ def _capture_cache_signature(
     }
     return {
         "kind": "thermodse-capture",
+        # digest.py is in the bundle because the receipt logic EXECUTES it: the builder
+        # digest, the cached-file digests and the validation all go through
+        # digest.sha256_file. Omitting it would let a change to how this repository hashes
+        # leave builder_sha256 untouched, and a cache written under the old rule would be
+        # accepted under the new one.
         "builder_sha256": _source_bundle_sha256(
-            ("CertiTherm/experiments.py", "requirements.lock")
+            (
+                "CertiTherm/digest.py",
+                "CertiTherm/experiments.py",
+                "requirements.lock",
+            )
         ),
         "input_sha256": _canonical_sha256(inputs),
     }
@@ -285,6 +294,9 @@ def _operator_cache_signature(
         "builder_sha256": _source_bundle_sha256(
             (
                 "CertiTherm/core.py",
+                # See _capture_cache_signature: the hashing this receipt is built from
+                # lives here, so it has to be part of what the receipt is bound to.
+                "CertiTherm/digest.py",
                 "CertiTherm/experiments.py",
                 "CertiTherm/gpu_hotspot.py",
                 "CertiTherm/hotspot.py",
@@ -1526,8 +1538,12 @@ def _evaluate_query_methods(
 ) -> QueryMethodResults:
     """Run exact, matched baselines, and Anytime-DSOS with explicit budgets.
 
-    Evaluation order is exact -> fixed -> width -> dual -> anytime and is load-bearing:
-    a shared solver budget is consumed in this sequence.
+    Evaluation order is exact -> fixed -> width -> dual -> anytime. It is NOT because the
+    five share a deadline -- each `_timed_call` opens a fresh full `QUERY_METHOD_TIMEOUT_S`
+    and `anytime_dsos` owns a separate end-to-end budget, and no outer budget is installed
+    by `_evaluate_prepared_query`. What the order does bind is process-global state that
+    accumulates across the five (solver caches, kernel-oracle counters) and the machine
+    load each leaves behind, so it is fixed for reproducibility rather than for correctness.
     """
 
     def run(method: str):
