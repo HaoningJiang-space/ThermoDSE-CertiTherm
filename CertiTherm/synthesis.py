@@ -410,6 +410,27 @@ def _collision(
     return collisions[0] if collisions else None
 
 
+def _first_collision_batch(
+    polytope: PowerPolytope,
+    thermal: ThermalFamily,
+    actions: Sequence[MeasurementAction],
+    selected: Iterable[int],
+    margin_k: float,
+    feasibility_tolerance: float,
+    workers: Optional[int] = None,
+) -> Tuple[WorldPair, ...]:
+    """One collision, or none -- the lazy counterpart of `_collisions`, same signature.
+
+    Returns an EMPTY tuple only when `_collision` has completed its exhaustive scan and
+    found nothing, so the caller's termination test means exactly what it meant before.
+    """
+
+    collision = _collision(
+        polytope, thermal, actions, selected, margin_k, feasibility_tolerance, workers
+    )
+    return () if collision is None else (collision,)
+
+
 def _collisions(
     polytope: PowerPolytope,
     thermal: ThermalFamily,
@@ -1560,6 +1581,7 @@ def synthesize_minimum_observation(
     max_iterations: int = 10000,
     separation_workers: Optional[int] = None,
     bound_interval: Optional[int] = None,
+    separation_policy: str = "exhaustive",
 ) -> ObservationPlan:
     """Synthesize the exact minimum-cost non-adaptive observation plan.
 
@@ -1659,9 +1681,14 @@ def synthesize_minimum_observation(
         cut_masks: List[int] = []
         master = _solve_master(costs, cuts)
         exact_candidate = False
+        if separation_policy not in ("exhaustive", "lazy"):
+            raise ContractViolation(
+                f"unknown separation policy {separation_policy!r}"
+            )
+        harvest = _collisions if separation_policy == "exhaustive" else _first_collision_batch
         for iteration in range(1, max_iterations + 1):
             reached = iteration
-            batch = _collisions(
+            batch = harvest(
                 polytope,
                 thermal,
                 actions,
