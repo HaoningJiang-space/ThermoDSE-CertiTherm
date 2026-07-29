@@ -40,9 +40,9 @@ make check       # test + hotspot-smoke + git diff --check + submodule cleanline
 `patches/hotspot-grid-convergence.patch`, builds the `hotspot` binary, and records its
 SHA-256. It never modifies either submodule in place.
 
-Tests (from repo root; `CertiTherm/tests/conftest.py` puts `CertiTherm/exact`,
-`CertiTherm/audit`, `CertiTherm/robust_dse` on `sys.path` so no manual `PYTHONPATH` is
-needed):
+Tests run from the repo root with no `PYTHONPATH` and no `sys.path` manipulation —
+`conftest.py` is deliberately empty of it, since every test imports through the `CertiTherm`
+package:
 
 ```bash
 make test                                                   # == python -m pytest -q CertiTherm/tests
@@ -88,16 +88,41 @@ defines `PowerPolytope`, `ThermalFamily`, `MeasurementAction`, `CandidateSpace`,
 `WorldPair`/`QueryWorldPair`, `ObservationPlan`/`QueryObservationPlan`). Pipeline:
 
 ```
+CertiTherm/digest.py                        → the ONE definition of "the SHA-256 of a file"; leaf, no deps
+CertiTherm/thermal_constraints.py           → SAFE/REJECT LP rows and their two-world lift; depends only on core
 CertiTherm/hotspot.py    build_family()     → ThermalFamily (registered HotSpot operators, sha256-bound)
 CertiTherm/measurements.py                  → obtainable module/chiplet/region/post-route action library
 CertiTherm/synthesis.py  synthesize_ordered_query() → ObservationPlan (MILP hitting-set + LP separation oracle)
+CertiTherm/kernelized_collision.py          → OPTIONAL accelerated oracle; imports synthesis, never the reverse
 CertiTherm/policies.py                      → matched fixed / width / dual-price baselines, same oracle
 CertiTherm/spectral.py                      → interpretability-only spectral/mode analysis (never the certificate)
 CertiTherm/experiments.py                   → end-to-end ThermoDSE→HotSpot→DSOS driver, resumable NPZ evidence
 CertiTherm/cli.py                           → `build-family` / `synthesize` subcommands over NPZ/TSV
 CertiTherm/adaptive.py                      → exact minimax Bellman recurrence, finite-alphabet calibration only
 CertiTherm/trace_runner.py                  → name-aligned ThermoDSE ptrace → HotSpot wrapper (no positional truncation)
+CertiTherm/tools/private_api_census.py      → regenerates experiments/private_api_census.tsv
 ```
+
+**The import graph is acyclic and the direction is load-bearing.** `core` and
+`solver_budget` are leaves; `thermal_constraints` sits above `core` alone; `synthesis` — the
+certified oracle — depends on `core`, `solver_budget` and `thermal_constraints` and on
+nothing else in the package. `kernelized_collision` is a research extension that imports
+*from* `synthesis`; deleting that file leaves the certified path producing identical
+verdicts, which is the audit boundary and is verified, not assumed. Do not add an import
+from `synthesis` to `kernelized_collision` or `thermal_kernel`: that is the edge that used
+to force a lazy import inside a function.
+
+**Frozen means the numbers too.** `core._sealed` marks every validated array read-only
+before storing it, because `@dataclass(frozen=True)` only stops attribute rebinding — the
+NumPy payloads were mutable in place, and the collision LP holds `ThermalFamily`'s own
+arrays. Sealing is in place, not by copying, so handing an array to one of these dataclasses
+hands over ownership; a caller that still needs to write passes `array.copy()`.
+
+**`experiments/private_api_census.tsv` is a precondition, not documentation.** It lists every
+private symbol crossing a module boundary, with which callers are covered by tests and which
+are research-only. Moving one of those symbols needs a decision, and
+`tests/test_private_api_census.py` fails until that decision is made. Regenerate with
+`python -m CertiTherm.tools.private_api_census`.
 
 Read `docs/INFORMATION_THEORETIC_METHOD.md` before touching `synthesis.py` — it states the
 three theorems (confusability graph = hitting set, ordered-decision decomposition,
@@ -125,18 +150,21 @@ easier). Getting the sign of that inequality wrong was an actual regression caug
 the method freeze — see the contract doc before editing anything in the SAFE/REJECT LP
 construction in `synthesis.py`.
 
-### `exact/`, `results/`, `audit/`, `theory/`, `robust_dse/` — archived pre-DSOS work
+### `results/`, `audit/` — retained pre-DSOS evidence (code deleted)
 
-These directories are the **pre-DSOS G1–G4 prototype** (`decide.py`, `decision_query.py`,
-`linear_oracle.py`, `run_g2_query.py`, the `robust_dse` sampled-stress baseline, etc.). Per
-`CertiTherm/README.md` and the tag `legacy-g1-g4-archived`, they do not support current
-HotSpot-family or information-theoretic claims and should be treated as read-only audit
-trail, not as a base to extend. `CertiTherm/tests/conftest.py` still adds `exact/`, `audit/`,
-`robust_dse/` to `sys.path` because a handful of tests (`test_decisive_oracle.py`,
-`test_g2_soundness.py`, `test_g3_baselines.py`, `test_robust_target.py`,
-`test_spatial_power_injection.py`) still exercise that legacy code as regression coverage —
-this is intentional, not dead configuration to clean up. Machine-specific import paths
-from the prototype have been removed; regression imports resolve from the repository.
+These hold the written record of the **pre-DSOS G1–G4 prototype**: its reports, measured JSON
+and CSV, and the integrity audits. They do not support current HotSpot-family or
+information-theoretic claims and are a read-only audit trail, not a base to extend.
+
+**The prototype's CODE is gone** (2026-07-29). `CertiTherm/exact/`, `CertiTherm/robust_dse/`,
+`CertiTherm/theory/` and `CertiTherm/audit/spatial_power_injection.py` were deleted together
+with the six tests that imported them by bare name — `test_decisive_oracle.py`,
+`test_g2_soundness.py`, `test_g3_baselines.py`, `test_g3_evidence.py`,
+`test_robust_target.py`, `test_spatial_power_injection.py`. No production module imported any
+of it; those six tests were the only consumers, which is why `conftest.py` had to prepend
+three directories to `sys.path`. All of it stays reachable in git history under the
+`legacy-g1-g4-archived` tag. (An earlier revision of this file listed five such tests;
+`test_g3_evidence.py` was the sixth.)
 
 ### Research governance — read before changing method or claims
 
@@ -153,7 +181,8 @@ from the prototype have been removed; regression imports resolve from the reposi
   3D-ICE `POWER_SCALE=16` equivalence claim, the K-sample "worst-case" baseline), not as
   current guidance.
 - `docs/IMPLEMENTATION_AUDIT_20260721.md` records the most recent reproducibility audit
-  (fresh clone, submodule pins, 54/54 tests) and the corrections it made — read it to see
+  (fresh clone, submodule pins, 54/54 tests at that time) and the corrections it made — read
+  it to see
   what was already fixed rather than re-discovering the same issues.
 
 Generated evidence (`artifacts/`, `.build/`, `.venv/`) is gitignored and lives outside the

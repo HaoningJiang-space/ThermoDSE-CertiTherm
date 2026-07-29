@@ -110,6 +110,15 @@ reaching any cut. And `MeasurementAction.tolerance` defaults to \(10^{-8}\)
 separation threshold, not one order tighter than \(10^{-9}\). The theorem above is
 unaffected; only this numerical aside was false.
 
+**Breaking API change in the same removal.** `separation_tolerance` was a keyword-only
+parameter of `synthesize_minimum_observation`, `synthesize_ordered_query`,
+`sequential_early_stop` and `dual_price_greedy`. No caller in this repository supplied it,
+and it no longer reached any cut, so it was removed rather than deprecated. Callers outside
+this repository that passed it — including passing a valid non-negative value that was
+already being ignored — now raise `TypeError` instead of returning a result. That narrows
+the verdict-producing input domain and makes the failure louder; it cannot manufacture a
+verdict. It is recorded here rather than left to be discovered.
+
 This is a non-incremental algorithm: it synthesizes the entire least-cost
 observation contract before any physical measurement value is known. The
 subsequent LP decision verifier consumes that contract.
