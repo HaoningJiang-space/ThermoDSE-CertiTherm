@@ -74,6 +74,39 @@ Against the global enumerated bound of 32.0 obtained from 1 800 s:
 narrows from 45x to 6.7x. Every per-cell run was still UNRESOLVED at its cutoff, so each
 number is itself a lower bound on that cell's optimum -- the true values are higher.
 
+## It also climbs 11x faster, which is the part that matters
+
+The seven-cell table is one budget. Giving the hardest cell more shows the decomposition does
+not merely start higher -- it converges at a different rate. Cell (model 0, point 0):
+
+| budget | iterations | active cuts | certified lower bound |
+| ---: | ---: | ---: | ---: |
+| 120 s | 6 150 | 5 742 | 215.0 |
+| 266 s | 10 000 (hit the default iteration cap) | 9 385 | 229.2 |
+| 1 502 s | 25 031 | 23 593 | **316.4** |
+
+The middle row is worth noting on its own: that run stopped at the default `max_iterations`
+after 266 s of an 1 800 s budget, so the cap and not the compute was binding. Making it a
+parameter is what allowed the third row.
+
+Fitting both trajectories in log-cut space:
+
+| trajectory | fit | R^2 | points |
+| --- | --- | ---: | ---: |
+| whole instance | `L = -21.94 + 4.57 log2(n)` | 0.985 | 6 |
+| **one cell** | `L = -440.47 + 51.78 log2(n)` | 0.952 | 3 |
+
+**A doubling of cuts buys 11.3x more certified bound inside one cell than across the whole
+instance.** At matched cut counts the gap is about 7x -- at 5 742 cuts the whole-instance fit
+gives 35.1 against the cell's 215.0, and at 23 593 it gives 44.5 against 316.4.
+
+Caveats, since the same overreach was already corrected once in this project: three points do
+not establish a rate, all three are still UNRESOLVED, this is one cell of one candidate, and
+the per-cell optimum is unknown (it is at most the whole instance's ~1450, and the interval
+for this candidate now stands at 4.6x rather than 45x). What is measured is that the same
+machinery, applied to one cell instead of all of them, is an order of magnitude better
+conditioned.
+
 ## Why it works
 
 In the whole instance a witness from cell A is very often separated by an action that also
