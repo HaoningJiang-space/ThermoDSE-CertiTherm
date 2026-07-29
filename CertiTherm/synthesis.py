@@ -493,6 +493,13 @@ def _collision_search_kernelized(
         # in-place mutation (or a native call handed a writable buffer) fails loudly
         # instead of silently corrupting a concurrent solve. Process workers get
         # pickled COPIES, so this is only needed here.
+        #
+        # The list below is exactly the arrays this function ASSEMBLES. `response`,
+        # `ambient` and `error_k` are absent because they are the ThermalFamily's own
+        # arrays, sealed by `core._sealed` at construction -- a list here would have
+        # protected this one call site, whereas sealing at the source protects every
+        # holder of them. Peer review found those three unprotected when this list was
+        # the only guard.
         for _arr in (
             problem.objective,
             problem.common_a_ub,

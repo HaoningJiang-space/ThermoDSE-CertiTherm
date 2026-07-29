@@ -8,18 +8,42 @@ from typing import Optional, Tuple
 import numpy as np
 
 
+def _sealed(array: np.ndarray) -> np.ndarray:
+    """Make a validated array read-only before it is stored on a frozen dataclass.
+
+    `@dataclass(frozen=True)` stops the ATTRIBUTE from being rebound; it does nothing about
+    the contents of a NumPy array behind it. Every numeric payload in this module was
+    therefore mutable in place, which is the content the whole receipt chain is built on.
+    Measured before this guard: `family.response_k_per_w[0, 0, 0] = 999.0` succeeded on a
+    frozen `ThermalFamily`, and because the collision LP stores that same array object, a
+    caller mutating it mid-solve changed what the solver saw between reject cells.
+
+    Sealing in place rather than copying is deliberate: a real operator's response is
+    (3, 237, 237) floats, 1.35 MB, and families are constructed per candidate. A copy per
+    construction would be a real cost for a hazard that sealing removes for free. The
+    consequence is that handing an array to one of these dataclasses hands over ownership --
+    a caller that still needs to write to it must pass `array.copy()`.
+
+    Views are sealed rather than rejected: `np.asarray` returns the caller's own object when
+    it is already a float64 array, so this is the same array they hold.
+    """
+
+    array.flags.writeable = False
+    return array
+
+
 def _vector(value: np.ndarray, n: int, name: str) -> np.ndarray:
     out = np.asarray(value, dtype=float)
     if out.shape != (n,) or not np.all(np.isfinite(out)):
         raise ValueError(f"{name} must be a finite ({n},) vector")
-    return out
+    return _sealed(out)
 
 
 def _matrix(value: np.ndarray, n: int, name: str) -> np.ndarray:
     out = np.asarray(value, dtype=float)
     if out.ndim != 2 or out.shape[1] != n or not np.all(np.isfinite(out)):
         raise ValueError(f"{name} must be a finite matrix with {n} columns")
-    return out
+    return _sealed(out)
 
 
 @dataclass(frozen=True)
@@ -53,7 +77,7 @@ class PowerPolytope:
             ("a_ub", a_ub),
             ("b_ub", b_ub),
         ):
-            object.__setattr__(self, name, value)
+            object.__setattr__(self, name, _sealed(value))
 
     @classmethod
     def box_with_total(
@@ -114,9 +138,9 @@ class ThermalFamily:
             or np.any(error < 0)
         ):
             raise ValueError("error_k must be one finite nonnegative bound per model")
-        object.__setattr__(self, "response_k_per_w", response)
-        object.__setattr__(self, "ambient_k", ambient)
-        object.__setattr__(self, "error_k", error)
+        object.__setattr__(self, "response_k_per_w", _sealed(response))
+        object.__setattr__(self, "ambient_k", _sealed(ambient))
+        object.__setattr__(self, "error_k", _sealed(error))
 
     @property
     def blocks(self) -> int:
@@ -143,7 +167,7 @@ class MeasurementAction:
             raise ValueError("positive finite cost is required")
         if not np.isfinite(self.tolerance) or self.tolerance < 0:
             raise ValueError("measurement tolerance must be finite and nonnegative")
-        object.__setattr__(self, "vector", vector)
+        object.__setattr__(self, "vector", _sealed(vector))
 
 
 @dataclass(frozen=True)
