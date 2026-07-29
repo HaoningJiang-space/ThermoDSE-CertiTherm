@@ -97,8 +97,29 @@ certified upper bound for this candidate is about 1450. Extrapolating:
 | 1450 (this candidate's certified U) | ~2^315 ~ 10^95 |
 
 For scale, the observable universe holds on the order of 10^80 atoms. The master solve time
-also grows superlinearly -- 0.0, 0.7, 2.8, 13.1, 25.2, 83.5 seconds, roughly 3-5x per
-doubling -- so even holding the cuts is a second wall, independent of discovering them.
+also grows superlinearly -- 0.0, 0.7, 2.8, 13.1, 25.2, 72.7 seconds -- and past 4 000 cuts it
+stops finishing at all.
+
+### The second wall: past ~4 000 cuts the bound cannot even be computed
+
+The same run continued to 22 583 cuts. At 8 000 and at 16 000 the exact master hit the
+300 s HiGHS limit and returned no bound:
+
+| cuts held | exact hitting-set optimum | weak-duality bound |
+| ---: | ---: | ---: |
+| 4 000 | **32.0** | 18.1 |
+| 8 000 | timeout | 20.3 |
+| 16 000 | timeout | 21.6 |
+
+So beyond about four thousand cuts the only computable bound is the weak-duality one, and at
+sixteen thousand cuts it reads **21.6 -- lower than the 32.0 the exact master returned at four
+thousand**. Accumulating more evidence makes the reportable bound worse, because the only
+bound that still finishes is the loose one.
+
+This is a second wall, independent of the first. Even granting the 10^92 cuts the growth rate
+demands, the master over them is not solvable. Within this formulation the best certified
+lower bound reachable at any cost is about **32 against an upper bound near 1450** -- the
+45x gap is not a budget symptom, it is the ceiling.
 
 This is what makes the conclusion structural rather than a matter of budget. No separation
 speed-up, no master frequency, no amount of compute, and no spatial pruning of reject cells
