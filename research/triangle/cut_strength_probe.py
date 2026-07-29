@@ -91,6 +91,25 @@ def main() -> None:
         # does, so the accumulated cost is comparable with the reported policy costs.
         selected.append(int(covering[int(np.argmin(costs))]))
 
+    # What the greedy sign-off plan actually BUYS, by measurement class. The EDA reading of
+    # a plan is not its scalar cost but its composition: two whole-chiplet reads at 2.0 each
+    # covering 112 blocks are a different engineering instruction from 180 per-block
+    # post-route extractions at 8.0 each, even at the same total.
+    composition: dict = {}
+    for index in selected:
+        action_class = actions[index].action_id.split("::")[1]
+        entry = composition.setdefault(action_class, {"count": 0, "cost": 0.0})
+        entry["count"] += 1
+        entry["cost"] += actions[index].cost
+    available: dict = {}
+    for action in actions:
+        action_class = action.action_id.split("::")[1]
+        entry = available.setdefault(action_class, {"count": 0, "cost": 0.0})
+        entry["count"] += 1
+        entry["cost"] += action.cost
+    for action_class, entry in composition.items():
+        entry["fraction_of_class_bought"] = entry["count"] / available[action_class]["count"]
+
     widths_array = np.asarray(widths, dtype=float)
     print(
         json.dumps(
@@ -120,6 +139,9 @@ def main() -> None:
                 "greedy_cover_cost": float(
                     sum(actions[index].cost for index in selected)
                 ),
+                "greedy_cover_actions": len(selected),
+                "library_by_class": available,
+                "greedy_cover_by_class": composition,
             },
             indent=2,
         )
