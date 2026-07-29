@@ -29,6 +29,7 @@ from typing import Sequence, Tuple
 import numpy as np
 from scipy.optimize import linprog
 
+from CertiTherm.thermal_constraints import reject_cell_rows
 from CertiTherm.thermal_constraints import robust_safe_cell_rows as _robust_safe_rows
 from CertiTherm.instance_receipt import _feed, _power_digest, _thermal_digest
 
@@ -175,13 +176,10 @@ def build_kernel(power, thermal, margin_k: float, feas_tol: float,
     srows = np.asarray(srows, float); srhs = np.asarray(srhs, float)
     resp = thermal.response_k_per_w
     n_models, n_points = resp.shape[0], resp.shape[1]
-    rrows, rfloors = [], []
-    for m in range(n_models):
-        for q in range(n_points):
-            rrows.append(resp[m, q])
-            rfloors.append(thermal.limit_k + margin_k - thermal.error_k[m]
-                           - thermal.ambient_k[m, q])
-    rrows = np.asarray(rrows, float); rfloors = np.asarray(rfloors, float)
+    # The REJECT predicate lives in thermal_constraints, next to its SAFE mirror: the two
+    # differ only in the sign of the margin, and that sign is what keeps the cells from
+    # overlapping. This loop was a second copy of it.
+    rrows, rfloors = reject_cell_rows(thermal, margin_k)
 
     safe_surv = _safe_survivors(P, srows, srhs, tau)
     rej_surv = _reject_survivors(P, rrows, rfloors, tau)

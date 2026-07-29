@@ -72,3 +72,51 @@ def robust_safe_cell_rows(
         - thermal.ambient_k
     ).reshape(-1)
     return rows, rhs
+
+
+def reject_cell_floor(
+    thermal: ThermalFamily, margin_k: float, model: int, point: int
+) -> float:
+    """The temperature a power map must REACH at one (model, point) to be rejected.
+
+    `response . p >= limit + margin - error - ambient`. The mirror of
+    `robust_safe_cell_rows`, and deliberately next to it: the two differ only in the sign of
+    the margin, and that sign is what keeps the SAFE and REJECT cells from overlapping. A
+    copy of this expression that drifted by one sign would silently merge them.
+
+    Written twice before this: once per (model, point) inside the collision LP, and once as
+    a full matrix while verifying a thermal kernel. `reject_cell_rows` below is the matrix
+    form of exactly this scalar, so the two cannot disagree.
+    """
+
+    return float(
+        thermal.limit_k
+        + margin_k
+        - thermal.error_k[model]
+        - thermal.ambient_k[model, point]
+    )
+
+
+def reject_cell_rows(
+    thermal: ThermalFamily, margin_k: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Every (model, point) REJECT row and its floor, one row per cell.
+
+    Row order is `reshape(-1)` over (models, points), matching `robust_safe_cell_rows`, so
+    a flat index `i` refers to model `i // points` and point `i % points`. Kernel artifacts
+    store `reject_specs` as that decomposition, so the order is part of their format.
+    """
+
+    response = thermal.response_k_per_w
+    models, points = response.shape[0], response.shape[1]
+    rows = response.reshape(-1, thermal.blocks)
+    floors = (
+        thermal.limit_k
+        + margin_k
+        - thermal.error_k[:, None]
+        - thermal.ambient_k
+    ).reshape(-1)
+    # rows and floors are both `reshape(-1)` of the same (models, points) grid, so their
+    # lengths agree by construction rather than by check.
+    del models, points
+    return rows, floors

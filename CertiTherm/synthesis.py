@@ -22,7 +22,11 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 from scipy.optimize import Bounds, LinearConstraint, linprog, milp
 
-from .thermal_constraints import robust_safe_cell_rows, two_world_polytope_rows
+from .thermal_constraints import (
+    reject_cell_rows,
+    robust_safe_cell_rows,
+    two_world_polytope_rows,
+)
 from .collision_proof import outward_abs_dot_upper
 from .core import (
     CandidateSpace,
@@ -143,6 +147,11 @@ class _CollisionProblem:
     margin_k: float
     feasibility_tolerance: float
     model_ids: Tuple[str, ...]
+    # One REJECT floor per (model, point), flattened in `reshape(-1)` order so a spec
+    # (model, point) reads index `model * points + point`. Precomputed once here rather
+    # than rebuilt inside every spec solve, and derived from thermal_constraints so the
+    # collision LP and the kernel verifier cannot disagree about what "reject" means.
+    reject_floors: np.ndarray
 
 
 _WORKER_COLLISION_PROBLEM: Optional[_CollisionProblem] = None
@@ -160,12 +169,8 @@ def _solve_collision_spec(
     reject_row = np.concatenate(
         (np.zeros(problem.n), -problem.response[reject_model, point])
     )
-    reject_rhs = -(
-        problem.limit_k
-        + problem.margin_k
-        - problem.error_k[reject_model]
-        - problem.ambient[reject_model, point]
-    )
+    points = problem.response.shape[1]
+    reject_rhs = -problem.reject_floors[reject_model * points + point]
     result = _unresolved_solve(
         "collision LP",
         run_highs,
@@ -286,6 +291,7 @@ def _build_collision_problem(
         margin_k=margin_k,
         feasibility_tolerance=feasibility_tolerance,
         model_ids=thermal.model_ids,
+        reject_floors=reject_cell_rows(thermal, margin_k)[1],
     )
 
 
