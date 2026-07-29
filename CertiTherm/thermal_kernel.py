@@ -29,7 +29,7 @@ from typing import Sequence, Tuple
 import numpy as np
 from scipy.optimize import linprog
 
-from CertiTherm.synthesis import _robust_safe_rows
+from CertiTherm.thermal_constraints import robust_safe_cell_rows as _robust_safe_rows
 from CertiTherm.instance_receipt import _feed, _power_digest, _thermal_digest
 
 KERNEL_SCHEMA_VERSION = 1

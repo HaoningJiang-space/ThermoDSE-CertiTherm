@@ -22,6 +22,10 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 from scipy.optimize import Bounds, LinearConstraint, linprog, milp
 
+from .thermal_constraints import robust_safe_cell_rows, two_world_polytope_rows
+# No longer imported inside a function: moving those rows below both modules removed the
+# load cycle that forced the lazy import.
+from .thermal_kernel import ThermalKernelError
 from .core import (
     CandidateSpace,
     CandidateWorldPair,
@@ -225,36 +229,6 @@ def _configured_workers(workers: Optional[int] = None) -> int:
     return value
 
 
-def _pair_rows(polytope: PowerPolytope) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    n = polytope.dimension
-    zeros_eq = np.zeros((polytope.a_eq.shape[0], n))
-    a_eq = np.vstack(
-        (np.hstack((polytope.a_eq, zeros_eq)), np.hstack((zeros_eq, polytope.a_eq)))
-    )
-    b_eq = np.concatenate((polytope.b_eq, polytope.b_eq))
-    zeros_ub = np.zeros((polytope.a_ub.shape[0], n))
-    a_ub = np.vstack(
-        (np.hstack((polytope.a_ub, zeros_ub)), np.hstack((zeros_ub, polytope.a_ub)))
-    )
-    b_ub = np.concatenate((polytope.b_ub, polytope.b_ub))
-    return a_eq, b_eq, a_ub, b_ub
-
-
-def _robust_safe_rows(
-    thermal: ThermalFamily, margin_k: float
-) -> Tuple[np.ndarray, np.ndarray]:
-    """All model/point upper bounds defining one fail-closed SAFE cell."""
-
-    rows = thermal.response_k_per_w.reshape(-1, thermal.blocks)
-    rhs = (
-        thermal.limit_k
-        - margin_k
-        - thermal.error_k[:, None]
-        - thermal.ambient_k
-    ).reshape(-1)
-    return rows, rhs
-
-
 def _build_collision_problem(
     polytope: PowerPolytope,
     thermal: ThermalFamily,
@@ -279,7 +253,7 @@ def _build_collision_problem(
     """
 
     n = polytope.dimension
-    a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
+    a_eq, b_eq, base_a_ub, base_b_ub = two_world_polytope_rows(polytope)
     action_rows: List[np.ndarray] = []
     action_rhs: List[float] = []
     for index in selected:
@@ -289,7 +263,7 @@ def _build_collision_problem(
         action_rhs.extend((action.tolerance, action.tolerance))
 
     bounds = tuple(zip(polytope.lower_w, polytope.upper_w)) * 2
-    robust_rows, robust_rhs = _robust_safe_rows(thermal, margin_k)
+    robust_rows, robust_rhs = robust_safe_cell_rows(thermal, margin_k)
     if safe_row_indices is not None:
         index_list = list(safe_row_indices)
         robust_rows, robust_rhs = robust_rows[index_list], robust_rhs[index_list]
@@ -430,7 +404,7 @@ def _full_safe_satisfied(
     tolerance. The kernel drops SAFE rows it proved redundant; this re-checks the
     dropped ones on the returned witness, so an audit/cache error that dropped a
     binding row is caught (defence-in-depth on top of the monotonicity theorem)."""
-    rows, rhs = _robust_safe_rows(thermal, margin_k)
+    rows, rhs = robust_safe_cell_rows(thermal, margin_k)
     return bool(np.all(rows @ np.asarray(safe_world, dtype=float) <= rhs + tolerance))
 
 
@@ -447,7 +421,7 @@ def _collision_search_kernelized(
     """First collision using a VerifiedThermalKernel: the collision LP is built with
     only the kernel's SAFE-row subset and only the kernel's REJECT specs. Sibling of
     `_collision_search` (which is left byte-for-byte unchanged and is the fallback);
-    reuses `_CollisionProblem`/`_solve_collision_spec`/`_pair_rows`/`_robust_safe_rows`.
+    reuses `_CollisionProblem`/`_solve_collision_spec`/`two_world_polytope_rows`/`robust_safe_cell_rows`.
 
     NON-EXHAUSTIVE existence only (the deletion path): returns the first collision or
     None. A None result is trusted ONLY for a structurally valid, correctly bound,
@@ -561,8 +535,6 @@ def first_collision(
     if kernel is None:
         return _collision(polytope, thermal, actions, selected, margin_k,
                           feasibility_tolerance, workers)
-    # lazy import avoids a module-load cycle (thermal_kernel imports synthesis)
-    from CertiTherm.thermal_kernel import ThermalKernelError
     try:
         return _collision_search_kernelized(polytope, thermal, actions, selected,
                                             margin_k, feasibility_tolerance, workers, kernel)
@@ -651,7 +623,7 @@ def _state_constraints(
     if state == "ANY":
         return np.empty((0, 2 * n)), np.empty(0)
     if state == "SAFE":
-        rows, rhs = _robust_safe_rows(thermal, margin_k)
+        rows, rhs = robust_safe_cell_rows(thermal, margin_k)
     else:
         response = thermal.response_k_per_w[model]
         rows = -response[point][None, :]
@@ -682,7 +654,7 @@ def _single_state_world(
         if state == "ANY":
             rows, rhs, model_id = power.a_ub, power.b_ub, "UNCONSTRAINED"
         elif state == "SAFE":
-            safe_rows, safe_rhs = _robust_safe_rows(thermal, margin_k)
+            safe_rows, safe_rhs = robust_safe_cell_rows(thermal, margin_k)
             rows = np.vstack((power.a_ub, safe_rows))
             rhs = np.concatenate(
                 (
@@ -770,7 +742,7 @@ def _state_collision(
             right_model_id=model_id,
         )
     n = polytope.dimension
-    a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
+    a_eq, b_eq, base_a_ub, base_b_ub = two_world_polytope_rows(polytope)
     action_rows, action_rhs = [], []
     for index in selected:
         action = actions[index]

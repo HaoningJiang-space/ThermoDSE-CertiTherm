@@ -37,8 +37,6 @@ from CertiTherm.synthesis import (
     _anytime_lower_bound,
     _greedy_cover,
     _insert_minimal_cut,
-    _pair_rows,
-    _robust_safe_rows,
     run_highs,
 )
 from CertiTherm.core import CandidateSpace, WorldPair
@@ -47,6 +45,8 @@ from CertiTherm.experiments import (
     _ordered_architectures, _power_space, _registry_split, _rows, load_family,
 )
 from CertiTherm.measurements import build_measurement_library
+from CertiTherm.thermal_constraints import robust_safe_cell_rows as _robust_safe_rows
+from CertiTherm.thermal_constraints import two_world_polytope_rows as _pair_rows
 
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "artifacts" / "diag150b"
 BUDGET_S = float(sys.argv[2]) if len(sys.argv) > 2 else 300.0

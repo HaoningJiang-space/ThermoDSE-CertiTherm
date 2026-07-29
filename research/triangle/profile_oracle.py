@@ -26,12 +26,13 @@ from scipy.optimize import linprog
 
 sys.path.insert(0, ".")
 
-from CertiTherm.synthesis import _pair_rows, _robust_safe_rows
 from CertiTherm.experiments import (
     ROOT, _capture, _measurement_costs, _ordered_architectures,
     _power_space, _registry_split, _rows, load_family,
 )
 from CertiTherm.measurements import build_measurement_library
+from CertiTherm.thermal_constraints import robust_safe_cell_rows as _robust_safe_rows
+from CertiTherm.thermal_constraints import two_world_polytope_rows as _pair_rows
 
 OUTPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "artifacts" / "diag150b"
 WORKLOAD = sys.argv[2] if len(sys.argv) > 2 else "transformer"

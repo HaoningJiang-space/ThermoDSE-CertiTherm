@@ -13,7 +13,7 @@ from scipy.optimize import linprog
 from .collision_proof import LinearFeasibilitySystem, ProposalKind
 from .gpu_collision import SharedCollisionBatch, propose_collision_batch
 from .gpu_collision_broker import CollisionBroker
-from .synthesis import _pair_rows, _state_constraints, _state_specs
+from .synthesis import _state_constraints, _state_specs
 from .experiments import (
     _measurement_costs,
     _ordered_architectures,
@@ -22,6 +22,7 @@ from .experiments import (
 )
 from .hotspot import load_family
 from .measurements import build_measurement_library
+from .thermal_constraints import two_world_polytope_rows as _pair_rows
 
 
 _BATCH_SIZES = (1, 7, 31, 32, 33, 127, 128, 129, 541)

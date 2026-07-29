@@ -28,7 +28,7 @@ sys.path.insert(0, ".")
 import kernel_audit
 from kernel_audit import Polytope, safe_audit, reject_audit
 from kernel_verify import Replica, candidate_full, reject_table, MARGIN_K
-from CertiTherm.synthesis import _robust_safe_rows
+from CertiTherm.thermal_constraints import robust_safe_cell_rows as _robust_safe_rows
 
 kernel_audit.TAU = 1e-6
 

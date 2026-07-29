@@ -34,7 +34,7 @@ from scipy.optimize import linprog
 sys.path.insert(0, ".")
 
 import CertiTherm.synthesis as syn
-from CertiTherm.synthesis import _pair_rows, _robust_safe_rows, _collisions
+from CertiTherm.synthesis import _collisions
 from CertiTherm.experiments import (
     ROOT, _capture, _measurement_costs, _ordered_architectures,
     _power_space, _registry_split, _rows, load_family,
@@ -44,6 +44,8 @@ from CertiTherm.measurements import build_measurement_library
 
 import kernel_audit                                            # same-dir import
 from kernel_audit import Polytope, safe_audit, reject_audit
+from CertiTherm.thermal_constraints import robust_safe_cell_rows as _robust_safe_rows
+from CertiTherm.thermal_constraints import two_world_polytope_rows as _pair_rows
 # kernel_audit reads TAU from sys.argv[4] at import; here argv[4] is n_partial, so
 # pin the audit margin explicitly (the greedy audits use kernel_audit.TAU).
 kernel_audit.TAU = 1e-6

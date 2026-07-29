@@ -57,10 +57,8 @@ synthesis	_fraction_lower_float	1	test	CertiTherm/tests/test_synthesis.py
 synthesis	_full_safe_satisfied	1	test	CertiTherm/tests/test_kernel_oracle.py
 synthesis	_greedy_cover	4	research+test	CertiTherm/tests/test_synthesis.py,research/dr_dsc/profile_synthesis.py,research/triangle/strong_oracle.py,research/triangle/triangle2_closure.py
 synthesis	_insert_minimal_cut	8	research+test	CertiTherm/tests/test_separation_diagnostics.py,CertiTherm/tests/test_synthesis.py,research/dr_dsc/profile_synthesis.py,research/triangle/cross_elim.py,research/triangle/maxhs.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py
-synthesis	_pair_rows	5	prod+research	CertiTherm/gpu_collision_benchmark.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py
 synthesis	_query_collision	1	test	CertiTherm/tests/test_synthesis.py
 synthesis	_required_candidate_indices	1	prod	CertiTherm/policies.py
-synthesis	_robust_safe_rows	7	prod+research	CertiTherm/thermal_kernel.py,research/triangle/kernel_audit.py,research/triangle/kernel_timing.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py
 synthesis	_solve_master	2	research+test	CertiTherm/tests/test_synthesis.py,research/dr_dsc/profile_synthesis.py
 synthesis	_state_collision	2	research+test	CertiTherm/tests/test_synthesis.py,research/dr_dsc/oracle.py
 synthesis	_state_constraints	1	prod	CertiTherm/gpu_collision_benchmark.py
