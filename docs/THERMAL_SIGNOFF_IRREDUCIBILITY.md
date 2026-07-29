@@ -1,4 +1,10 @@
-# Thermal feasibility sign-off does not coarsen
+# Two observations about coarse thermal instrumentation, and what they do NOT prove
+
+> **Substantially corrected 2026-07-29 after adversarial peer review.** This document was
+> titled "Thermal feasibility sign-off does not coarsen" and read as a lower bound on the
+> cheapest sufficient plan. It is not one, and the reviewer was right to refuse it. Neither
+> observation below rules out a cheaper plan; both describe one expensive plan and one
+> truncation bound. The corrections are recorded at the end.
 
 NON-CLAIM diagnostic evidence, 2026-07-29, dev split only. Two independent measurements on
 the same instance agree that a zero-error thermal-feasibility certificate needs per-block
@@ -61,17 +67,53 @@ the discovered confusable pairs. The second is spectral -- how much of the respo
 survives truncation, independent of any action library or any cut. That they agree is the
 evidence; either alone would be weaker.
 
-## What this rules out, and what it leaves open
+## What review overturned
 
-Ruled out on this instance: any claim that coarse thermal instrumentation, spectral
-truncation, or a low-rank surrogate can carry a zero-error feasibility certificate at a
-materially lower cost. The saving available over extracting everything is bounded by the
-structure, not by search quality -- the certified plans buying ~80% of the per-block library
-are not obviously an artifact of a weak search, which is what was assumed before measuring.
+Every item is the reviewer's, verified before being accepted.
 
-Left open, and the actual gap: the dev split certified L = 22.8-88.3 against U = 4174, a
-47x-183x interval, because the exact synthesizer completed 0 of 3 required candidates inside
-its 1800 s budget. The open problem is the WIDTH OF THE CERTIFICATE, not a missed cheap plan.
+1. **A plan's composition is not a lower bound.** The greedy plan buying 178 post-route
+   actions proves that THAT plan is feasible. It cannot show every feasible plan needs
+   comparable per-block resolution; that requires ruling out all cheaper subsets, which is
+   exactly the open optimisation question.
+2. **A tail bound is an upper bound on loss, not evidence of loss.** 20.7 K is what truncation
+   MIGHT cost, not a demonstration that an admissible power map inside the registered polytope
+   realises it and flips the decision. Failing to certify a small error is not certifying a
+   large one.
+3. **Reconstruction and decision-sufficiency are different problems.** DSOS must preserve one
+   threshold decision over the polytope, not reconstruct every block temperature. A spectral
+   argument about reconstruction does not transfer.
+4. **Spectral rank does not imply sensor cardinality.** Decision-relevant linear combinations
+   could span the necessary directions far more cheaply, depending on what the library offers.
+5. **"Diffusion smooths the response, not the adversary" needs a constructed adversary.** An
+   unconstrained operator-norm tail direction is not a power map inside the registered
+   polytope.
+6. **One architecture, package and workload cannot support a statement about physics in
+   general.**
+
+## What the two observations actually are
+
+Two facts about this instance, not a bound:
+
+  * a certified plan exists at cost 1450 whose composition is 98.2% per-block work, having
+    taken every coarse read available;
+  * truncating the operator to 98.3% of its energy leaves a worst-case peak tail bound of
+    20.7 K, so no CERTIFICATE has been demonstrated at coarse resolution.
+
+Together they say a cheap coarse certificate has not been found and one obvious route to it
+does not obviously work. They do not say none exists.
+
+## What would settle it
+
+For each cost threshold C below 1450, prove that every action set of cost at most C admits a
+valid SAFE/REJECT collision -- via a semi-infinite dual, a decision-aware subspace bound tied
+to action costs, or exact master-driven enumeration. Separately, replace the spectral upper
+bound with an admissible in-polytope witness that attains a large tail error AND crosses the
+registered decision margin. Until then 1450 is a feasible plan found by one search, not an
+irreducible minimum.
+
+`docs/PER_CELL_DECOMPOSITION_BOUND.md` is the first partial answer in that direction: it
+raises the certified lower bound for this candidate from 32 to 215 by a decomposition whose
+soundness is a one-line subset argument. The interval is 6.7x rather than 45x, still open.
 
 ## Scope
 

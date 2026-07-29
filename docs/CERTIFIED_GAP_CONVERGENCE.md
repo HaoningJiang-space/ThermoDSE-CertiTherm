@@ -1,4 +1,11 @@
-# The certified interval is limited by the formulation, not by the solver or the loop
+# A severe measured convergence bottleneck in greedy constraint generation
+
+> **Retitled and substantially corrected 2026-07-29 after adversarial peer review.** This
+> document previously claimed the certified interval was limited BY THE FORMULATION and could
+> not be improved AT ANY BUDGET. That claim is withdrawn. The reviewer was asked to refute it
+> and did, on several independent grounds recorded in "What the review overturned" below. What
+> survives is a measured practical bottleneck on one instance, which is a weaker and different
+> statement.
 
 NON-CLAIM diagnostic evidence, 2026-07-29, dev split, one candidate. Records a measured
 negative that changes what an improvement would have to be.
@@ -91,10 +98,20 @@ holds across runs as well as across the range.
 Doubling the number of discovered cuts buys about **4.7** of certified lower bound. The
 certified upper bound for this candidate is about 1450. Extrapolating:
 
-| target | cuts required |
+| target | cuts the fit projects |
 | --- | ---: |
-| 1370 (the `dual` baseline's cost, per candidate) | ~2^298 ~ 10^90 |
-| 1450 (this candidate's certified U) | ~2^315 ~ 10^95 |
+| 1370 (the `dual` baseline's cost, per candidate) | ~2^305 ~ 10^92 |
+| 1450 (this candidate's certified U) | ~2^322 ~ 10^97 |
+
+(These were printed as 2^298 and 2^315 before review, carried over from an earlier fit and
+never recomputed when the coefficients changed. The reviewer caught the inconsistency.)
+
+**And the projection refutes itself.** The library has 243 actions, so there are 2^243 ~
+1.4 x 10^73 possible selections in total, and Theorem 3's finite-termination argument is that
+each new collision prevents the queried selection from recurring. A projection needing 10^97
+cuts therefore exceeds the entire selection space by twenty-four orders of magnitude. The
+fitted logarithm **cannot** hold to 1450. Since the true optimum is above 32, a rise steeper
+than the fit is not merely possible somewhere in the tail -- it is mathematically necessary.
 
 For scale, the observable universe holds on the order of 10^80 atoms. The master solve time
 also grows superlinearly -- 0.0, 0.7, 2.8, 13.1, 25.2, 72.7 seconds -- and past 4 000 cuts it
@@ -111,15 +128,18 @@ The same run continued to 22 583 cuts. At 8 000 and at 16 000 the exact master h
 | 8 000 | timeout | 20.3 |
 | 16 000 | timeout | 21.6 |
 
-So beyond about four thousand cuts the only computable bound is the weak-duality one, and at
-sixteen thousand cuts it reads **21.6 -- lower than the 32.0 the exact master returned at four
-thousand**. Accumulating more evidence makes the reportable bound worse, because the only
-bound that still finishes is the loose one.
+So beyond about four thousand cuts the only bound that still finishes is weak duality, and at
+sixteen thousand cuts it reads 21.6 -- lower than the 32.0 the exact master returned at four
+thousand.
 
-This is a second wall, independent of the first. Even granting the 10^92 cuts the growth rate
-demands, the master over them is not solvable. Within this formulation the best certified
-lower bound reachable at any cost is about **32 against an upper bound near 1450** -- the
-45x gap is not a budget symptom, it is the ceiling.
+An earlier version of this section said that "accumulating more evidence makes the reportable
+bound worse". **That was wrong**, and review caught it: `_refresh_bound` keeps the maximum
+bound seen and never lowers it, so a weaker later evaluation does not retract the 32.0. What
+is true is narrower -- past about four thousand cuts, further accumulation stops CONTRIBUTING
+to the bound in this configuration, because the evaluation that could use it no longer
+finishes within 300 s.
+
+That is a practical wall for this solver at this size, not a proof about the formulation.
 
 This is what makes the conclusion structural rather than a matter of budget. No separation
 speed-up, no master frequency, no amount of compute, and no spatial pruning of reject cells
@@ -188,13 +208,89 @@ So the logarithm is a property of the cuts, not of the order. Within this formul
 is no cut-selection policy left to try that would plausibly change the exponent; three of the
 obvious ones were tried and all lost to doing nothing.
 
+## What the review overturned
+
+The document was written to be refuted and was. Each item below is the reviewer's, verified
+against the code or arithmetic before being accepted.
+
+1. **"At any computational budget" is not established and contradicts this project's own
+   theorem.** Theorem 3 says the formulation terminates with the true finite-library optimum
+   or `UNSYNTHESIZABLE` under exact master and oracle assumptions. An impossibility claim
+   needs an analytic lower bound on convergence, not a longer timeout. No finite curve can
+   prove it.
+2. **The extrapolation is not evidence of a ceiling.** Six correlated points over 125-4 000
+   cuts support a description on that interval, not an asymptotic law forty doublings away.
+   The 3 619-cut replicate lies INSIDE the fitted range, so it is interpolation, not
+   validation of the tail. And the projection exceeds the 2^243 selection space, so the law
+   must break -- a knee is necessary, not merely possible.
+3. **The arithmetic was internally inconsistent**, as recorded above.
+4. **The "bound gets worse" claim was false**: the caller keeps the maximum.
+5. **The master values are HiGHS-reported optima with self-checks, not independently certified
+   ones.** `_solve_master` requests a zero relative gap, rejects an unsuccessful MILP, and
+   verifies coverage, objective and dual bound; a native time limit becomes `TimeoutError`
+   rather than a partial answer. But the probes record neither `bound_provenance` nor solver
+   status, so which checkpoints were weak-duality-certified and which were solver-attested is
+   not recoverable from the output. "HiGHS-reported exact restricted-master optimum" is
+   accurate; "independently certified" is not.
+6. **The cut-selection comparison has an experimental defect.** Each evaluated master is built
+   from the batch prefix ALONE, not from `warm-up cuts + prefix`, and the least-redundant
+   score measures redundancy only within the batch. Prefixes also survive domination at
+   different rates, so equal "cuts processed" is not equal evidence. The comparison is
+   therefore weaker than presented -- it shows three scalar per-cut rankings did not beat spec
+   order on one fixed batch at one selection, not that selection cannot matter.
+7. **A materially different policy was not tried.** All three heuristics score cuts
+   individually. A joint bundle selection -- choose the set of k cuts maximising the resulting
+   master optimum, rather than ranking cuts one at a time -- is a different object, and an
+   adaptive version feeding each round's master solution back through separation could behave
+   differently again.
+
+One item the reviewer raised was already measured, from a file added after the review was
+sent: `master_driven_growth_probe.py` implements exactly the branch-and-cut trajectory item 1
+asks for -- solve the restricted master, separate ITS optimum, repeat -- and it is WORSE than
+greedy at every checkpoint (8.0/11.0/13.0/15.0 against 9.0/16.0/18.0/24.0). That does not
+rescue the ceiling claim, but it does answer the specific "you never tested branch-and-cut"
+objection.
+
+## What is and is not established
+
+Established, on one candidate of one development instance:
+
+  * along a greedy-driven trajectory the exact restricted-master value rose 9 -> 32 over
+    125 -> 4 000 active cuts, well described by a logarithm on that interval;
+  * this HiGHS configuration did not finish 8 000- and 16 000-cut masters in 300 s;
+  * three per-cut rankings on one fixed batch did not beat deterministic spec order;
+  * separating the master's optimum instead of the greedy cover was worse at four checkpoints;
+  * lazy and exhaustive harvesting both remained unresolved after 900 s each, with lazy
+    reaching roughly twice the bound -- a finite-budget policy effect, not policy irrelevance.
+
+NOT established: an asymptotic rate; any analytic bound on cuts or time; that 32 is the best
+obtainable bound; that the true optimum is near 1450; impossibility at arbitrary budget; or
+anything beyond this candidate.
+
+The defensible verdict is the reviewer's: **greedy constraint generation exhibits a severe,
+measured practical convergence bottleneck on this instance. The evidence does not show a
+formulation-level ceiling.**
+
+## What would settle it
+
+  * Exact restricted-master values well beyond 4 000 cuts by an incremental or
+    proof-producing MIP route, with log, piecewise-log and staircase models preregistered and
+    the tail checkpoints held out.
+  * `bound_provenance` and solver status recorded at every checkpoint, and each optimum
+    reproduced by a second exact solver.
+  * The cut-selection comparison rerun over `warm-up + prefix` with equal surviving
+    antichains, and each policy's master solution fed back through separation for several
+    rounds.
+  * Joint bundle selection, as the materially different fourth policy.
+
 ## Consequence for what would count as an improvement
 
-The certified interval cannot be closed by:
+On this instance, the certified interval was not closed by:
 
-  * a better harvesting policy (measured: 440x more iterations, bound doubles, still open);
-  * solving the exact master more often (measured: 1.8x, still 45x short);
-  * more compute on the same formulation (the two above are what more compute buys).
+  * a better harvesting policy (measured: 440x more iterations, bound roughly doubles, still
+    open);
+  * solving the exact master more often (measured: 1.8x, still far short);
+  * separating the master's optimum rather than the greedy cover (measured: worse).
 
 Closing it needs a lower bound that does not come from covering *enumerated* pairs -- an
 argument over the continuous world set or the observation subspace directly, rather than over
