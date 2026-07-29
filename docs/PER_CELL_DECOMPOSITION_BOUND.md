@@ -292,8 +292,13 @@ a k where the bound is much stronger than a single cell's and the instance still
 `research/triangle/cell_subset_bound_probe.py` measures that trade over nested subsets of
 sizes 1, 2, 4, 8, 16. **Only the first point is in hand**: subset size 1 certifies 260.73 at
 600 s, reproducing an independent single-cell run of the same budget exactly, which confirms
-the measurement is repeatable. The larger subsets were not obtained -- the shared host
-restarted the job repeatedly and chasing it further stopped being a good use of the machine.
+the measurement is repeatable. The larger subsets were not obtained within the session.
+
+An earlier version of this paragraph blamed the shared host for restarting the job. That was
+not established. The evidence for it was elapsed times read from `pgrep ... | head -1`, which
+returns a freshly spawned pool WORKER rather than the main process, so the number looked small
+no matter how long the run had been going. Whether anything restarted is unknown; what is
+known is only that the larger subsets did not complete here.
 
 So whether a subset beats its best member here is open. The inequality is not: it holds by the
 same one-line argument, so the only question is how much it buys and at what size the instance
