@@ -7,7 +7,8 @@ not characterised by its bounds; it is characterised by where it stops working.
 
 This builds well-formed DSOS instances of increasing size from the SAME committed operator by
 restricting to the first k blocks: the response submatrix, the power polytope on those blocks,
-and the actions whose support lies inside them. The result is a smaller real instance, not the
+the actions whose support lies inside them, and a thermal limit rescaled into the achievable
+peak range so that the restriction still poses a decision. The result is a smaller real instance, not the
 real problem -- the physics of a 16-block restriction is not the physics of the chip. What it
 measures is the ALGORITHM's frontier, which is what a scaling claim needs and what no
 measurement in this repository currently provides.
@@ -64,11 +65,22 @@ def _restrict(polytope: PowerPolytope, family: ThermalFamily, actions, blocks: i
 
     response = np.array(family.response_k_per_w[:, :blocks, :blocks])
     ambient = np.array(family.ambient_k[:, :blocks])
+
+    # The limit has to be RESCALED, not inherited. With only a few blocks dissipating, no
+    # admissible power map reaches the full instance's 330 K, so the REJECT cell is empty,
+    # every plan certifies vacuously, and synthesis returns OPTIMAL at cost 0 after one
+    # iteration -- measured, and it is measuring nothing. Placing the limit at the midpoint
+    # of the achievable peak range makes both SAFE and REJECT reachable, which is what makes
+    # the restriction a decision problem rather than a formality.
+    peak_low = float((response @ small_polytope.lower_w).max() + ambient.max())
+    peak_high = float((response @ small_polytope.upper_w).max() + ambient.max())
+    limit_k = peak_low + 0.5 * (peak_high - peak_low)
+
     small_family = ThermalFamily(
         family.model_ids,
         response,
         ambient,
-        float(family.limit_k),
+        limit_k,
         error_k=np.array(family.error_k),
     )
 
@@ -126,7 +138,8 @@ def main() -> None:
         if size > family.blocks:
             break
         small_polytope, small_family, kept = _restrict(polytope, family, actions, size)
-        record = {"blocks": size, "actions": len(kept)}
+        record = {"blocks": size, "actions": len(kept),
+                  "limit_k": round(float(small_family.limit_k), 4)}
         if not kept:
             record["status"] = "SKIPPED: no action supported inside this restriction"
             print(json.dumps(record), flush=True)
