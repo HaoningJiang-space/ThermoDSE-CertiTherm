@@ -10,15 +10,19 @@ only in part, and both restrictions can only understate the bound -- an unestabl
 simply an edge the graph does not have, and a subgraph's minimum vertex cover is a lower bound
 on the whole graph's.
 
-Scan restriction. For the pair (b, c) the blind direction raises b at the expense of c, so the
-reject cells scanned are (m, b) and (m, c) over every model -- 2 * models LPs per pair instead of
-models * points. A heuristic on where to look, never an assumption about what is not there.
+Scan restriction. Moving t of power from c to b changes point q's temperature by exactly
+`t * (R[m,q,b] - R[m,q,c])`, so the reject cells with the most leverage on the blind direction
+are those where that difference is largest. The scan ranks every (model, point) by it and takes
+the strongest `scan_points`. Peer review noted the earlier rule -- scan only the pair's own two
+points -- was leaving valid edges undiscovered. Either way this is a heuristic about WHERE TO
+LOOK, never an assumption about what is not there: a pair no scanned cell establishes is
+recorded as unestablished, which only ever lowers the bound.
 
 NON-CLAIM diagnostic. Reads committed artifacts, writes nothing.
 
 Usage (on moe-server, from the repo root):
     .venv/bin/python research/triangle/indistinguishable_pair_bound_probe.py <artifact-root> \
-        <candidate> <package> <workload> [max_pairs] [total_budget_s]
+        <candidate> <package> <workload> [max_pairs] [total_budget_s] [scan_points]
 
 `max_pairs = 0` prints the structural section and stops: if the common refinement is all
 singletons there is no cut of this shape and the direction dies for zero LPs.
@@ -30,6 +34,8 @@ import json
 import sys
 import time
 from itertools import combinations
+
+import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -54,6 +60,7 @@ def main() -> None:
     candidate, package, workload = sys.argv[2], sys.argv[3], sys.argv[4]
     max_pairs = int(sys.argv[5]) if len(sys.argv) > 5 else 0
     budget_s = float(sys.argv[6]) if len(sys.argv) > 6 else 3600.0
+    scan_points = int(sys.argv[7]) if len(sys.argv) > 7 else 8
 
     polytope, blocks, _placed, floorplan_text = _power_space(
         artifacts / "captures" / f"{workload}--{candidate}.npz"
@@ -71,7 +78,8 @@ def main() -> None:
     actions = build_measurement_library(
         candidate, blocks, floorplan_text, architectures[candidate], costs
     )
-    models, points = family.response_k_per_w.shape[:2]
+    response = family.response_k_per_w
+    models, points = response.shape[:2]
     single_block_actions, cells = blind_direction_cells(actions, len(blocks))
     cost = block_instrumentation_cost(actions, single_block_actions, range(len(blocks)))
 
@@ -86,7 +94,7 @@ def main() -> None:
         "candidate": candidate, "package": package, "workload": workload,
         "blocks": len(blocks), "library_actions": len(actions),
         "single_block_actions": len(single_block_actions),
-        "models": models, "points": points,
+        "models": models, "points": points, "scan_points": scan_points,
         "refinement_cells": len(cells),
         "cells_with_two_or_more": len(multi),
         "largest_cell_sizes": sizes[:12],
@@ -123,8 +131,12 @@ def main() -> None:
             if time.monotonic() - started > budget_s:
                 stopped_early = "budget_s"
                 break
+            # Rank every reject cell by the temperature swing the blind direction produces
+            # there, and scan only the strongest few.
+            leverage = abs(response[:, :, b] - response[:, :, other])
+            order = np.argsort(leverage, axis=None)[::-1][:scan_points]
             specs = tuple(
-                (m, q) for m in range(models) for q in (b, other) if q < points
+                (int(i // points), int(i % points)) for i in order
             )
             tested += 1
             found = certify_blind_pair(
