@@ -419,3 +419,38 @@ def test_the_cover_solves_the_dense_cells_the_real_instance_actually_has() -> No
     assert value == 144 and len(cover) == 18, (
         f"expected the measured cell-16 value of 144.0 over 18 blocks, got {float(value)}"
     )
+
+
+def test_seeding_starts_separation_from_the_seeded_selection() -> None:
+    """The integration bug, pinned: seeds are useless if the first separation ignores them.
+
+    `selected` stays empty until the first master refresh, which is correct only when the ledger
+    starts empty. With seeds present, separating against the empty selection returns generic
+    collisions whose cuts are wide; every wide cut is a superset of one of the narrow two-action
+    seeds, the antichain rejects them all as dominated, and the loop's "no new cut" guard fires
+    at iteration one. On the real instance that produced UNRESOLVED with no bound at all, worse
+    than not seeding.
+
+    A one-iteration run is enough to see it: with the fix the first separation is asked about a
+    selection that already hits every seed.
+    """
+
+    polytope, thermal, actions = _instance()
+    single_block_actions, cells = blind_direction_cells(actions, thermal.blocks)
+    seeds = _seed_cuts(polytope, thermal, actions, cells, single_block_actions)
+    assert seeds, "no seeds means this test cannot distinguish the two entry points"
+
+    one = synthesize_minimum_observation(
+        polytope, thermal, actions, max_iterations=1, seed_cuts=seeds
+    )
+    assert one.status != "UNRESOLVED", (
+        f"a seeded first iteration must make progress, got {one.status}: {one.message}"
+    )
+    assert one.lower_bound is not None and one.lower_bound > 0, (
+        "the seeded master must report a positive bound from the very first iteration"
+    )
+
+    bare = synthesize_minimum_observation(polytope, thermal, actions, max_iterations=1)
+    assert bare.lower_bound is None or one.lower_bound >= bare.lower_bound, (
+        "seeding must not produce a weaker first-iteration bound than not seeding"
+    )

@@ -1771,6 +1771,18 @@ def synthesize_minimum_observation(
                 row[[index_of[name] for name in seed]] = 1.0
                 _insert_minimal_cut(cuts, row, cut_masks, ledger)
         master = _solve_master(costs, cuts)
+        if cuts:
+            # Start separating from what the seeds already imply, not from nothing.
+            #
+            # `selected` is empty until the first master refresh, which is right when the
+            # ledger starts empty. With seeds it is wrong, and measurably so: separating
+            # against the empty selection returns generic collisions whose cuts are wide, every
+            # wide cut is a superset of one of the narrow two-action seeds, the antichain
+            # rejects all of them as dominated, and the loop's "no new cut" guard fires at
+            # iteration 1. Measured on arch_a with 1028 seeds: UNRESOLVED with no bound at all,
+            # against 5.0 for the same instance unseeded. The seeds were sound; the entry point
+            # was not. With no seeds the master selects nothing, so this is a no-op there.
+            selected = master.selected
         exact_candidate = False
         if separation_policy not in ("exhaustive", "lazy"):
             raise ContractViolation(
