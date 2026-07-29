@@ -87,8 +87,13 @@ def main() -> None:
         widths.append(int(covering.size))
         costs = [actions[int(i)].cost for i in covering]
         cheapest.append(float(min(costs)))
-        # Greedy: buy the cheapest action that covers this cut, exactly as _greedy_cover
-        # does, so the accumulated cost is comparable with the reported policy costs.
+        # Buy the cheapest action covering the NEWEST cut. This is NOT what `_greedy_cover`
+        # does -- that recomputes a global gain-per-cost cover over every active cut each
+        # iteration, so its selection can change and previously satisfied cuts can be
+        # abandoned. The comment here used to claim they were the same; peer review caught
+        # it. The consequence matters: this monotone trajectory terminated in 190 cuts and
+        # the production loop does not, so the two are not evidence about each other.
+        # `bound_ceiling_probe.py` uses the real `_greedy_cover` where that matters.
         selected.append(int(covering[int(np.argmin(costs))]))
 
     # What the greedy sign-off plan actually BUYS, by measurement class. The EDA reading of

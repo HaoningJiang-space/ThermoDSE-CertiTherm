@@ -295,7 +295,7 @@ def _build_collision_problem(
     )
 
 
-def _collision_search(
+def _collision_search_unguarded(
     polytope: PowerPolytope,
     thermal: ThermalFamily,
     actions: Sequence[MeasurementAction],
@@ -384,6 +384,45 @@ def _collision_search(
     return tuple(collisions)
 
 
+def _collision_search(
+    polytope: PowerPolytope,
+    thermal: ThermalFamily,
+    actions: Sequence[MeasurementAction],
+    selected: Iterable[int],
+    margin_k: float,
+    feasibility_tolerance: float,
+    workers: Optional[int],
+    exhaustive: bool,
+) -> Tuple[WorldPair, ...]:
+    """Every separation search, with the worker-pool failure translated exactly once.
+
+    A dead separation worker is epistemic, not a defect: the batch as a whole cannot
+    support any conclusion, and results from completed futures are discarded rather than
+    committed, so no partially consumed batch leaks into the cut set. It must therefore
+    surface as UNRESOLVED and never escape the three-status API.
+
+    This guard used to live in `_collisions` alone. `_collision`, the first-collision
+    wrapper, called the search directly -- so with more than one worker a broken pool
+    escaped as `BrokenProcessPool` on that path. Peer review found it. Guarding the search
+    itself rather than each wrapper means a third caller cannot reintroduce the hole.
+    """
+
+    try:
+        return _collision_search_unguarded(
+            polytope,
+            thermal,
+            actions,
+            selected,
+            margin_k,
+            feasibility_tolerance,
+            workers,
+            exhaustive,
+        )
+    except BrokenProcessPool as exc:
+        raise UnresolvedComputation(f"separation worker pool broke: {exc}") from exc
+
+
+
 
 
 def _collision(
@@ -442,23 +481,16 @@ def _collisions(
 ) -> Tuple[WorldPair, ...]:
     """Return one collision per reachable reject cell in deterministic order."""
 
-    try:
-        return _collision_search(
-            polytope,
-            thermal,
-            actions,
-            selected,
-            margin_k,
-            feasibility_tolerance,
-            workers,
-            True,
-        )
-    except BrokenProcessPool as exc:
-        # A separation worker died. The batch as a whole cannot support any
-        # conclusion -- results from completed futures are discarded rather
-        # than committed, so no partially-consumed batch can leak into the
-        # cut set. Epistemic, not a defect.
-        raise UnresolvedComputation(f"separation worker pool broke: {exc}") from exc
+    return _collision_search(
+        polytope,
+        thermal,
+        actions,
+        selected,
+        margin_k,
+        feasibility_tolerance,
+        workers,
+        True,
+    )
 
 
 def _state_specs(thermal: ThermalFamily, state: str) -> Iterable[Tuple[int, int]]:
@@ -1784,7 +1816,11 @@ def synthesize_minimum_observation(
         # is what turns its cost into a genuine upper bound and makes an
         # anytime gap meaningful at all. Without this a run could hold a
         # provably collision-free plan and still report nothing usable.
-        final_batch = _collisions(
+        # Same policy as the loop: this branch needs only one collision, or an
+        # exhaustive proof that none remain. Leaving it on the exhaustive harvest kept a
+        # potentially 681-LP timeout at exactly the point meant to salvage a certified
+        # plan after the iteration cap. Found in peer review.
+        final_batch = harvest(
             polytope,
             thermal,
             actions,
