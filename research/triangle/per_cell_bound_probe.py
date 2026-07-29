@@ -28,7 +28,7 @@ NON-CLAIM diagnostic. Reads committed artifacts, writes nothing.
 
 Usage (on moe-server, from the repo root):
     .venv/bin/python research/triangle/per_cell_bound_probe.py <artifact-root> \
-        <candidate> <package> <workload> [cells] [per_cell_s]
+        <candidate> <package> <workload> [cells] [per_cell_s] [max_iterations]
 """
 
 from __future__ import annotations
@@ -78,6 +78,10 @@ def main() -> None:
     candidate, package, workload = sys.argv[2], sys.argv[3], sys.argv[4]
     cells = int(sys.argv[5]) if len(sys.argv) > 5 else 8
     per_cell_s = float(sys.argv[6]) if len(sys.argv) > 6 else 120.0
+    # The default 10 000 iteration cap, not the time budget, is what stopped the first
+    # long run: it reached the cap in 266 s of an 1 800 s budget with the bound still
+    # rising. The cap has to be a parameter for the time budget to mean anything here.
+    max_iterations = int(sys.argv[7]) if len(sys.argv) > 7 else 10000
 
     polytope, blocks, _placed, floorplan_text = _power_space(
         artifacts / "captures" / f"{workload}--{candidate}.npz"
@@ -102,6 +106,7 @@ def main() -> None:
         "library_actions": len(actions),
         "library_cost": float(sum(a.cost for a in actions)),
         "cells_sampled": cells, "per_cell_budget_s": per_cell_s,
+        "max_iterations": max_iterations,
     }, indent=2), flush=True)
 
     # Spread the sample across the floorplan rather than taking a contiguous prefix: adjacent
@@ -115,7 +120,9 @@ def main() -> None:
         started = time.monotonic()
         try:
             with budget_scope(per_cell_s):
-                plan = synthesize_minimum_observation(polytope, restricted, actions)
+                plan = synthesize_minimum_observation(
+                    polytope, restricted, actions, max_iterations=max_iterations
+                )
             record["status"] = plan.status
             record["exact_cost"] = plan.exact_cost
             record["lower_bound"] = plan.lower_bound
