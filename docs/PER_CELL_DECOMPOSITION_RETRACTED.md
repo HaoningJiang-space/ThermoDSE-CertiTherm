@@ -48,13 +48,31 @@ before it is reported. This claim was the exception, and it was the load-bearing
   * The tests in `CertiTherm/tests/test_cell_subset_bound.py` pin the counterexample so the
     argument cannot be reintroduced.
 
-## What a correct decomposition would need
+## What a correct decomposition would need, and whether the code can express it
 
 Any restriction used for a lower bound must RELAX the instance: keep the SAFE conjunction
-intact while dropping REJECT options. Restricting the REJECT model/point set while retaining
-every SAFE row is such a relaxation, and it is not what these probes did -- they used one
-`ThermalFamily` for both roles, so the two moved together. Whether the machinery can express
-the asymmetry is unexamined.
+intact while dropping REJECT options. That is a genuine relaxation -- every SAFE constraint
+still binds, and fewer REJECT options mean fewer collisions, so the relaxed optimum cannot
+exceed the real one.
+
+These probes could not do that because they passed one `ThermalFamily` to
+`synthesize_minimum_observation`, and it derives both the SAFE rows and the REJECT spec list
+from the same array shape. The two necessarily moved together.
+
+**The lower layer does separate them**, which the previous version of this file left
+unexamined. `_build_collision_problem` takes `safe_row_indices` and builds the SAFE block from
+exactly those rows, while the REJECT specs are supplied independently by the caller --
+`_collision_search` enumerates the full grid and `_collision_search_kernelized` takes
+`kernel.reject_specs`. Verified: the same instance yields 3 common rows with all SAFE rows and
+1 with `safe_row_indices=[0]`, while the spec list is untouched either way.
+
+So the correct relaxation is expressible as "all `safe_row_indices`, a subset of
+`reject_specs`" -- the shape `_collision_search_kernelized` already accepts. What is missing
+is a path from `synthesize_minimum_observation` to it: that entry point exposes neither knob,
+and the kernelized search reaches them only through a `VerifiedThermalKernel`, whose soundness
+argument is about a monotonicity theorem for kernels and not about this use.
+
+That is the concrete next step, and it is an implementation question rather than an open one.
 
 Until that exists, the certified lower bound on the real instance is what the production path
 reports: **22.8 to 88.3** on the six dev queries.
