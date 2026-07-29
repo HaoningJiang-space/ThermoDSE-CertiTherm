@@ -33,6 +33,7 @@ the registered limit, 681 reject cells, of which the scan covers 1 or 2.
 | ---: | --- | ---: | ---: | ---: | ---: |
 | 1 | **OPTIMAL** | **24.0** (exact) | 1 021 | 994 | 186 |
 | 2 | UNRESOLVED | 29.56 | 4 161 | 7 495 | 600 |
+| 4 | UNRESOLVED | 31.86 | 2 220 | 6 259 | 600 |
 
 Two things worth separating.
 
