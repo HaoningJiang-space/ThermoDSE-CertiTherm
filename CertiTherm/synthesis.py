@@ -255,17 +255,28 @@ def _robust_safe_rows(
     return rows, rhs
 
 
-def _collision_search(
+def _build_collision_problem(
     polytope: PowerPolytope,
     thermal: ThermalFamily,
     actions: Sequence[MeasurementAction],
     selected: Iterable[int],
     margin_k: float,
     feasibility_tolerance: float,
-    workers: Optional[int],
-    exhaustive: bool,
-) -> Tuple[WorldPair, ...]:
-    """Separate safe/reject cells with deterministic parallel LP batches."""
+    *,
+    safe_row_indices: Optional[Sequence[int]] = None,
+) -> _CollisionProblem:
+    """Assemble the two-world collision LP shared by every collision search.
+
+    The variable vector is the pair `(p_safe, p_unsafe)`, hence the doubled bounds and the
+    `2 * n` objective. Common rows are, in this order: the pair-coupling rows from the
+    polytope, the robust SAFE rows, and two rows per already-SELECTED action pinning the
+    two worlds to agree on that observation to within its tolerance.
+
+    `safe_row_indices` restricts the robust SAFE rows to a subset. The exhaustive baseline
+    passes None and gets every row; the kernelized search passes the kernel's verified
+    subset. That single substitution was the ONLY difference between two otherwise
+    identical thirty-line constructions, which is why they are one function now.
+    """
 
     n = polytope.dimension
     a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
@@ -278,17 +289,50 @@ def _collision_search(
         action_rhs.extend((action.tolerance, action.tolerance))
 
     bounds = tuple(zip(polytope.lower_w, polytope.upper_w)) * 2
-    response = thermal.response_k_per_w
-    ambient = thermal.ambient_k
     robust_rows, robust_rhs = _robust_safe_rows(thermal, margin_k)
+    if safe_row_indices is not None:
+        index_list = list(safe_row_indices)
+        robust_rows, robust_rhs = robust_rows[index_list], robust_rhs[index_list]
     safe_rows = np.hstack((robust_rows, np.zeros_like(robust_rows)))
     common_chunks = [base_a_ub, safe_rows]
     common_rhs_chunks = [base_b_ub, robust_rhs]
     if action_rows:
         common_chunks.append(np.asarray(action_rows))
         common_rhs_chunks.append(np.asarray(action_rhs))
-    common_a_ub = np.vstack(common_chunks)
-    common_b_ub = np.concatenate(common_rhs_chunks)
+    return _CollisionProblem(
+        n=n,
+        objective=np.zeros(2 * n),
+        common_a_ub=np.vstack(common_chunks),
+        common_b_ub=np.concatenate(common_rhs_chunks),
+        a_eq=a_eq,
+        b_eq=b_eq,
+        bounds=bounds,
+        response=thermal.response_k_per_w,
+        ambient=thermal.ambient_k,
+        error_k=thermal.error_k,
+        limit_k=thermal.limit_k,
+        margin_k=margin_k,
+        feasibility_tolerance=feasibility_tolerance,
+        model_ids=thermal.model_ids,
+    )
+
+
+def _collision_search(
+    polytope: PowerPolytope,
+    thermal: ThermalFamily,
+    actions: Sequence[MeasurementAction],
+    selected: Iterable[int],
+    margin_k: float,
+    feasibility_tolerance: float,
+    workers: Optional[int],
+    exhaustive: bool,
+) -> Tuple[WorldPair, ...]:
+    """Separate safe/reject cells with deterministic parallel LP batches."""
+
+    problem = _build_collision_problem(
+        polytope, thermal, actions, selected, margin_k, feasibility_tolerance
+    )
+    response = thermal.response_k_per_w
     specs = tuple(
         (reject_model, point)
         for reject_model in range(response.shape[0])
@@ -300,22 +344,6 @@ def _collision_search(
         # "no collision found" vacuously true and silently certify anything.
         raise UnresolvedComputation("no reject cells to separate")
     worker_count = min(_configured_workers(workers), len(specs))
-    problem = _CollisionProblem(
-        n=n,
-        objective=np.zeros(2 * n),
-        common_a_ub=common_a_ub,
-        common_b_ub=common_b_ub,
-        a_eq=a_eq,
-        b_eq=b_eq,
-        bounds=bounds,
-        response=response,
-        ambient=ambient,
-        error_k=thermal.error_k,
-        limit_k=thermal.limit_k,
-        margin_k=margin_k,
-        feasibility_tolerance=feasibility_tolerance,
-        model_ids=thermal.model_ids,
-    )
 
     if worker_count == 1:
         collisions = []
@@ -432,41 +460,16 @@ def _collision_search_kernelized(
     IS validated against the FULL SAFE rows; a failure raises `KernelValidationError`.
     Never used with `exhaustive=True` -- restricting specs changes the witness set."""
     kernel.validate_binding(polytope, thermal, margin_k, feasibility_tolerance)
-    n = polytope.dimension
-    a_eq, b_eq, base_a_ub, base_b_ub = _pair_rows(polytope)
-    action_rows: List[np.ndarray] = []
-    action_rhs: List[float] = []
-    for index in selected:
-        action = actions[index]
-        delta = np.concatenate((action.vector, -action.vector))
-        action_rows.extend((delta, -delta))
-        action_rhs.extend((action.tolerance, action.tolerance))
-    bounds = tuple(zip(polytope.lower_w, polytope.upper_w)) * 2
-    robust_rows, robust_rhs = _robust_safe_rows(thermal, margin_k)
-    idx = list(kernel.safe_row_indices)                        # SAFE-row subset
-    robust_rows, robust_rhs = robust_rows[idx], robust_rhs[idx]
-    safe_rows = np.hstack((robust_rows, np.zeros_like(robust_rows)))
-    common_chunks = [base_a_ub, safe_rows]
-    common_rhs_chunks = [base_b_ub, robust_rhs]
-    if action_rows:
-        common_chunks.append(np.asarray(action_rows))
-        common_rhs_chunks.append(np.asarray(action_rhs))
-    common_a_ub = np.vstack(common_chunks)
-    common_b_ub = np.concatenate(common_rhs_chunks)
+    problem = _build_collision_problem(
+        polytope, thermal, actions, selected, margin_k, feasibility_tolerance,
+        safe_row_indices=kernel.safe_row_indices,           # SAFE-row subset
+    )
     specs = tuple(kernel.reject_specs)                          # REJECT-cell subset (lexicographic)
     if not specs:
         # a valid artifact never has empty reject_specs; if one reaches here treat it
         # as a kernel fault (degrade to baseline), not a fail-closed UNRESOLVED.
         raise KernelValidationError("kernel has no reject specs to separate")
     worker_count = min(_configured_workers(workers), len(specs))
-    objective = np.zeros(2 * n)
-    problem = _CollisionProblem(
-        n=n, objective=objective, common_a_ub=common_a_ub, common_b_ub=common_b_ub,
-        a_eq=a_eq, b_eq=b_eq, bounds=bounds, response=thermal.response_k_per_w,
-        ambient=thermal.ambient_k, error_k=thermal.error_k, limit_k=thermal.limit_k,
-        margin_k=margin_k, feasibility_tolerance=feasibility_tolerance,
-        model_ids=thermal.model_ids,
-    )
 
     def _validated(pair: Optional[WorldPair]) -> Optional[WorldPair]:
         if pair is not None and not _full_safe_satisfied(
@@ -507,7 +510,13 @@ def _collision_search_kernelized(
         # in-place mutation (or a native call handed a writable buffer) fails loudly
         # instead of silently corrupting a concurrent solve. Process workers get
         # pickled COPIES, so this is only needed here.
-        for _arr in (objective, common_a_ub, common_b_ub, a_eq, b_eq):
+        for _arr in (
+            problem.objective,
+            problem.common_a_ub,
+            problem.common_b_ub,
+            problem.a_eq,
+            problem.b_eq,
+        ):
             _arr.flags.writeable = False
         with ThreadPoolExecutor(max_workers=worker_count) as pool:
             for item in pool.map(lambda s: _solve_collision_spec(problem, s), remaining):
