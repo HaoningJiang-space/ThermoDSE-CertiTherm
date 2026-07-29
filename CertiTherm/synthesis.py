@@ -1266,6 +1266,21 @@ class CutLedger:
     def active(self) -> int:
         return self.accepted - self.evicted
 
+    def absorb(self, plan) -> None:
+        """Add one candidate-local plan's separation work into this query-level tally.
+
+        The four counters were summed by hand at the call site, which meant a fifth counter
+        added to this class would be dropped from every ordered-query total until someone
+        noticed -- and the totals are reported, not recomputed, so nothing would notice.
+        `active` is deliberately NOT absorbed: it is derived as accepted minus evicted, and
+        adding it would double-count.
+        """
+
+        self.generated += plan.cuts_generated
+        self.accepted += plan.cuts_accepted
+        self.dominated += plan.cuts_dominated
+        self.evicted += plan.cuts_evicted
+
     def fields(self) -> dict:
         """Keyword arguments for an `ObservationPlan`/`QueryObservationPlan`."""
         return {
@@ -1392,10 +1407,7 @@ def synthesize_ordered_query(
             iterations += plan.iterations
             lower_bound += plan.lower_bound or 0.0
             relaxation_bound += plan.relaxation_bound or 0.0
-            query_ledger.generated += plan.cuts_generated
-            query_ledger.accepted += plan.cuts_accepted
-            query_ledger.dominated += plan.cuts_dominated
-            query_ledger.evicted += plan.cuts_evicted
+            query_ledger.absorb(plan)
             if plan.bound_provenance:
                 provenances.append(plan.bound_provenance)
             if plan.status != "OPTIMAL":
