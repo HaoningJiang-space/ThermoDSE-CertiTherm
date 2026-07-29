@@ -1,64 +1,73 @@
 # Baseline evidence digests for the CertiTherm refactor.
 #
 # Produced by `make reproduce-dev` on moe-server from a clean checkout of the commit below,
-# BEFORE any refactor commit (00:34 -> 03:18 UTC+8, 2026-07-29). A decomposition that only
-# moves code cannot change the evidence it produces, so every row marked comparable=yes must
-# reproduce byte for byte.
+# BEFORE any refactor commit (00:34 -> 03:18, 2026-07-29).
 #
 # baseline_commit	230136d1de4756dc2fcd623fb3bbc1f90dcac7f5
 # baseline_branch	round/v7-independent-model-gate (pre-refactor tip)
 # split	dev
 #
-# The `comparable` column is MEASURED, not assumed: RUN_RECEIPT.tsv is the only file listed
-# here that carries git_sha, host, started_at_utc or completed_at_utc, so it is the only one
-# that must differ between two runs. REPORT.md was checked for the same fields and has none,
-# so it IS a comparison target. (ARTIFACTS.tsv also embeds git_sha per row, but it is the
-# index over these digests and does not appear in SHA256SUMS itself.)
+# `role` splits the acceptance gate in two, because a single "bit-identical" rule is
+# self-contradictory here:
 #
-sha256	path	comparable
-32ffe338a234890396a195cfa25ab339c834ce0a45ffff5825d08a5473d3b810	REPORT.md	yes
-7a960683dded4afb224da6850ae301744874a59b2549dc298ce09d7584c991b5	RUN_RECEIPT.tsv	no
-3e169ab2ac242a417d18319918ead187934035b6bc84f00fbf7f41065fd8aceb	candidate_order.tsv	yes
-44ca7db9453d6d859a2510c62e550e6efa443cfbcac6400211b619a52f6627e6	captures/resnet50--arch_a.npz	yes
-2e3e53071a7762b5b88538954dd528e448338f136d4124236fa624c059245f75	captures/resnet50--arch_a.npz.receipt.tsv	yes
-291c9a1ec7d106fdcc92d68c4aef52f1bcd5481eba9f6943d00e77b494dbba56	captures/resnet50--arch_b.npz	yes
-96aa8f090454cc460cd52be7a1d172ad937f068ef433f7b9ac304402492f5118	captures/resnet50--arch_b.npz.receipt.tsv	yes
-527db1301e0aea31f75da46d19c20b6c4720d1dd9d501a9d1233e4f39444773c	captures/resnet50--arch_c.npz	yes
-f4049bb791313b92bbd9aa46a80623779c3d71dfbc0fc6f092c73a3f5b4e2959	captures/resnet50--arch_c.npz.receipt.tsv	yes
-fe6ba8c749ed84e82012c95a4e8eed88426e827a5dc25f9c70f148c9a0fe91b9	captures/transformer--arch_a.npz	yes
-632bc3dd687ee20e112211224f35a241e8f42c354a38b5d862d9f78b10440975	captures/transformer--arch_a.npz.receipt.tsv	yes
-b5e0d78fa931738459f23020e09c9b4b136987344e2a51baa0d886724f94f3d9	captures/transformer--arch_b.npz	yes
-d9836ce99e9d3c66beb9dd34c9b81eecb3d9a1ea6b629c99f340496ceaf3f0d3	captures/transformer--arch_b.npz.receipt.tsv	yes
-9129e726c530fa1fbb370ef2c13a49f29fde724535f5bc2af708d30669c033b0	captures/transformer--arch_c.npz	yes
-e8449188f0e4f94fa14f37bfff3730cce7b524e671b13221efd6971bc560430a	captures/transformer--arch_c.npz.receipt.tsv	yes
-fb5f1fbfcff861d6c3eb3c7c821ca21020d97985496782ba57a72a7f045cfcf6	measurement_registry.tsv	yes
-b4ee1be52f724d5bd1cb3c039dd12660ddb713b93a35f365a5ef279467db819c	operators/arch_a--default.calibration.tsv	yes
-9ad6be5e7a2cb18a855a1180f0bc9c6fcd7b0a5c47766703c4bc916252ba2e62	operators/arch_a--default.npz	yes
-fcd7caa42d1695a9a577d44818a73a553e9254016626c3eabd72bc482c4a5d0e	operators/arch_a--default.npz.receipt.tsv	yes
-2537d6c346fecfae67d0d508d98d07faa5ff6f8c09e4d4e344f817fa733bcd05	operators/arch_a--enhanced.calibration.tsv	yes
-459aa99d579c14ed8e00050ceec7c3b679fcd69b463dc18bc4c1fb005bbf3569	operators/arch_a--enhanced.npz	yes
-c6f3c449aa8c941ff1ae5f1238e25513c03543adf3425fc218e7ef6c556d21d5	operators/arch_a--enhanced.npz.receipt.tsv	yes
-891d2622ea2eb8f0c2c715d77bde7a0186af68c92748be3daa87727a4cfaba39	operators/arch_a--standard.calibration.tsv	yes
-6f0f037dd3d4fc476da666bdcc3f61721b98cd4a0ea13ce9fd374ff27fd9e595	operators/arch_a--standard.npz	yes
-6e7c8a68d1446a009d6a0de02ef06ec774d3af1beb1599c9a1c5a7b3aae5a062	operators/arch_a--standard.npz.receipt.tsv	yes
-06598df284f8353dbecdb32b761d1b9f5692cd556b6b77e3faf8736ed3bb1d3d	operators/arch_b--default.calibration.tsv	yes
-b018dee5da538040e126928ec19288818e23f7fbf013b2f43f5f0b17ea72fbe0	operators/arch_b--default.npz	yes
-281a78b238b0c24d362c1cbf50e9c2332a38b4b6f3715d2d0350c924f21bd553	operators/arch_b--default.npz.receipt.tsv	yes
-837a2376ee3f82833ddf24e3f878cc3acadfb70d753d964ba563251f4aff6b56	operators/arch_b--enhanced.calibration.tsv	yes
-060ab06ea3b331ef70d44cfd90e1e17d83dc851af9244fdb5a83a6a3865518b0	operators/arch_b--enhanced.npz	yes
-a5cd2fd7a5ff63a0900f0692ac63789c90abeba98504c741db4a2133c84e86c3	operators/arch_b--enhanced.npz.receipt.tsv	yes
-5a83452a08150dd2540ee05e8e6350fc455dbb7f1309184d1c24b7ccdd720066	operators/arch_b--standard.calibration.tsv	yes
-de1162490d5f6a67a7ef77d4133bad38e51a3bc9d7c2dbe2b572b6a7145282c4	operators/arch_b--standard.npz	yes
-aff567a47f4500b84f8cf1c869568137a1495f1284f3e2c9025e2a80cf607669	operators/arch_b--standard.npz.receipt.tsv	yes
-eeffa81a02c0c3c2b3d190369a66072306fbcb29df0583b669df7c3478d82dcd	operators/arch_c--default.calibration.tsv	yes
-a8532d13efdfcdc462ce0a7bc556cbd71fc2295723fc76dea52c898ceb38fa18	operators/arch_c--default.npz	yes
-ae2a38a403f2831434121074ed10a4c438b5e5831411a49736a5298688e8a29b	operators/arch_c--default.npz.receipt.tsv	yes
-929ebe77d22c3d55b08f9236e6e0312b08036b8a70c5d5468fba879d681927fc	operators/arch_c--enhanced.calibration.tsv	yes
-6a8718f3ce03f52fa11b38d34deacaa16e1b0700b25a6c748e048df03c039f9d	operators/arch_c--enhanced.npz	yes
-96234e5959affc882ca9106c5cbde758db10a169c86b705a2c399149a005c15d	operators/arch_c--enhanced.npz.receipt.tsv	yes
-400b59228dba709bd75f5b39166996033dbab5f8a199ad22393818eee249120e	operators/arch_c--standard.calibration.tsv	yes
-8be3b26f9e3e0174be6b8cf26f90147234618f5614387396ec3351d30840a10f	operators/arch_c--standard.npz	yes
-0ba3d8dcaaf675900b632084b5efd93da9920abd7258c1d963337687f5571ba7	operators/arch_c--standard.npz.receipt.tsv	yes
-2d6bb3807989f2483f6938ac52813b225d400cefc9de13a5fed894516fe4b862	plans.tsv	yes
-71ec16ad5a21a4aca05c5bfa14de5e35f75a40634c1a340a8d391ed7c5aa2819	results.tsv	yes
-60904a6d72fa1ed8a1878fcc4c4566835bf761717fca0239e0e9bd1305021f8a	spectral_envelopes.tsv	yes
+#   decision   -- the numbers and verdicts. A refactor that only moves code MUST reproduce
+#                 every one of these byte for byte. This is the real gate.
+#   provenance -- receipts. Each embeds either the run's git sha, host and timestamps
+#                 (RUN_RECEIPT.tsv) or a builder-source digest over a FIXED FILE LIST
+#                 (`_source_bundle_sha256(("CertiTherm/experiments.py", "requirements.lock"))`
+#                 in _capture_cache_signature / _operator_cache_signature). Extracting code
+#                 out of experiments.py forces that list to be updated -- and it MUST be
+#                 updated, or cache invalidation silently stops covering the moved logic --
+#                 so these digests are expected to change and are compared structurally,
+#                 field by field, not byte for byte.
+#
+# The provenance caveat is not mine: the peer reviewer identified the fixed builder list as
+# the reason a whole-tree bit-identical gate cannot hold. Verified at experiments.py:238.
+#
+sha256	path	role
+32ffe338a234890396a195cfa25ab339c834ce0a45ffff5825d08a5473d3b810	REPORT.md	decision
+7a960683dded4afb224da6850ae301744874a59b2549dc298ce09d7584c991b5	RUN_RECEIPT.tsv	provenance
+3e169ab2ac242a417d18319918ead187934035b6bc84f00fbf7f41065fd8aceb	candidate_order.tsv	decision
+44ca7db9453d6d859a2510c62e550e6efa443cfbcac6400211b619a52f6627e6	captures/resnet50--arch_a.npz	decision
+2e3e53071a7762b5b88538954dd528e448338f136d4124236fa624c059245f75	captures/resnet50--arch_a.npz.receipt.tsv	provenance
+291c9a1ec7d106fdcc92d68c4aef52f1bcd5481eba9f6943d00e77b494dbba56	captures/resnet50--arch_b.npz	decision
+96aa8f090454cc460cd52be7a1d172ad937f068ef433f7b9ac304402492f5118	captures/resnet50--arch_b.npz.receipt.tsv	provenance
+527db1301e0aea31f75da46d19c20b6c4720d1dd9d501a9d1233e4f39444773c	captures/resnet50--arch_c.npz	decision
+f4049bb791313b92bbd9aa46a80623779c3d71dfbc0fc6f092c73a3f5b4e2959	captures/resnet50--arch_c.npz.receipt.tsv	provenance
+fe6ba8c749ed84e82012c95a4e8eed88426e827a5dc25f9c70f148c9a0fe91b9	captures/transformer--arch_a.npz	decision
+632bc3dd687ee20e112211224f35a241e8f42c354a38b5d862d9f78b10440975	captures/transformer--arch_a.npz.receipt.tsv	provenance
+b5e0d78fa931738459f23020e09c9b4b136987344e2a51baa0d886724f94f3d9	captures/transformer--arch_b.npz	decision
+d9836ce99e9d3c66beb9dd34c9b81eecb3d9a1ea6b629c99f340496ceaf3f0d3	captures/transformer--arch_b.npz.receipt.tsv	provenance
+9129e726c530fa1fbb370ef2c13a49f29fde724535f5bc2af708d30669c033b0	captures/transformer--arch_c.npz	decision
+e8449188f0e4f94fa14f37bfff3730cce7b524e671b13221efd6971bc560430a	captures/transformer--arch_c.npz.receipt.tsv	provenance
+fb5f1fbfcff861d6c3eb3c7c821ca21020d97985496782ba57a72a7f045cfcf6	measurement_registry.tsv	decision
+b4ee1be52f724d5bd1cb3c039dd12660ddb713b93a35f365a5ef279467db819c	operators/arch_a--default.calibration.tsv	decision
+9ad6be5e7a2cb18a855a1180f0bc9c6fcd7b0a5c47766703c4bc916252ba2e62	operators/arch_a--default.npz	decision
+fcd7caa42d1695a9a577d44818a73a553e9254016626c3eabd72bc482c4a5d0e	operators/arch_a--default.npz.receipt.tsv	provenance
+2537d6c346fecfae67d0d508d98d07faa5ff6f8c09e4d4e344f817fa733bcd05	operators/arch_a--enhanced.calibration.tsv	decision
+459aa99d579c14ed8e00050ceec7c3b679fcd69b463dc18bc4c1fb005bbf3569	operators/arch_a--enhanced.npz	decision
+c6f3c449aa8c941ff1ae5f1238e25513c03543adf3425fc218e7ef6c556d21d5	operators/arch_a--enhanced.npz.receipt.tsv	provenance
+891d2622ea2eb8f0c2c715d77bde7a0186af68c92748be3daa87727a4cfaba39	operators/arch_a--standard.calibration.tsv	decision
+6f0f037dd3d4fc476da666bdcc3f61721b98cd4a0ea13ce9fd374ff27fd9e595	operators/arch_a--standard.npz	decision
+6e7c8a68d1446a009d6a0de02ef06ec774d3af1beb1599c9a1c5a7b3aae5a062	operators/arch_a--standard.npz.receipt.tsv	provenance
+06598df284f8353dbecdb32b761d1b9f5692cd556b6b77e3faf8736ed3bb1d3d	operators/arch_b--default.calibration.tsv	decision
+b018dee5da538040e126928ec19288818e23f7fbf013b2f43f5f0b17ea72fbe0	operators/arch_b--default.npz	decision
+281a78b238b0c24d362c1cbf50e9c2332a38b4b6f3715d2d0350c924f21bd553	operators/arch_b--default.npz.receipt.tsv	provenance
+837a2376ee3f82833ddf24e3f878cc3acadfb70d753d964ba563251f4aff6b56	operators/arch_b--enhanced.calibration.tsv	decision
+060ab06ea3b331ef70d44cfd90e1e17d83dc851af9244fdb5a83a6a3865518b0	operators/arch_b--enhanced.npz	decision
+a5cd2fd7a5ff63a0900f0692ac63789c90abeba98504c741db4a2133c84e86c3	operators/arch_b--enhanced.npz.receipt.tsv	provenance
+5a83452a08150dd2540ee05e8e6350fc455dbb7f1309184d1c24b7ccdd720066	operators/arch_b--standard.calibration.tsv	decision
+de1162490d5f6a67a7ef77d4133bad38e51a3bc9d7c2dbe2b572b6a7145282c4	operators/arch_b--standard.npz	decision
+aff567a47f4500b84f8cf1c869568137a1495f1284f3e2c9025e2a80cf607669	operators/arch_b--standard.npz.receipt.tsv	provenance
+eeffa81a02c0c3c2b3d190369a66072306fbcb29df0583b669df7c3478d82dcd	operators/arch_c--default.calibration.tsv	decision
+a8532d13efdfcdc462ce0a7bc556cbd71fc2295723fc76dea52c898ceb38fa18	operators/arch_c--default.npz	decision
+ae2a38a403f2831434121074ed10a4c438b5e5831411a49736a5298688e8a29b	operators/arch_c--default.npz.receipt.tsv	provenance
+929ebe77d22c3d55b08f9236e6e0312b08036b8a70c5d5468fba879d681927fc	operators/arch_c--enhanced.calibration.tsv	decision
+6a8718f3ce03f52fa11b38d34deacaa16e1b0700b25a6c748e048df03c039f9d	operators/arch_c--enhanced.npz	decision
+96234e5959affc882ca9106c5cbde758db10a169c86b705a2c399149a005c15d	operators/arch_c--enhanced.npz.receipt.tsv	provenance
+400b59228dba709bd75f5b39166996033dbab5f8a199ad22393818eee249120e	operators/arch_c--standard.calibration.tsv	decision
+8be3b26f9e3e0174be6b8cf26f90147234618f5614387396ec3351d30840a10f	operators/arch_c--standard.npz	decision
+0ba3d8dcaaf675900b632084b5efd93da9920abd7258c1d963337687f5571ba7	operators/arch_c--standard.npz.receipt.tsv	provenance
+2d6bb3807989f2483f6938ac52813b225d400cefc9de13a5fed894516fe4b862	plans.tsv	decision
+71ec16ad5a21a4aca05c5bfa14de5e35f75a40634c1a340a8d391ed7c5aa2819	results.tsv	decision
+60904a6d72fa1ed8a1878fcc4c4566835bf761717fca0239e0e9bd1305021f8a	spectral_envelopes.tsv	decision

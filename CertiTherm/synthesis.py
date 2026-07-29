@@ -1690,7 +1690,6 @@ def synthesize_minimum_observation(
     covered_cut_count = 0
     reached = 0
     anytime_bound: Optional[float] = None
-    bound_cut_count = 0
     # Hoisted for the same reason as `cuts`: a run that dies at iteration N must
     # still report the separation work it did, otherwise a timeout is
     # indistinguishable from never having started.
@@ -1704,13 +1703,12 @@ def synthesize_minimum_observation(
         it is a programming error and must not be swallowed into a silently
         missing bound.
         """
-        nonlocal anytime_bound, bound_cut_count
+        nonlocal anytime_bound
         if costs is None:
             return
         value = _anytime_lower_bound(costs, cuts)
         if value is not None and (anytime_bound is None or value > anytime_bound):
             anytime_bound = value
-            bound_cut_count = len(cuts)
 
     def _candidate_fields() -> Tuple[Tuple[str, ...], Optional[float]]:  # noqa: D401
         """The last successfully computed working cover. NOT oracle-certified.
