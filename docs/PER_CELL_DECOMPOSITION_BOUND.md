@@ -101,6 +101,29 @@ certified per-cell OPTIMUM rather than a bound; how the maximum grows with the n
 cells sampled; and whether the same decomposition applied to pairs or small groups of cells
 is stronger still without returning to the pooled regime.
 
+## The naive dimension bound is too weak to be worth building
+
+`docs/CERTIFIED_GAP_CONVERGENCE.md` lists a dimension argument as one of two shapes a
+genuinely non-enumerative bound could take. Worked out on paper before writing any code, the
+naive form is not worth it, and recording why saves the next reader from implementing it.
+
+Ignoring tolerances, a plan `S` separates a cell exactly when `ker(M_S)` misses the difference
+set `D`, which holds exactly when the row space of `M_S` contains a linear functional of
+constant sign on `D`. For a single action that is decidable with two LPs -- minimise and
+maximise `v_a . delta` over `D` -- and if no single action has constant sign, then `|S| >= 2`
+and `C*(cell) >=` the two cheapest action costs.
+
+On this instance the two cheapest actions are module reads at 1.0 each, so the bound is **2**,
+against the **215** the per-cell enumeration already certifies. Two orders of magnitude
+weaker. Extending it to `k`-subsets costs O(|A|^k) LPs and still bounds by the k cheapest
+costs, which grows far too slowly to matter.
+
+A useful non-enumerative bound has to use both things the naive form discards: the per-action
+tolerances, so the object is a slab intersection rather than a kernel, and the cost structure,
+so the statement is "every action set of cost at most C leaves a collision" rather than "every
+set of cardinality at most k does". That is the semi-infinite dual, and it is research work
+rather than an afternoon's instrumentation.
+
 ## Scope
 
 One candidate, one package, one workload, dev split, three sampled cells, 120 s each. Nothing
