@@ -1,0 +1,67 @@
+# Private symbols crossing a module boundary, by (module, symbol).
+# `callers` counts distinct files; `kinds` says what covers them.
+# research-only rows are the dangerous ones: the test suite does not exercise them,
+# so a move can break them without any test failing.
+#
+# Regenerate: python -m CertiTherm.tools.private_api_census
+module	symbol	callers	kinds	files
+experiments	_ANYTIME_RESULT_FIELDS	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_ANYTIME_SPLITS	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_DIAGNOSTIC_RESULT_FIELDS	1	test	CertiTherm/tests/test_separation_diagnostics.py
+experiments	_SPLIT_FREEZE_ID	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_SPLIT_PROTOCOL_STATE	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_anytime_result_fields	1	test	CertiTherm/tests/test_anytime_controller.py
+experiments	_archive_query_evidence	1	test	CertiTherm/tests/test_query_parallelism.py
+experiments	_assert_clean_revision	2	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py
+experiments	_bounded_power	1	test	CertiTherm/tests/test_experiment_semantics.py
+experiments	_budgeted_call	1	test	CertiTherm/tests/test_anytime_controller.py
+experiments	_cache_receipt_matches	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_call_under_budget	4	research+test	CertiTherm/tests/test_budget_containment.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py
+experiments	_canonical_producer	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_capture	11	research	research/triangle/fidelity_cost.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/phase_timescale.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
+experiments	_configure	2	research	research/triangle/fidelity_cost.py,research/triangle/phase_timescale.py
+experiments	_diagnostic_result_fields	1	test	CertiTherm/tests/test_separation_diagnostics.py
+experiments	_dispatch_prepared_method	1	test	CertiTherm/tests/test_budget_containment.py
+experiments	_evaluate_prepared_method	1	test	CertiTherm/tests/test_budget_containment.py
+experiments	_evaluate_query_batch	2	test	CertiTherm/tests/test_experiment_semantics.py,CertiTherm/tests/test_query_parallelism.py
+experiments	_evaluate_query_methods	1	test	CertiTherm/tests/test_anytime_controller.py
+experiments	_git_revision	1	prod	CertiTherm/precheck.py
+experiments	_gpu_backend	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_install_thermodse_compatibility	1	test	CertiTherm/tests/test_precheck.py
+experiments	_is_archivable_operator_failure	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_measurement_costs	10	prod+research	CertiTherm/gpu_collision_benchmark.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
+experiments	_method_schedule	1	test	CertiTherm/tests/test_experiment_semantics.py
+experiments	_optional_seconds	1	test	CertiTherm/tests/test_budget_containment.py
+experiments	_ordered_architectures	13	prod+research+test	CertiTherm/gpu_collision_benchmark.py,CertiTherm/tests/test_experiment_semantics.py,research/triangle/fidelity_cost.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/phase_timescale.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
+experiments	_placed_evidence	1	test	CertiTherm/tests/test_experiment_semantics.py
+experiments	_power_space	10	prod+research	CertiTherm/gpu_collision_benchmark.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
+experiments	_prepare_thermodse_sim	7	research+test	CertiTherm/tests/test_precheck.py,research/triangle/complete_trace_probe.py,research/triangle/energy_ledger.py,research/triangle/legacy_core_transient_audit.py,research/triangle/order_trace_probe.py,research/triangle/route_event_probe.py,research/triangle/route_objective_probe.py
+experiments	_registry_split	18	research+test	CertiTherm/tests/test_experiment_guards.py,research/triangle/complete_trace_probe.py,research/triangle/energy_ledger.py,research/triangle/fidelity_cost.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/legacy_core_transient_audit.py,research/triangle/margin_audit.py,research/triangle/order_trace_probe.py,research/triangle/phase_timescale.py,research/triangle/profile_oracle.py,research/triangle/route_event_probe.py,research/triangle/route_objective_probe.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
+experiments	_result_fieldnames	2	test	CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_separation_diagnostics.py
+experiments	_rows	21	prod+research+test	CertiTherm/gpu_collision_benchmark.py,CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_precheck.py,research/triangle/complete_trace_probe.py,research/triangle/energy_ledger.py,research/triangle/fidelity_cost.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/legacy_core_transient_audit.py,research/triangle/margin_audit.py,research/triangle/order_trace_probe.py,research/triangle/phase_timescale.py,research/triangle/profile_oracle.py,research/triangle/route_event_probe.py,research/triangle/route_objective_probe.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
+experiments	_run_receipt	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_sha256	2	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py
+experiments	_summarize_anytime_gate	1	test	CertiTherm/tests/test_anytime_report.py
+experiments	_thermodse_evaluator	6	research	research/triangle/complete_trace_probe.py,research/triangle/energy_ledger.py,research/triangle/legacy_core_transient_audit.py,research/triangle/order_trace_probe.py,research/triangle/route_event_probe.py,research/triangle/route_objective_probe.py
+experiments	_unexpected_method_failures	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_validate_run_request	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_verified_binary_digest	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_write_cache_receipt	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_write_tsv	2	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py
+synthesis	_anytime_lower_bound	3	research+test	CertiTherm/tests/test_final_bound_refresh.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py
+synthesis	_collision	2	prod+test	CertiTherm/policies.py,CertiTherm/tests/test_kernel_oracle.py
+synthesis	_collision_search	1	research	research/dr_dsc/profile_synthesis.py
+synthesis	_collisions	5	research+test	CertiTherm/tests/test_anytime_timeout.py,research/triangle/kernel_verify.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
+synthesis	_configured_workers	1	prod	CertiTherm/policies.py
+synthesis	_fraction_lower_float	1	test	CertiTherm/tests/test_synthesis.py
+synthesis	_full_safe_satisfied	1	test	CertiTherm/tests/test_kernel_oracle.py
+synthesis	_greedy_cover	4	research+test	CertiTherm/tests/test_synthesis.py,research/dr_dsc/profile_synthesis.py,research/triangle/strong_oracle.py,research/triangle/triangle2_closure.py
+synthesis	_insert_minimal_cut	8	research+test	CertiTherm/tests/test_separation_diagnostics.py,CertiTherm/tests/test_synthesis.py,research/dr_dsc/profile_synthesis.py,research/triangle/cross_elim.py,research/triangle/maxhs.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py
+synthesis	_pair_rows	5	prod+research	CertiTherm/gpu_collision_benchmark.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py
+synthesis	_query_collision	1	test	CertiTherm/tests/test_synthesis.py
+synthesis	_required_candidate_indices	1	prod	CertiTherm/policies.py
+synthesis	_robust_safe_rows	7	prod+research	CertiTherm/thermal_kernel.py,research/triangle/kernel_audit.py,research/triangle/kernel_timing.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py
+synthesis	_solve_master	2	research+test	CertiTherm/tests/test_synthesis.py,research/dr_dsc/profile_synthesis.py
+synthesis	_state_collision	2	research+test	CertiTherm/tests/test_synthesis.py,research/dr_dsc/oracle.py
+synthesis	_state_constraints	1	prod	CertiTherm/gpu_collision_benchmark.py
+synthesis	_state_specs	1	prod	CertiTherm/gpu_collision_benchmark.py
