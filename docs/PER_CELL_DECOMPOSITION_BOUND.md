@@ -41,7 +41,14 @@ prefix, because adjacent blocks have near-identical responses. **120 s per cell.
 | --- | ---: | --- | ---: | ---: |
 | (model 0, point 0) | **215.0** | UNRESOLVED | 6 150 | 5 742 |
 | (model 0, point 85) | 87.5 | UNRESOLVED | 8 209 | 6 455 |
-| (model 0, point 170) | 191.5 | UNRESOLVED | 6 067 | 5 659 |
+| (model 0, point 170) | 191.5 | UNRESOLVED | 6 017 | 5 615 |
+| (model 1, point 28) | 101.2 | UNRESOLVED | 7 498 | 5 997 |
+| (model 1, point 113) | 69.8 | UNRESOLVED | 7 698 | 7 208 |
+| (model 1, point 198) | 79.2 | UNRESOLVED | 7 801 | 6 825 |
+
+The spread matters as much as the maximum. Cells differ by 3x -- 69.8 to 215.0 -- so the
+bound is carried by the hardest cell, not by a typical one. A decomposition that averaged
+cells, or that sampled one arbitrarily, would throw most of it away.
 
 Against the global enumerated bound of 32.0 obtained from 1 800 s:
 
