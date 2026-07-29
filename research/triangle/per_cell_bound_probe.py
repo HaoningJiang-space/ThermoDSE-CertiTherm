@@ -98,6 +98,7 @@ def main() -> None:
     actions = build_measurement_library(
         candidate, blocks, floorplan_text, architectures[candidate], _measurement_costs()
     )
+    by_id = {action.action_id: action for action in actions}
     n_models, n_points = family.response_k_per_w.shape[0], family.response_k_per_w.shape[1]
 
     print(json.dumps({
@@ -128,6 +129,19 @@ def main() -> None:
             record["lower_bound"] = plan.lower_bound
             record["iterations"] = plan.iterations
             record["cuts_active"] = plan.cuts_active
+            # The working cover at cutoff, and its composition by measurement class. This
+            # tests the footprint prediction directly: 90% of a block's temperature comes
+            # from ~190 of 227 blocks, so if separation requires resolving the footprint the
+            # cover should be dominated by per-block post-route actions and cost on the order
+            # of 190 x 8. A cover that is mostly coarse reads would refute that.
+            record["candidate_cost"] = plan.candidate_cost
+            by_class: dict = {}
+            for action_id in plan.candidate_action_ids:
+                action_class = action_id.split("::")[1]
+                entry = by_class.setdefault(action_class, {"count": 0, "cost": 0.0})
+                entry["count"] += 1
+                entry["cost"] += by_id[action_id].cost
+            record["candidate_cover_by_class"] = by_class
             if plan.status == "OPTIMAL" and plan.exact_cost is not None:
                 best = max(best, float(plan.exact_cost))
         except Exception as exc:
