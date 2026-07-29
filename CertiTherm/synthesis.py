@@ -1432,7 +1432,6 @@ def synthesize_ordered_query(
     *,
     margin_k: float = 1e-4,
     feasibility_tolerance: float = 1e-10,
-    separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
     separation_workers: Optional[int] = None,
 ) -> QueryObservationPlan:
@@ -1469,7 +1468,7 @@ def synthesize_ordered_query(
             candidate = candidate_map.get(action.candidate_id)
             if candidate is None or action.vector.shape != (candidate.power.dimension,):
                 raise ContractViolation("action target or dimension is not registered")
-        if margin_k <= 0 or feasibility_tolerance <= 0 or separation_tolerance < 0:
+        if margin_k <= 0 or feasibility_tolerance <= 0:
             raise ContractViolation("invalid registered tolerance")
         local_actions = {
             candidate.candidate_id: tuple(
@@ -1502,7 +1501,6 @@ def synthesize_ordered_query(
                 local_actions[candidate.candidate_id],
                 margin_k=margin_k,
                 feasibility_tolerance=feasibility_tolerance,
-                separation_tolerance=separation_tolerance,
                 max_iterations=max_iterations,
                 separation_workers=separation_workers,
             )
@@ -1661,7 +1659,6 @@ def synthesize_minimum_observation(
     *,
     margin_k: float = 1e-4,
     feasibility_tolerance: float = 1e-10,
-    separation_tolerance: float = 1e-9,
     max_iterations: int = 10000,
     separation_workers: Optional[int] = None,
     bound_interval: Optional[int] = None,
@@ -1740,7 +1737,7 @@ def synthesize_minimum_observation(
             raise ContractViolation("every measurement action must match the power dimension")
         if len({action.action_id for action in actions}) != len(actions):
             raise ContractViolation("measurement action IDs must be unique")
-        if margin_k <= 0 or feasibility_tolerance <= 0 or separation_tolerance < 0:
+        if margin_k <= 0 or feasibility_tolerance <= 0:
             raise ContractViolation("invalid registered tolerance")
         if bound_interval is not None and bound_interval < 0:
             raise ContractViolation("bound_interval must be nonnegative")

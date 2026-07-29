@@ -121,7 +121,6 @@ def sequential_early_stop(
     *,
     margin_k: float = 1e-4,
     feasibility_tolerance: float = 1e-10,
-    separation_tolerance: float = 1e-9,
 ) -> PolicyResult:
     """Return the same first certified prefix as literal sequential replay.
 
@@ -221,7 +220,6 @@ def dual_price_greedy(
     *,
     margin_k: float = 1e-4,
     feasibility_tolerance: float = 1e-10,
-    separation_tolerance: float = 1e-9,
 ) -> PolicyResult:
     """Greedy zero-error InfoCertGain using decision-cut LP dual prices."""
 
