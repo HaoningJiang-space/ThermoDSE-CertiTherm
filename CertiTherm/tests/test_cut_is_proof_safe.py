@@ -135,3 +135,42 @@ def test_an_empty_action_library_yields_an_empty_cut() -> None:
     """The matrix stack has no rows to build; it must not raise."""
 
     assert separating_action_cut(_witness(np.ones(3)), (), ()).shape == (0,)
+
+
+def test_single_polytope_synthesis_refuses_actions_from_several_candidates() -> None:
+    """A plan for ONE candidate must not be assembled from another candidate's instruments.
+
+    The API took the whole action list on trust: peer review found that three different
+    candidate labels produced an OPTIMAL plan selecting one action from each -- a
+    certificate resting on observations that are not obtainable where the decision is made.
+    A contract violation surfaces as UNRESOLVED rather than raising, which is the
+    fail-closed conversion the rest of the module uses.
+    """
+
+    from CertiTherm.core import PowerPolytope, ThermalFamily
+    from CertiTherm.synthesis import synthesize_minimum_observation
+
+    n = 4
+    polytope = PowerPolytope.box_with_total(np.zeros(n), np.ones(n), 1.0)
+    thermal = ThermalFamily(
+        ("b",),
+        np.array([[np.eye(n)[i] * 2.0 for i in range(n)]]),
+        np.array([0.0]),
+        1.0,
+    )
+
+    def actions(labels):
+        return tuple(
+            MeasurementAction(f"p{i}", np.eye(n)[i], 1.0, 1e-8, label)
+            for i, label in enumerate(labels)
+        )
+
+    one = synthesize_minimum_observation(polytope, thermal, actions(["c0"] * n))
+    assert one.status == "OPTIMAL", "a single-candidate library must still synthesize"
+
+    mixed = synthesize_minimum_observation(
+        polytope, thermal, actions(["c0", "c1", "c2", "c0"])
+    )
+    assert mixed.status == "UNRESOLVED"
+    assert mixed.selected_action_ids == ()
+    assert mixed.exact_cost is None

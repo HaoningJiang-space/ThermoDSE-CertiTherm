@@ -1211,7 +1211,9 @@ def separating_action_cut(
 
     `candidate_id` restricts the cut to one candidate's actions. The ordered-query
     policies need that because they carry the whole library; single-polytope synthesis
-    passes None because its action list is already candidate-local.
+    passes None because its action list is candidate-local -- which that entry point now
+    ENFORCES rather than assumes, after peer review observed the precondition was unchecked
+    and a mixed list produced an OPTIMAL plan built from three candidates' measurements.
     """
 
     delta = witness.safe_power_w - witness.unsafe_power_w
@@ -1633,6 +1635,21 @@ def synthesize_minimum_observation(
             raise ContractViolation("every measurement action must match the power dimension")
         if len({action.action_id for action in actions}) != len(actions):
             raise ContractViolation("measurement action IDs must be unique")
+        # This API synthesizes for ONE polytope, so every action offered must be obtainable
+        # at one candidate. Without this check a caller could mix actions labelled for
+        # three different candidates and receive an OPTIMAL plan built from measurements
+        # that are not obtainable where the decision is made -- a certificate resting on
+        # observations nobody can take. Measured: it returned OPTIMAL over cand0/cand1/cand2
+        # and selected one action from each. `synthesize_ordered_query` already filters to
+        # candidate-local actions before calling here, so no internal caller is affected.
+        # MeasurementAction rejects a falsy candidate_id, so every action carries one and
+        # there is no "unlabelled" case to exempt.
+        offered_candidates = {action.candidate_id for action in actions}
+        if len(offered_candidates) > 1:
+            raise ContractViolation(
+                "single-polytope synthesis needs actions from one candidate; got "
+                f"{sorted(offered_candidates)}"
+            )
         if margin_k <= 0 or feasibility_tolerance <= 0:
             raise ContractViolation("invalid registered tolerance")
         if bound_interval is not None and bound_interval < 0:
