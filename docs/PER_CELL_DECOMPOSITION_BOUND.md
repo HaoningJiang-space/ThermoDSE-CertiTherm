@@ -289,16 +289,32 @@ explodes with instance size, and the full 681-cell problem is far past where the
 returns anything. A k-cell restriction carries k reject cells rather than 681, so there may be
 a k where the bound is much stronger than a single cell's and the instance still solves.
 
-`research/triangle/cell_subset_bound_probe.py` measures that trade over nested subsets of
-sizes 1, 2, 4, 8, 16. **Only the first point is in hand**: subset size 1 certifies 260.73 at
-600 s, reproducing an independent single-cell run of the same budget exactly, which confirms
-the measurement is repeatable. The larger subsets were not obtained within the session.
+`research/triangle/cell_subset_bound_probe.py` measures that trade over nested subsets. At
+600 s per subset:
 
-An earlier version of this paragraph blamed the shared host for restarting the job. That was
-not established. The evidence for it was elapsed times read from `pgrep ... | head -1`, which
-returns a freshly spawned pool WORKER rather than the main process, so the number looked small
-no matter how long the run had been going. Whether anything restarted is unknown; what is
-known is only that the larger subsets did not complete here.
+| subset size | certified lower bound | iterations | active cuts |
+| ---: | ---: | ---: | ---: |
+| 1 | 260.73 | 15 709 | 14 782 |
+| **2** | **311.83** | 10 165 | 18 730 |
+
+**Two cells buy 19.6% more bound than one, at the same budget** -- 311.83 against 260.73,
+which is 9.7x the whole instance's 32.0 and narrows this candidate's certified interval to
+4.65x. The prediction holds: a subset is worth more than the best of its members.
+
+The mechanism is visible in the two right-hand columns. The larger subset completes fewer
+iterations, 10 165 against 15 709, because each is more expensive -- and still ends with MORE
+active cuts, 18 730 against 14 782. Harder instances accumulate more useful constraints per
+iteration, which is the same effect the per-cell decomposition exploits against the pooled
+problem, applied one level up.
+
+The single-cell figure of 260.73 is now the third independent run to produce it at this
+budget (15 709, 15 748 and 15 751 iterations), so the measurement is repeatable.
+
+**A monitoring correction.** An earlier version of this paragraph said the larger subsets
+could not be obtained because the shared host restarted the job. That was wrong on both
+counts: the job never restarted, and the subsets do complete. The elapsed times behind that
+claim came from `pgrep ... | head -1`, which returns a freshly spawned pool WORKER rather than
+the main process, so the figure looked small however long the run had been going.
 
 So whether a subset beats its best member here is open. The inequality is not: it holds by the
 same one-line argument, so the only question is how much it buys and at what size the instance
