@@ -36,9 +36,10 @@ from typing import Dict, List, Tuple
 sys.path.insert(0, ".")
 
 from CertiTherm.blind_direction_cuts import (
+    blind_direction_cells,
     blind_direction_lower_bound,
+    block_instrumentation_cost,
     certify_blind_pair,
-    coarse_indistinguishability_cells,
 )
 from CertiTherm.experiments import _measurement_costs, _power_space, _rows, ROOT
 from CertiTherm.hotspot import load_family
@@ -71,30 +72,30 @@ def main() -> None:
         candidate, blocks, floorplan_text, architectures[candidate], costs
     )
     models, points = family.response_k_per_w.shape[:2]
-    post_route_index, cells = coarse_indistinguishability_cells(actions, len(blocks))
-    weight = {
-        block: float(actions[index].cost) for block, index in post_route_index.items()
-    }
+    single_block_actions, cells = blind_direction_cells(actions, len(blocks))
+    cost = block_instrumentation_cost(actions, single_block_actions, range(len(blocks)))
 
     sizes = sorted((len(cell) for cell in cells), reverse=True)
     multi = [cell for cell in cells if len(cell) >= 2]
-    ceiling = sum(
-        sum(sorted(weight[b] for b in cell)[:-1]) for cell in multi
-    )
+    # A cell's cover can never need every block: leaving the most expensive one uninstrumented
+    # still covers every edge. So the ceiling drops the LARGEST weight in each cell, not the
+    # smallest -- peer review caught the note below claiming the opposite while the code was
+    # already right, an error that equal costs would have hidden forever.
+    ceiling = sum(sum(sorted(cost[b] for b in cell)[:-1]) for cell in multi)
     print(json.dumps({
         "candidate": candidate, "package": package, "workload": workload,
         "blocks": len(blocks), "library_actions": len(actions),
-        "coarse_actions": len(actions) - len(post_route_index),
+        "single_block_actions": len(single_block_actions),
         "models": models, "points": points,
         "refinement_cells": len(cells),
         "cells_with_two_or_more": len(multi),
         "largest_cell_sizes": sizes[:12],
         "pairs_available": sum(len(c) * (len(c) - 1) // 2 for c in multi),
-        "structural_ceiling": ceiling,
+        "structural_ceiling": float(ceiling),
         "note": (
             "structural_ceiling is what this bound could reach if EVERY within-cell pair were "
-            "confusable: sum over cells of (cell weight minus its cheapest block). It is not a "
-            "bound until pairs are certified below."
+            "confusable: sum over cells of (cell weight minus its MOST EXPENSIVE block). It is "
+            "not a bound until pairs are certified below."
         ),
     }, indent=2), flush=True)
 
@@ -131,7 +132,7 @@ def main() -> None:
                 family,
                 actions,
                 (b, other),
-                (post_route_index[b], post_route_index[other]),
+                single_block_actions,
                 specs,
                 LIMIT_MARGIN_K,
                 FEASIBILITY_TOLERANCE,
@@ -144,7 +145,7 @@ def main() -> None:
         if stopped_early:
             break
 
-    bound, per_cell = blind_direction_lower_bound(multi, edges_by_cell, weight)
+    bound, per_cell = blind_direction_lower_bound(multi, edges_by_cell, cost)
 
     print(json.dumps({
         "pairs_tested": tested,
@@ -153,12 +154,13 @@ def main() -> None:
         "stopped_early": stopped_early,
         "elapsed_s": round(time.monotonic() - started, 1),
         "per_cell": list(per_cell),
-        "certified_lower_bound": bound,
+        "certified_lower_bound": float(bound),
         "note": (
-            "every confusable pair was re-proved in exact rational arithmetic and its cut "
-            "confirmed to be exactly two post-route actions; cells are disjoint so their "
-            "covers add. Valid for the real instance even though only a subset of pairs and "
-            "reject cells was scanned -- a subgraph's cover is a lower bound."
+            "every counted pair was repaired to EXACT polytope feasibility and re-proved with "
+            "zero slack, with its cut recomputed exactly; cells are disjoint so their covers "
+            "add. Valid for the real instance even though only a subset of pairs and reject "
+            "cells was scanned -- a subgraph's cover is a lower bound. Compose with the "
+            "existing certified bound by max, never by addition."
         ),
     }, indent=2), flush=True)
 

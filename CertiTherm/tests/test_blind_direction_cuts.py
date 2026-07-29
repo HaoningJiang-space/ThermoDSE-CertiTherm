@@ -3,7 +3,7 @@
 This is the load-bearing property and it is checked against `synthesize_minimum_observation`
 itself, not against an argument in a document. The per-cell decomposition retracted earlier this
 round (`docs/PER_CELL_DECOMPOSITION_RETRACTED.md`) was asserted in prose across four commits and
-reported five numbers before a test refuted it; the test here exists so that cannot recur.
+reported five numbers before a test refuted it; these tests exist so that cannot recur.
 
 Non-vacuity is asserted first in every case: a bound of zero satisfies `bound <= optimum`
 trivially, so a fixture that establishes no confusable pair proves nothing about the property it
@@ -12,33 +12,35 @@ claims to test.
 
 from __future__ import annotations
 
+from fractions import Fraction
 from itertools import combinations
 
 import numpy as np
 import pytest
 
 from CertiTherm.blind_direction_cuts import (
+    blind_direction_cells,
     blind_direction_lower_bound,
+    block_instrumentation_cost,
     certify_blind_pair,
-    coarse_indistinguishability_cells,
     minimum_weight_vertex_cover,
 )
 from CertiTherm.core import MeasurementAction, PowerPolytope, ThermalFamily
-from CertiTherm.synthesis import synthesize_minimum_observation
+from CertiTherm.synthesis import UnresolvedComputation, synthesize_minimum_observation
 
 MARGIN_K = 0.05
 TOLERANCE = 1e-9
-POST_ROUTE_COST = 8.0
+SINGLE_BLOCK_COST = 8.0
 COARSE_COST = 1.0
 
 
 def _instance(blocks: int = 6, group: int = 3):
     """Two coarse groups of `group` blocks each, one thermal point per block.
 
-    The response is hot on the diagonal and cool off it, so concentrating power on a block
-    heats that block's point. With a total-power equality in the polytope, moving power between
-    two blocks of one coarse group is exactly the blind direction: the coarse action reads the
-    group total, which the move leaves unchanged.
+    The response is hot on the diagonal and cool off it, so concentrating power on a block heats
+    that block's point. With a total-power equality in the polytope, moving power between two
+    blocks of one coarse group is exactly the blind direction: the coarse action reads the group
+    total, which the move leaves unchanged.
     """
 
     response = np.full((1, blocks, blocks), 0.2)
@@ -61,14 +63,14 @@ def _instance(blocks: int = 6, group: int = 3):
     ]
     actions += [
         MeasurementAction(
-            f"c::post_route::b{b}", np.eye(blocks)[b], POST_ROUTE_COST, 1e-8, "c"
+            f"c::post_route::b{b}", np.eye(blocks)[b], SINGLE_BLOCK_COST, 1e-8, "c"
         )
         for b in range(blocks)
     ]
     return polytope, thermal, tuple(actions)
 
 
-def _establish(polytope, thermal, actions, cells, post_route_index):
+def _establish(polytope, thermal, actions, cells, single_block_actions):
     """Certify every within-cell pair, returning the edge lists the bound consumes."""
 
     points = thermal.response_k_per_w.shape[1]
@@ -76,14 +78,13 @@ def _establish(polytope, thermal, actions, cells, post_route_index):
     for cell_index, cell in enumerate(cells):
         edges[cell_index] = []
         for left, right in combinations(cell, 2):
-            specs = [(0, q) for q in (left, right) if q < points]
             witness = certify_blind_pair(
                 polytope,
                 thermal,
                 actions,
                 (left, right),
-                (post_route_index[left], post_route_index[right]),
-                specs,
+                single_block_actions,
+                [(0, q) for q in (left, right) if q < points],
                 MARGIN_K,
                 TOLERANCE,
             )
@@ -96,21 +97,21 @@ def test_the_bound_never_exceeds_the_exactly_solved_optimum() -> None:
     """The whole method in one assertion, against the certified oracle's own answer."""
 
     polytope, thermal, actions = _instance()
-    post_route_index, cells = coarse_indistinguishability_cells(actions, thermal.blocks)
+    single_block_actions, cells = blind_direction_cells(actions, thermal.blocks)
     assert len(cells) == 2 and all(len(cell) == 3 for cell in cells), (
         f"the fixture's coarse action did not split the blocks into two cells: {cells}"
     )
 
-    edges = _establish(polytope, thermal, actions, cells, post_route_index)
+    edges = _establish(polytope, thermal, actions, cells, single_block_actions)
     established = sum(len(e) for e in edges.values())
     assert established == 6, (
         f"only {established} of 6 within-cell pairs were established; a bound built on too few "
         "edges would satisfy the inequality vacuously"
     )
 
-    weight = {b: float(actions[i].cost) for b, i in post_route_index.items()}
-    bound, detail = blind_direction_lower_bound(cells, edges, weight)
-    assert bound == pytest.approx(4 * POST_ROUTE_COST), (
+    cost = block_instrumentation_cost(actions, single_block_actions, range(thermal.blocks))
+    bound, detail = blind_direction_lower_bound(cells, edges, cost)
+    assert bound == Fraction(4) * Fraction(SINGLE_BLOCK_COST), (
         "each cell is a triangle, so its cover is two blocks; two cells give four"
     )
     assert all(d["cover_size"] == 2 for d in detail)
@@ -118,177 +119,111 @@ def test_the_bound_never_exceeds_the_exactly_solved_optimum() -> None:
     plan = synthesize_minimum_observation(polytope, thermal, actions, max_iterations=200000)
     assert plan.status == "OPTIMAL", f"fixture must solve exactly, got {plan.status}"
     assert plan.exact_cost is not None
-    assert bound <= plan.exact_cost + 1e-9, (
-        f"the blind-direction bound {bound} exceeded the true optimum {plan.exact_cost}; the "
-        "vertex-cover argument is unsound"
+    assert bound <= Fraction(plan.exact_cost).limit_denominator(10 ** 9), (
+        f"the blind-direction bound {float(bound)} exceeded the true optimum {plan.exact_cost}; "
+        "the vertex-cover argument is unsound"
     )
 
 
-def test_a_pair_the_bound_counts_really_cannot_be_left_uninstrumented() -> None:
-    """The vertex-cover step, checked one edge at a time rather than assumed.
+def test_every_counted_witness_is_exactly_feasible_and_exactly_shaped() -> None:
+    """Peer review's sharpest finding, checked on the witnesses the bound actually uses.
 
-    The bound's premise is that omitting BOTH of a confusable pair's post-route actions leaves
-    the selection unable to certify. Here that is checked directly: the pair's own witness is
-    invisible to every action outside its two-element cut, so any selection avoiding both is
-    defeated by it.
+    `validate_witness` tolerates a world up to the feasibility tolerance OUTSIDE the polytope,
+    and such a world does not strictly prove that any selection fails on the original problem.
+    The witnesses counted here are repaired first, so the box and the total-power equality hold
+    with NO slack at all, in exact rational arithmetic.
     """
 
     polytope, thermal, actions = _instance()
-    post_route_index, cells = coarse_indistinguishability_cells(actions, thermal.blocks)
+    single_block_actions, cells = blind_direction_cells(actions, thermal.blocks)
     left, right = cells[0][0], cells[0][1]
     witness = certify_blind_pair(
         polytope,
         thermal,
         actions,
         (left, right),
-        (post_route_index[left], post_route_index[right]),
+        single_block_actions,
         [(0, left), (0, right)],
         MARGIN_K,
         TOLERANCE,
     )
     assert witness is not None, "the fixture must establish this pair or it tests nothing"
-    assert set(witness.cut_action_indices) == {
-        post_route_index[left],
-        post_route_index[right],
-    }
+
+    total = Fraction(float(np.asarray(polytope.b_eq)[0]))
+    for world in (witness.safe_power_w, witness.unsafe_power_w):
+        assert sum(world) == total, "the total-power equality must hold exactly, not to a slack"
+        for index, value in enumerate(world):
+            assert Fraction(float(polytope.lower_w[index])) <= value
+            assert value <= Fraction(float(polytope.upper_w[index]))
+
     delta = [s - u for s, u in zip(witness.safe_power_w, witness.unsafe_power_w)]
-    assert any(d != 0 for d in delta), "a zero delta would make every action a non-separator"
+    assert delta[left] != 0 and delta[left] == -delta[right]
+    assert all(d == 0 for i, d in enumerate(delta) if i not in (left, right))
+    assert set(witness.cut_action_indices) == {
+        single_block_actions[left][0],
+        single_block_actions[right][0],
+    }
     for index, action in enumerate(actions):
         if index in witness.cut_action_indices:
             continue
-        exact = sum(int(round(v)) * d for v, d in zip(action.vector, delta))
+        exact = sum(Fraction(float(v)) * d for v, d in zip(action.vector, delta))
         assert exact == 0, (
             f"action {action.action_id} reads {exact} on the blind direction, so the cut is not "
-            "the two post-route actions and the cover argument does not apply"
+            "the two single-block actions and the cover argument does not apply"
         )
+
+
+def test_cells_are_defined_by_coefficient_columns_not_by_nonzero_support() -> None:
+    """A weighted action separates blocks whose support pattern looks identical.
+
+    An earlier version keyed cells on `vector != 0`. Two columns holding 1 and 2 share that
+    pattern, but the action reads `a . (e_b - e_c) = -1` along the blind direction, so it DOES
+    separate them and the pair's cut would not be two single-block actions.
+    """
+
+    singles = tuple(
+        MeasurementAction(f"c::post_route::b{b}", np.eye(3)[b], 8.0, 1e-8, "c")
+        for b in range(3)
+    )
+    weighted = MeasurementAction("c::module::g0", np.array([1.0, 2.0, 0.0]), 1.0, 1e-8, "c")
+    _single, cells = blind_direction_cells((weighted,) + singles, 3)
+    assert sorted(len(cell) for cell in cells) == [1, 1, 1], (
+        f"blocks 0 and 1 differ in the weighted action and must not share a cell: {cells}"
+    )
+
+    flat = MeasurementAction("c::module::g0", np.array([1.0, 1.0, 0.0]), 1.0, 1e-8, "c")
+    _single, flat_cells = blind_direction_cells((flat,) + singles, 3)
+    assert sorted(len(cell) for cell in flat_cells) == [1, 2], (
+        "with equal coefficients those two blocks must share a cell; otherwise this test shows "
+        "nothing about columns versus support"
+    )
+
+
+def test_an_action_is_single_block_by_its_vector_not_by_its_name() -> None:
+    """Classifying on the `post_route` substring let a rename change the bound silently."""
+
+    renamed = MeasurementAction("c::probe::b0", np.array([1.0, 0.0]), 8.0, 1e-8, "c")
+    pair = MeasurementAction("c::post_route::both", np.array([1.0, 1.0]), 8.0, 1e-8, "c")
+    single, cells = blind_direction_cells((renamed, pair), 2)
+    assert single == {0: (0,)}, "the renamed singleton must still be a single-block action"
+    assert cells == ((0, 1),), "the two-block action must not be treated as single-block"
 
 
 def test_the_cover_is_exact_on_graphs_whose_answer_is_known() -> None:
     """Clique, path, star and unequal weights -- the branching must not merely be plausible."""
 
-    unit = {v: 1.0 for v in range(6)}
+    unit = {v: Fraction(1) for v in range(6)}
     clique = [(i, j) for i, j in combinations(range(5), 2)]
-    assert minimum_weight_vertex_cover(range(5), clique, unit)[0] == 4.0
-    path = [(0, 1), (1, 2), (2, 3), (3, 4)]
-    assert minimum_weight_vertex_cover(range(5), path, unit)[0] == 2.0
-    star = [(0, k) for k in range(1, 6)]
-    assert minimum_weight_vertex_cover(range(6), star, unit)[0] == 1.0
-    assert minimum_weight_vertex_cover(range(5), [], unit)[0] == 0.0
+    assert minimum_weight_vertex_cover(range(5), clique, unit)[0] == 4
+    assert minimum_weight_vertex_cover(range(5), [(0, 1), (1, 2), (2, 3), (3, 4)], unit)[0] == 2
+    assert minimum_weight_vertex_cover(range(6), [(0, k) for k in range(1, 6)], unit)[0] == 1
+    assert minimum_weight_vertex_cover(range(5), [], unit)[0] == 0
 
-    skewed = {0: 10.0, 1: 1.0, 2: 1.0}
+    skewed = {0: Fraction(10), 1: Fraction(1), 2: Fraction(1)}
     weight, cover = minimum_weight_vertex_cover(range(3), [(0, 1), (0, 2)], skewed)
-    assert weight == 2.0 and set(cover) == {1, 2}, (
+    assert weight == 2 and set(cover) == {1, 2}, (
         "the cheap pair must beat the single expensive hub; a size-minimising cover would "
         "return the hub and be wrong"
-    )
-
-
-def test_an_incomplete_edge_set_only_lowers_the_bound() -> None:
-    """Dropping evidence must never raise a lower bound -- the failure mode that was retracted."""
-
-    polytope, thermal, actions = _instance()
-    post_route_index, cells = coarse_indistinguishability_cells(actions, thermal.blocks)
-    edges = _establish(polytope, thermal, actions, cells, post_route_index)
-    weight = {b: float(actions[i].cost) for b, i in post_route_index.items()}
-    full, _ = blind_direction_lower_bound(cells, edges, weight)
-    assert full > 0.0
-    for cell_index in list(edges):
-        for drop in range(len(edges[cell_index])):
-            partial = {k: list(v) for k, v in edges.items()}
-            partial[cell_index] = partial[cell_index][:drop] + partial[cell_index][drop + 1:]
-            reduced, _ = blind_direction_lower_bound(cells, partial, weight)
-            assert reduced <= full + 1e-12
-
-
-def test_a_post_route_action_that_observes_two_blocks_is_refused() -> None:
-    """The cell partition is only meaningful if post-route really means one block."""
-
-    bad = (
-        MeasurementAction("c::post_route::b0", np.array([1.0, 1.0, 0.0]), 8.0, 1e-8, "c"),
-    )
-    with pytest.raises(ValueError, match="observes 2 blocks"):
-        coarse_indistinguishability_cells(bad, 3)
-
-
-def test_cells_are_a_partition_of_every_block() -> None:
-    """Non-vacuity for the partition itself: nothing dropped, nothing double-counted."""
-
-    _polytope, thermal, actions = _instance(blocks=8, group=5)
-    post_route_index, cells = coarse_indistinguishability_cells(actions, thermal.blocks)
-    flat = [block for cell in cells for block in cell]
-    assert sorted(flat) == list(range(8)) and len(flat) == len(set(flat))
-    assert sorted(len(cell) for cell in cells) == [3, 5]
-    assert sorted(post_route_index) == list(range(8))
-
-
-def test_overlapping_cells_are_refused_because_the_sum_would_double_count() -> None:
-    """The only way this bound can exceed the true optimum, guarded at its source.
-
-    Additivity is what turns per-cell covers into one number. If two summed cells shared a
-    block, that block's post-route action would be charged twice and the total could rise above
-    the optimum -- the unsound direction, as opposed to merely a weak bound.
-    """
-
-    weight = {0: 8.0, 1: 8.0, 2: 8.0}
-    overlapping = ((0, 1), (1, 2))
-    with pytest.raises(ValueError, match="pairwise disjoint"):
-        blind_direction_lower_bound(overlapping, {0: [(0, 1)], 1: [(1, 2)]}, weight)
-
-
-def test_an_edge_filed_under_the_wrong_cell_is_refused() -> None:
-    """A misfiled edge draws a cover from blocks another cell also charges for."""
-
-    weight = {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0}
-    cells = ((0, 1), (2, 3))
-    with pytest.raises(ValueError, match="does not contain"):
-        blind_direction_lower_bound(cells, {0: [(1, 2)]}, weight)
-
-
-def test_a_witness_whose_step_is_below_tolerance_is_dropped_not_raised() -> None:
-    """A degenerate witness is missing evidence, not a broken argument.
-
-    With the delta exactly along the blind direction, every action outside the pair reads
-    exactly zero, so the cut can only be a SUBSET of the pair's two post-route actions. It is a
-    strict subset when the step falls at or below an action's tolerance. Raising there would
-    abort a whole scan over one degenerate pair; the bound simply loses that edge.
-    """
-
-    polytope, thermal, actions = _instance()
-    huge_tolerance = tuple(
-        MeasurementAction(a.action_id, a.vector, a.cost, 1e6, a.candidate_id)
-        for a in actions
-    )
-    post_route_index, cells = coarse_indistinguishability_cells(
-        huge_tolerance, thermal.blocks
-    )
-    left, right = cells[0][0], cells[0][1]
-    assert (
-        certify_blind_pair(
-            polytope,
-            thermal,
-            huge_tolerance,
-            (left, right),
-            (post_route_index[left], post_route_index[right]),
-            [(0, left), (0, right)],
-            MARGIN_K,
-            TOLERANCE,
-        )
-        is None
-    )
-    # Non-vacuity: the same pair IS established once the tolerance is realistic, so the drop
-    # above is caused by the tolerance and not by the pair being unreachable.
-    assert (
-        certify_blind_pair(
-            polytope,
-            thermal,
-            actions,
-            (left, right),
-            (post_route_index[left], post_route_index[right]),
-            [(0, left), (0, right)],
-            MARGIN_K,
-            TOLERANCE,
-        )
-        is not None
     )
 
 
@@ -297,23 +232,93 @@ def test_a_truncated_cover_search_refuses_rather_than_returning_an_incumbent() -
 
     Any feasible cover's weight is an UPPER bound on the minimum, so reporting an incumbent from
     a truncated search as a LOWER bound on observation cost would overstate it -- the only way
-    this construction can be unsound rather than merely weak. The search must therefore fail
-    closed, not degrade gracefully.
+    this construction can be unsound rather than merely weak. It must fail closed.
     """
 
-    from CertiTherm.synthesis import UnresolvedComputation
-
-    unit = {v: 1.0 for v in range(12)}
+    unit = {v: Fraction(1) for v in range(12)}
     clique = [(i, j) for i, j in combinations(range(12), 2)]
     with pytest.raises(UnresolvedComputation, match="upper bound on the minimum"):
         minimum_weight_vertex_cover(range(12), clique, unit, node_budget=5)
-    # Non-vacuity: the same call succeeds with a real budget, so the refusal is caused by the
-    # budget and not by the graph being unsolvable.
-    assert minimum_weight_vertex_cover(range(12), clique, unit)[0] == 11.0
+    assert minimum_weight_vertex_cover(range(12), clique, unit)[0] == 11
 
 
-def test_a_negative_vertex_weight_is_refused() -> None:
-    """A negative weight would let a larger cover cost less and break the bound's monotonicity."""
+def test_an_incomplete_edge_set_only_lowers_the_bound() -> None:
+    """Dropping evidence must never raise a lower bound -- the failure mode that was retracted."""
 
-    with pytest.raises(ValueError, match="negative or non-finite"):
-        minimum_weight_vertex_cover(range(2), [(0, 1)], {0: -1.0, 1: 1.0})
+    polytope, thermal, actions = _instance()
+    single_block_actions, cells = blind_direction_cells(actions, thermal.blocks)
+    edges = _establish(polytope, thermal, actions, cells, single_block_actions)
+    cost = block_instrumentation_cost(actions, single_block_actions, range(thermal.blocks))
+    full, _ = blind_direction_lower_bound(cells, edges, cost)
+    assert full > 0
+    for cell_index in list(edges):
+        for drop in range(len(edges[cell_index])):
+            partial = {k: list(v) for k, v in edges.items()}
+            partial[cell_index] = partial[cell_index][:drop] + partial[cell_index][drop + 1:]
+            reduced, _ = blind_direction_lower_bound(cells, partial, cost)
+            assert reduced <= full
+
+
+def test_overlapping_cells_are_refused_because_the_sum_would_double_count() -> None:
+    """The only way this bound can exceed the true optimum, guarded at its source."""
+
+    cost = {b: Fraction(8) for b in range(3)}
+    with pytest.raises(ValueError, match="pairwise disjoint"):
+        blind_direction_lower_bound(((0, 1), (1, 2)), {0: [(0, 1)], 1: [(1, 2)]}, cost)
+
+
+def test_an_edge_filed_under_the_wrong_cell_is_refused() -> None:
+    """A misfiled edge draws a cover from blocks another cell also charges for."""
+
+    cost = {b: Fraction(8) for b in range(4)}
+    with pytest.raises(ValueError, match="does not contain"):
+        blind_direction_lower_bound(((0, 1), (2, 3)), {0: [(1, 2)]}, cost)
+
+
+def test_a_block_with_no_single_block_action_cannot_be_charged() -> None:
+    """A cover may only charge for an action the master could actually select."""
+
+    _polytope, thermal, actions = _instance()
+    single_block_actions, _cells = blind_direction_cells(actions, thermal.blocks)
+    trimmed = {b: v for b, v in single_block_actions.items() if b != 0}
+    with pytest.raises(ValueError, match="no single-block action"):
+        block_instrumentation_cost(actions, trimmed, range(thermal.blocks))
+
+
+def test_a_witness_whose_step_is_below_tolerance_is_dropped_not_raised() -> None:
+    """A degenerate witness is missing evidence, not a broken argument."""
+
+    polytope, thermal, actions = _instance()
+    huge_tolerance = tuple(
+        MeasurementAction(a.action_id, a.vector, a.cost, 1e6, a.candidate_id) for a in actions
+    )
+    single_block_actions, cells = blind_direction_cells(huge_tolerance, thermal.blocks)
+    left, right = cells[0][0], cells[0][1]
+    assert (
+        certify_blind_pair(
+            polytope, thermal, huge_tolerance, (left, right), single_block_actions,
+            [(0, left), (0, right)], MARGIN_K, TOLERANCE,
+        )
+        is None
+    )
+    # Non-vacuity: the same pair IS established once the tolerance is realistic, so the drop
+    # above is caused by the tolerance and not by the pair being unreachable.
+    single_block_actions, _ = blind_direction_cells(actions, thermal.blocks)
+    assert (
+        certify_blind_pair(
+            polytope, thermal, actions, (left, right), single_block_actions,
+            [(0, left), (0, right)], MARGIN_K, TOLERANCE,
+        )
+        is not None
+    )
+
+
+def test_cells_are_a_partition_of_every_block() -> None:
+    """Non-vacuity for the partition itself: nothing dropped, nothing double-counted."""
+
+    _polytope, thermal, actions = _instance(blocks=8, group=5)
+    single_block_actions, cells = blind_direction_cells(actions, thermal.blocks)
+    flat = [block for cell in cells for block in cell]
+    assert sorted(flat) == list(range(8)) and len(flat) == len(set(flat))
+    assert sorted(len(cell) for cell in cells) == [3, 5]
+    assert sorted(single_block_actions) == list(range(8))
