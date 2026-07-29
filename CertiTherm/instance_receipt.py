@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
+from .digest import sha256_file as _sha256_file
 
 if TYPE_CHECKING:  # avoid import cost / cycles at runtime
     from CertiTherm.core import MeasurementAction, PowerPolytope, ThermalFamily
@@ -40,15 +41,6 @@ class InstanceReceiptError(ValueError):
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise InstanceReceiptError(message)
-
-
-def _sha256_file(path: Path) -> str:
-    """Streaming SHA-256 of a file (operator NPZ exports can be large)."""
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _hash_array(digest: "hashlib._Hash", name: str, array: np.ndarray) -> None:

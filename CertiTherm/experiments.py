@@ -52,6 +52,7 @@ from .spectral import (
 )
 from .solver_budget import budget_scope
 from .synthesis import synthesize_ordered_query
+from .digest import sha256_file as _sha256
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,14 +154,6 @@ def _gpu_backend() -> Optional[GpuHotSpotBackend]:
 def _rows(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as stream:
         return list(csv.DictReader(stream, delimiter="\t"))
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _canonical_sha256(payload: Mapping[str, object]) -> str:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 from pathlib import Path
 import shutil
 import time
@@ -14,6 +13,7 @@ import numpy as np
 
 from .gpu_hotspot import GpuHotSpotBackend, build_grid_operator_gpu
 from .hotspot import HotSpotModel, build_operator, replay_power
+from .digest import sha256_file as _sha256
 
 
 ERROR_LIMIT_K = 0.01
@@ -21,14 +21,6 @@ THERMAL_LIMIT_K = 330.0
 DECISION_MARGIN_K = 1e-4
 MODELS = ("grid64-avg", "grid128-avg")
 CASES = ("example1", "thermodse-227")
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _write_tsv(path: Path, rows: list[dict[str, object]]) -> None:

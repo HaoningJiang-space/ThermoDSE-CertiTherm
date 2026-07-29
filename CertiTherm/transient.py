@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -13,6 +12,7 @@ import numpy as np
 
 from .hotspot import HotSpotModel
 from .phase_trace import PhaseTrace
+from .digest import sha256_file as _sha256
 
 # Pinned HotSpot's write_vals() serialises temperatures with two decimals, so 0.01 K is the
 # finest distinction any of its output can express. Named once because both the convergence
@@ -131,14 +131,6 @@ def _peak_and_ties(
     others = np.delete(values, winner)
     runner_up = float(others.max()) if others.size else peak
     return winner, runner_up, ties
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _run_hotspot(

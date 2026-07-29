@@ -11,6 +11,7 @@ import subprocess
 from typing import Sequence, Tuple
 
 import numpy as np
+from .digest import sha256_file as _sha256
 
 
 _OUTPUT_HEADER = struct.Struct("<8sIIQQQdd")
@@ -32,14 +33,6 @@ class GpuHotSpotBackend:
             raise ValueError("invalid GPU solver tolerances")
         if self.max_iterations <= 0:
             raise ValueError("GPU solver iteration limit must be positive")
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _floorplan_units(path: Path) -> Tuple[str, ...]:

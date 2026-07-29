@@ -63,6 +63,7 @@ from research.triangle.v61_contract import OUTPUT_RESOLUTION_K
 from research.triangle.v61_contract import classify as _classify
 from research.triangle.v61_contract import positional_script_argument as _argument
 from research.triangle.v61_contract import subset_tag as _subset_tag
+from CertiTherm.digest import sha256_file as sha256
 
 # Positional run parameters. `module_name=__name__` is what keeps these at their defaults on
 # import: before it, `pytest -q CertiTherm/tests` bound MODEL to "CertiTherm/tests", and
@@ -135,14 +136,6 @@ def write_json(path: Path, payload) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(_plain(payload), indent=2), encoding="utf-8")
     tmp.replace(path)
-
-
-def sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def stage_inputs(paths: dict, staging: Path) -> tuple:

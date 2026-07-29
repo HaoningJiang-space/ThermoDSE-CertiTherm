@@ -13,6 +13,7 @@ import numpy as np
 
 from .core import ThermalFamily
 from .gpu_hotspot import GpuHotSpotBackend, build_grid_operator_gpu
+from .digest import sha256_file as _sha256
 
 
 @dataclass(frozen=True)
@@ -37,14 +38,6 @@ class HotSpotModel:
                 raise ValueError("grid size must be positive")
             return cls(text, "grid", size, size, suffix[1:])
         raise ValueError(f"unsupported registered HotSpot model: {text}")
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _floorplan_units(path: Path) -> List[str]:
