@@ -304,17 +304,34 @@ def _collision_search_unguarded(
     feasibility_tolerance: float,
     workers: Optional[int],
     exhaustive: bool,
+    reject_specs: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> Tuple[WorldPair, ...]:
-    """Separate safe/reject cells with deterministic parallel LP batches."""
+    """Separate safe/reject cells with deterministic parallel LP batches.
+
+    `reject_specs` restricts WHICH reject cells are scanned while leaving every SAFE row in
+    place. That asymmetry is the whole point: SAFE is a conjunction over all (model, point),
+    so dropping a cell from the FAMILY would also drop its SAFE row and enlarge the safe set
+    -- the error that invalidated an earlier decomposition here (see
+    docs/PER_CELL_DECOMPOSITION_RETRACTED.md). Restricting only the scan keeps SAFE intact and
+    removes REJECT options, which is a genuine relaxation.
+
+    A restricted scan can no longer certify that NO collision exists in the full instance, so
+    it is a diagnostic knob and not a certification path; `_collision` and `_collisions` do not
+    expose it.
+    """
 
     problem = _build_collision_problem(
         polytope, thermal, actions, selected, margin_k, feasibility_tolerance
     )
     response = thermal.response_k_per_w
-    specs = tuple(
-        (reject_model, point)
-        for reject_model in range(response.shape[0])
-        for point in range(response.shape[1])
+    specs = (
+        tuple(reject_specs)
+        if reject_specs is not None
+        else tuple(
+            (reject_model, point)
+            for reject_model in range(response.shape[0])
+            for point in range(response.shape[1])
+        )
     )
     if not specs:
         # ThermalFamily validation rejects an empty model/point grid, so this
@@ -393,6 +410,7 @@ def _collision_search(
     feasibility_tolerance: float,
     workers: Optional[int],
     exhaustive: bool,
+    reject_specs: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> Tuple[WorldPair, ...]:
     """Every separation search, with the worker-pool failure translated exactly once.
 
@@ -417,6 +435,7 @@ def _collision_search(
             feasibility_tolerance,
             workers,
             exhaustive,
+            reject_specs,
         )
     except BrokenProcessPool as exc:
         raise UnresolvedComputation(f"separation worker pool broke: {exc}") from exc
@@ -478,8 +497,13 @@ def _collisions(
     margin_k: float,
     feasibility_tolerance: float,
     workers: Optional[int] = None,
+    reject_specs: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> Tuple[WorldPair, ...]:
-    """Return one collision per reachable reject cell in deterministic order."""
+    """Return one collision per reachable reject cell in deterministic order.
+
+    With `reject_specs`, "reachable" means within that restricted scan and every SAFE row
+    still binds -- a relaxation of the instance, not a smaller instance.
+    """
 
     return _collision_search(
         polytope,
@@ -490,6 +514,7 @@ def _collisions(
         feasibility_tolerance,
         workers,
         True,
+        reject_specs,
     )
 
 
@@ -1614,6 +1639,7 @@ def synthesize_minimum_observation(
     separation_workers: Optional[int] = None,
     bound_interval: Optional[int] = None,
     separation_policy: str = "exhaustive",
+    reject_specs: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> ObservationPlan:
     """Synthesize the exact minimum-cost non-adaptive observation plan.
 
@@ -1717,7 +1743,15 @@ def synthesize_minimum_observation(
             raise ContractViolation(
                 f"unknown separation policy {separation_policy!r}"
             )
-        harvest = _collisions if separation_policy == "exhaustive" else _first_collision_batch
+        if reject_specs is not None and separation_policy != "exhaustive":
+            raise ContractViolation(
+                "a restricted reject scan is only defined for the exhaustive policy"
+            )
+        harvest = (
+            (lambda *a: _collisions(*a, reject_specs=reject_specs))
+            if reject_specs is not None
+            else (_collisions if separation_policy == "exhaustive" else _first_collision_batch)
+        )
         for iteration in range(1, max_iterations + 1):
             reached = iteration
             batch = harvest(

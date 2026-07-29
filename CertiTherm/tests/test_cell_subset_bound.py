@@ -127,3 +127,75 @@ def test_no_ordering_holds_between_a_subset_and_the_whole(seed: int) -> None:
     # Recorded, not asserted one way: the point is that the relation is not fixed.
     assert all(value >= 0.0 for value in parts)
     assert whole >= 0.0
+
+
+# --- The repair: restrict the SCAN, not the family -------------------------------------
+#
+# The retraction identified what a valid decomposition needs -- keep the SAFE conjunction
+# intact, drop only REJECT options -- and `reject_specs` on `synthesize_minimum_observation`
+# is that operation. These tests check the inequality BEFORE any number is reported from it,
+# which is precisely what was skipped the first time.
+
+
+def _restricted_optimum(polytope, family, actions, specs):
+    plan = synthesize_minimum_observation(
+        polytope, family, actions, reject_specs=tuple(specs)
+    )
+    if plan.status != "OPTIMAL":
+        pytest.skip(f"restricted instance did not resolve ({plan.status})")
+    return float(plan.exact_cost)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+def test_restricting_the_scan_never_raises_the_optimum(seed: int) -> None:
+    """The property the family restriction lacked: this one really is a relaxation.
+
+    Every SAFE row still binds, so the safe set is unchanged; fewer REJECT options can only
+    make separation easier. If this ever fails, no bound may be derived from a restricted
+    scan either.
+    """
+
+    polytope, family, actions = _instance(points=4, seed=seed)
+    whole = _optimum(polytope, family, actions)
+    for specs in (((0, 0),), ((0, 1),), ((0, 0), (0, 1)), ((0, 0), (0, 2), (0, 3))):
+        part = _restricted_optimum(polytope, family, actions, specs)
+        assert part <= whole + 1e-9, (
+            f"restricting the scan to {specs} raised the optimum from {whole} to {part}; "
+            "a restricted scan is not a relaxation after all"
+        )
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_wider_scan_is_at_least_as_hard(seed: int) -> None:
+    """Monotone in the scan, which is what makes a larger subset a better bound."""
+
+    polytope, family, actions = _instance(points=4, seed=seed)
+    previous = None
+    for size in (1, 2, 3, 4):
+        part = _restricted_optimum(
+            polytope, family, actions, [(0, i) for i in range(size)]
+        )
+        if previous is not None:
+            assert part >= previous - 1e-9, (
+                f"widening the scan from {size - 1} to {size} cells LOWERED the optimum "
+                f"from {previous} to {part}"
+            )
+        previous = part
+    assert previous == pytest.approx(_optimum(polytope, family, actions)), (
+        "scanning every cell must reproduce the unrestricted optimum exactly"
+    )
+
+
+def test_the_two_restrictions_are_not_the_same_operation() -> None:
+    """Restricting the family and restricting the scan differ -- the heart of the retraction.
+
+    Same instance, same cell: restricting the FAMILY raised the optimum (invalid), while
+    restricting the SCAN does not.
+    """
+
+    polytope, family, actions = _instance(points=4, seed=3)
+    whole = _optimum(polytope, family, actions)
+    by_family = _optimum(polytope, _restrict(family, (0,)), actions)
+    by_scan = _restricted_optimum(polytope, family, actions, ((0, 0),))
+    assert by_family > whole, "the family restriction should still exhibit the defect"
+    assert by_scan <= whole + 1e-9, "the scan restriction must be a relaxation"
