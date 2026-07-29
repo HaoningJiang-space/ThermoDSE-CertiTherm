@@ -31,6 +31,21 @@ row must summarise its blocks. Two summaries are available and they point opposi
 Verified numerically on a three-block module: true peak 4.1450, upper envelope 4.5285, lower
 envelope 2.1620.
 
+**`ambient_k` needs the same treatment, in the same opposite directions**, which the first
+version of this analysis missed. Ambient is per (model, point), not per block, so coarsening
+points coarsens it too. SAFE subtracts it, so the tightest constraint uses the module's
+LARGEST ambient; REJECT subtracts it too, so the hardest threshold to reach uses the SMALLEST.
+Checked over 20 000 random power vectors on a four-block module with per-block ambients: with
+`max` response and `max` ambient, "coarsely safe but some block unsafe" occurred 0 times; with
+`min` response and `min` ambient, "coarsely rejecting but no block rejecting" occurred 0
+times.
+
+`error_k` needs no envelope -- it is per model and broadcast over points, so coarsening points
+does not touch it.
+
+So the change is three paired quantities, not one: SAFE and REJECT each need their own
+response array AND their own ambient array.
+
 Using the upper envelope for REJECT is fail-OPEN -- an envelope above the limit does not mean
 any block actually exceeds it, so the method would certify against worlds that cannot occur.
 Using the lower envelope for SAFE is fail-open the other way.
