@@ -322,3 +322,70 @@ def test_cells_are_a_partition_of_every_block() -> None:
     assert sorted(flat) == list(range(8)) and len(flat) == len(set(flat))
     assert sorted(len(cell) for cell in cells) == [3, 5]
     assert sorted(single_block_actions) == list(range(8))
+
+
+def _seed_cuts(polytope, thermal, actions, cells, single_block_actions):
+    """Every established pair's cut, as action IDs -- the form the master accepts."""
+
+    points = thermal.response_k_per_w.shape[1]
+    seeds = []
+    for cell in cells:
+        for left, right in combinations(cell, 2):
+            witness = certify_blind_pair(
+                polytope, thermal, actions, (left, right), single_block_actions,
+                [(0, q) for q in (left, right) if q < points], MARGIN_K, TOLERANCE,
+            )
+            if witness is not None:
+                seeds.append(witness.cut_action_ids)
+    return seeds
+
+
+def test_seeded_and_unseeded_synthesis_agree_on_the_optimum_and_the_verdict() -> None:
+    """Seeding may change convergence, never the answer -- the tier-2 integration invariant.
+
+    A seeded cut is a NECESSARY constraint, so it excludes no certifying selection, and the
+    loop still exits only when the separation oracle finds no collision. If a seed were invalid
+    it would cut off the true optimum and this comparison would diverge. That is exactly the
+    failure peer review asked to be made visible, so it is asserted rather than argued.
+    """
+
+    polytope, thermal, actions = _instance()
+    single_block_actions, cells = blind_direction_cells(actions, thermal.blocks)
+    seeds = _seed_cuts(polytope, thermal, actions, cells, single_block_actions)
+    assert len(seeds) == 6, f"the fixture must produce seeds or this compares nothing: {seeds}"
+
+    plain = synthesize_minimum_observation(polytope, thermal, actions, max_iterations=200000)
+    seeded = synthesize_minimum_observation(
+        polytope, thermal, actions, max_iterations=200000, seed_cuts=seeds
+    )
+    assert plain.status == seeded.status == "OPTIMAL"
+    assert plain.exact_cost == seeded.exact_cost
+    assert seeded.lower_bound is not None and plain.lower_bound is not None
+    # The SELECTION may differ: the hitting-set optimum is not unique and seeding changes which
+    # optimum the MILP reaches. Asserting set equality was measured to fail here on a plan of
+    # equal cost, which is a fact about the instance and not a defect. What must agree is the
+    # cost and the verdict -- an invalid seed would cut off the true optimum and raise the cost.
+    cost_of = lambda plan: sum(
+        a.cost for a in actions if a.action_id in set(plan.selected_action_ids)
+    )
+    assert cost_of(plain) == cost_of(seeded) == plain.exact_cost
+
+
+def test_a_seed_naming_an_unknown_action_fails_closed() -> None:
+    """A silently dropped seed would weaken the bound with no trace; it must be UNRESOLVED."""
+
+    polytope, thermal, actions = _instance()
+    plan = synthesize_minimum_observation(
+        polytope, thermal, actions, max_iterations=1000, seed_cuts=[("c::post_route::b99",)]
+    )
+    assert plan.status == "UNRESOLVED" and plan.exact_cost is None
+
+
+def test_an_empty_seed_cut_is_refused() -> None:
+    """An empty cut asserts nothing separates a collision and would forge UNSYNTHESIZABLE."""
+
+    polytope, thermal, actions = _instance()
+    plan = synthesize_minimum_observation(
+        polytope, thermal, actions, max_iterations=1000, seed_cuts=[()]
+    )
+    assert plan.status == "UNRESOLVED" and plan.exact_cost is None

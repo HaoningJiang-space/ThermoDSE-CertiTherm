@@ -1640,6 +1640,7 @@ def synthesize_minimum_observation(
     bound_interval: Optional[int] = None,
     separation_policy: str = "exhaustive",
     reject_specs: Optional[Sequence[Tuple[int, int]]] = None,
+    seed_cuts: Optional[Sequence[Sequence[str]]] = None,
 ) -> ObservationPlan:
     """Synthesize the exact minimum-cost non-adaptive observation plan.
 
@@ -1648,6 +1649,22 @@ def synthesize_minimum_observation(
     with only logarithmically many extra solves. A positive `bound_interval`
     requests a fixed cadence; 0 disables periodic refresh. The bound is also
     attempted once at normal exit.
+
+    `seed_cuts` supplies constraints proved elsewhere -- currently the
+    two-action cuts from `blind_direction_cuts`, each backed by an exactly
+    validated witness. Each is a sequence of ACTION IDs, never indices: an
+    index only names an action within one library ordering, so a regenerated
+    or reordered library would silently rebind it. An unknown ID is a contract
+    violation and surfaces as UNRESOLVED rather than a quietly dropped
+    constraint.
+
+    Seeding can only change how fast the master's lower bound rises, never the
+    answer. A seeded cut is a NECESSARY constraint, so it excludes no
+    certifying selection, and the loop still exits only when the separation
+    oracle finds no collision for the master's selection -- a seed never
+    authorises OPTIMAL by itself. `test_seeded_and_unseeded_agree` pins that:
+    an invalid seed would show up as a changed optimum, which is the failure
+    this parameter must not be able to hide.
     """
 
     # Hoisted above the try so a failure at iteration N still reports the work
@@ -1737,6 +1754,22 @@ def synthesize_minimum_observation(
 
         costs = np.asarray([action.cost for action in actions])
         cut_masks: List[int] = []
+        if seed_cuts:
+            index_of = {action.action_id: i for i, action in enumerate(actions)}
+            for seed in seed_cuts:
+                if not seed:
+                    raise ContractViolation(
+                        "an empty seed cut asserts that no action separates a collision, "
+                        "which would make the instance unsynthesizable by construction"
+                    )
+                unknown = [name for name in seed if name not in index_of]
+                if unknown:
+                    raise ContractViolation(
+                        f"seed cut names actions absent from this library: {sorted(unknown)}"
+                    )
+                row = np.zeros(len(actions))
+                row[[index_of[name] for name in seed]] = 1.0
+                _insert_minimal_cut(cuts, row, cut_masks, ledger)
         master = _solve_master(costs, cuts)
         exact_candidate = False
         if separation_policy not in ("exhaustive", "lazy"):
