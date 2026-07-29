@@ -1,4 +1,15 @@
-# A certified lower bound that does not enumerate confusable pairs
+# A decomposition that raises the certified lower bound 6.7x
+
+**On the title.** An earlier version of this file was called "A certified lower bound that
+does not enumerate confusable pairs". That overstated it, and the distinction matters:
+
+  * the DECOMPOSITION step is non-enumerative -- `C*(whole) >= C*(cell)` is a one-line subset
+    argument that discovers nothing and depends on no property of the separation oracle;
+  * the per-cell BOUND is still obtained by enumeration, just confined to one cell.
+
+So this is a better-conditioned instance of the same machinery, not a different kind of
+bound. A genuinely non-enumerative bound -- a semi-infinite dual over the difference sets, or
+a dimension argument -- remains unbuilt.
 
 MEASURED 2026-07-29, dev split, one candidate. NON-CLAIM. Supersedes nothing; it is the
 first bound in this project that improves on the enumerated one, and it improves on it by
@@ -17,7 +28,8 @@ hitting set over confusable pairs discovered one at a time from the whole instan
 
 ## The bound
 
-Elementary, and it enumerates nothing:
+The inequality is elementary and enumerates nothing; what it bounds is still computed by
+enumeration inside the cell.
 
 > A plan sufficient for the whole instance is sufficient for any SUBSET of its reject cells,
 > because dropping cells only removes constraints. Hence the set of globally sufficient plans
