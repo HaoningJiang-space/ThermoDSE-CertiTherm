@@ -249,17 +249,6 @@ def verify_infeasible_ray(
     return ProofCheck(False, ProposalKind.UNKNOWN, "ray contradiction is not strict")
 
 
-def verify_extra_inequality(
-    row: Sequence[float],
-    rhs: float,
-    point: Sequence[float],
-    tolerance: float,
-) -> bool:
-    """Check one cell-specific row after shared primal constraints pass."""
-
-    return _outward_dot(row, point)[1] <= _expanded(rhs, tolerance, 1.0)
-
-
 def verify_infeasible_ray_with_extra_row(
     common: LinearFeasibilitySystem,
     extra_row: Sequence[float],

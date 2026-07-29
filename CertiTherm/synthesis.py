@@ -388,11 +388,6 @@ def kernel_oracle_stats() -> dict:
     return dict(_KERNEL_ORACLE_STATS)
 
 
-def reset_kernel_oracle_stats() -> None:
-    for key in _KERNEL_ORACLE_STATS:
-        _KERNEL_ORACLE_STATS[key] = 0
-
-
 class KernelValidationError(Exception):
     """A kernelized collision witness failed validation against the FULL SAFE rows,
     so the kernel result cannot be trusted. The caller must re-run the authoritative
