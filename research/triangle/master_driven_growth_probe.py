@@ -80,6 +80,9 @@ def _trajectory(driver: str, polytope, family, actions, costs, max_cuts, master_
             records.append({"driver": driver, "stopped": "unseparable", "cuts": len(cuts)})
             break
         started = time.monotonic()
+        # `generated` is incremented by the caller in production, so it is counted here too
+        # rather than left at zero, which would read as "no cuts were produced".
+        ledger.generated += 1
         _insert_minimal_cut(cuts, cut, masks, ledger)
         accumulate += time.monotonic() - started
 
