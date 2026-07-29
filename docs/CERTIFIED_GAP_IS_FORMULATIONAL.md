@@ -66,6 +66,50 @@ constraint family is continuous (every confusable pair in a polytope), so no att
 number of cuts does that. Constraint generation over it converges arbitrarily slowly, and no
 tuning of the loop or the master changes the exponent.
 
+## Measured: the bound grows logarithmically in the cut count
+
+"Converges arbitrarily slowly" was an adjective resting on two points. `bound_growth_probe.py`
+accumulates cuts exactly as the loop does and evaluates the EXACT hitting-set optimum over the
+cuts held so far, at geometric checkpoints:
+
+| cuts held | exact hitting-set optimum | actions in it | master solve |
+| ---: | ---: | ---: | ---: |
+| 125 | 9.0 | 2 | 0.0 s |
+| 250 | 16.0 | 2 | 0.7 s |
+| 500 | 18.0 | 3 | 2.8 s |
+| 1 000 | 24.0 | 3 | 13.1 s |
+| 3 619 | 32.0 | 4 | 83.5 s |
+
+Least squares over these points:
+
+    L(n) = -22.2 + 4.60 * log2(n)      (every prediction within 1.6 of measurement)
+
+Doubling the number of discovered cuts buys about **4.6** of certified lower bound. The
+certified upper bound for this candidate is about 1450. Extrapolating:
+
+| target | cuts required |
+| --- | ---: |
+| 1370 (the `dual` baseline's cost, per candidate) | ~2^303 ~ 10^91 |
+| 1450 (this candidate's certified U) | ~2^320 ~ 10^96 |
+
+For scale, the observable universe holds on the order of 10^80 atoms. The master solve time
+also grows superlinearly -- 0.0, 0.7, 2.8, 13.1, 83.5 seconds -- so even generating the cuts
+is not the only wall.
+
+This is what makes the conclusion structural rather than a matter of budget. No separation
+speed-up, no master frequency, no amount of compute, and no spatial pruning of reject cells
+changes a logarithm into what would be needed.
+
+### What the measurement does NOT settle
+
+The curve is measured along the trajectory the production loop actually follows: greedy cover
+over the active cuts, one collision, one cut. A different CUT SELECTION policy -- inspecting
+several candidate collisions and keeping the one that lifts the bound most, or that is least
+redundant against the existing antichain -- generates a different sequence, and this
+experiment says nothing about its exponent. That is the one place where an algorithmic
+contribution could still live inside this formulation, and it is worth measuring before being
+assumed either way.
+
 ## Consequence for what would count as an improvement
 
 The certified interval cannot be closed by:
@@ -77,6 +121,19 @@ The certified interval cannot be closed by:
 Closing it needs a lower bound that does not come from covering *enumerated* pairs -- an
 argument over the continuous world set or the observation subspace directly, rather than over
 a sampled subset of its confusable pairs. That is a change of method, not of implementation.
+
+Two shapes such an argument could take, neither implemented:
+
+  * **Semi-infinite dual.** Identifiability is `D_{m,r} ∩ {δ : |M_S δ| ≤ η} = ∅` for every
+    reject cell, where `D_{m,r}` is the polyhedral set of differences between a SAFE and a
+    REJECT power map. The present cut relaxes that to "separate this one δ". A bound taken
+    over measures on `D_{m,r}` rather than over sampled points of it does not enumerate.
+  * **Dimension.** If `D_{m,r}` contains a ball of radius r in some subspace, any `S` whose
+    kernel meets that ball fails. That yields a lower bound on how many independent
+    directions `S` must observe, and hence on cost, without discovering a single pair.
+
+Both are stated here as directions, not results. What the measurements establish is only
+that the enumerative route is closed.
 
 This is consistent with the two other measured negatives recorded in
 `docs/THERMAL_SIGNOFF_IRREDUCIBILITY.md`: the upper bound cannot be lowered much either,
