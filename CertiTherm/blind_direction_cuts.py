@@ -183,11 +183,48 @@ def minimum_weight_vertex_cover(
             raise ValueError("a self-edge cannot be covered by choosing one of two endpoints")
         if left not in weight or right not in weight:
             raise ValueError(f"edge ({left}, {right}) names a vertex with no weight")
-    best_weight: Optional[Fraction] = None
-    best_cover: Tuple[int, ...] = ()
+    def _matching_bound(pending: Sequence[Tuple[int, int]]) -> Fraction:
+        """A valid lower bound on any cover of `pending`: a greedy maximal matching.
+
+        Matched edges are disjoint, so every cover must pay at least the cheaper endpoint of
+        each. Cheap to compute and strong enough to prune the dense cells, where the naive
+        depth-only bound left the search exploring covers it could already rule out.
+        """
+
+        used: set = set()
+        total = Fraction(0)
+        for u, v in pending:
+            if u not in used and v not in used:
+                used.add(u)
+                used.add(v)
+                total += min(weight[u], weight[v])
+        return total
+
+    # A greedy cover first, so pruning has something to prune against from the root. Without an
+    # incumbent the first descent is unbounded, which is what let a 21-vertex near-complete cell
+    # exhaust the node budget on the real instance.
+    greedy: List[int] = []
+    remaining = list(edges)
+    while remaining:
+        degree: Dict[int, int] = {}
+        for u, v in remaining:
+            degree[u] = degree.get(u, 0) + 1
+            degree[v] = degree.get(v, 0) + 1
+        pick = max(degree, key=lambda x: (degree[x], -float(weight[x])))
+        greedy.append(pick)
+        remaining = [(u, v) for u, v in remaining if u != pick and v != pick]
+    best_weight: Fraction = sum((weight[v] for v in greedy), Fraction(0))
+    best_cover: Tuple[int, ...] = tuple(greedy)
     nodes = 0
 
     def branch(chosen: Tuple[int, ...], chosen_weight: Fraction, pending: List[Tuple[int, int]]):
+        """Branch on a MAX-DEGREE vertex, not on an edge.
+
+        Either the vertex is in the cover, or it is not -- and if it is not, every one of its
+        neighbours must be. On a near-complete cell that second branch decides twenty vertices
+        at once, where edge branching decided two and timed out.
+        """
+
         nonlocal best_weight, best_cover, nodes
         nodes += 1
         if nodes > node_budget:
@@ -195,20 +232,31 @@ def minimum_weight_vertex_cover(
                 f"vertex cover search exceeded {node_budget} nodes; an incumbent cover is an "
                 "upper bound on the minimum and must not be reported as a lower bound"
             )
-        if best_weight is not None and chosen_weight >= best_weight:
+        if not pending:
+            if chosen_weight < best_weight:
+                best_weight, best_cover = chosen_weight, chosen
             return
-        taken = set(chosen)
-        uncovered = [(u, v) for u, v in pending if u not in taken and v not in taken]
-        if not uncovered:
-            best_weight, best_cover = chosen_weight, chosen
+        if chosen_weight + _matching_bound(pending) >= best_weight:
             return
-        left, right = uncovered[0]
-        first, second = (left, right) if weight[left] <= weight[right] else (right, left)
-        for pick in (first, second):
-            branch(chosen + (pick,), chosen_weight + weight[pick], uncovered)
+        adjacency: Dict[int, List[int]] = {}
+        for u, v in pending:
+            adjacency.setdefault(u, []).append(v)
+            adjacency.setdefault(v, []).append(u)
+        hub = max(adjacency, key=lambda x: (len(adjacency[x]), -float(weight[x])))
+
+        without_hub = [(u, v) for u, v in pending if u != hub and v != hub]
+        branch(chosen + (hub,), chosen_weight + weight[hub], without_hub)
+
+        neighbours = sorted(set(adjacency[hub]))
+        forced = set(neighbours)
+        branch(
+            chosen + tuple(neighbours),
+            chosen_weight + sum((weight[v] for v in neighbours), Fraction(0)),
+            [(u, v) for u, v in pending if u not in forced and v not in forced],
+        )
 
     branch((), Fraction(0), list(edges))
-    return (Fraction(0) if best_weight is None else best_weight), best_cover
+    return best_weight, best_cover
 
 
 def _exactly_feasible_pair(

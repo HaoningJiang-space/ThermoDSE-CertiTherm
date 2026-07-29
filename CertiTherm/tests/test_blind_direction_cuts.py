@@ -389,3 +389,33 @@ def test_an_empty_seed_cut_is_refused() -> None:
         polytope, thermal, actions, max_iterations=1000, seed_cuts=[()]
     )
     assert plan.status == "UNRESOLVED" and plan.exact_cost is None
+
+
+def test_the_cover_solves_the_dense_cells_the_real_instance_actually_has() -> None:
+    """The shape that exhausted the node budget on arch_a, and the reason it no longer does.
+
+    Its four largest cells hold 21 blocks with 199-209 of the 210 possible edges. Branching on an
+    EDGE decides two vertices per level, so a near-complete cell needs a depth-20 descent before
+    the first incumbent appears and the search timed out at two million nodes. Branching on a
+    max-degree VERTEX decides twenty at once on the excluding side: either the hub is in the
+    cover, or every one of its neighbours is.
+
+    The refusal was correct rather than harmful -- it declined to report an incumbent as a lower
+    bound -- but a bound that cannot be computed is still no bound, so the search itself had to
+    get better.
+    """
+
+    from itertools import combinations as _combinations
+    import random as _random
+
+    weight = {v: Fraction(8) for v in range(21)}
+    complete = list(_combinations(range(21), 2))
+    assert len(complete) == 210
+    assert minimum_weight_vertex_cover(range(21), complete, weight)[0] == 160, (
+        "a 21-clique needs every vertex but one"
+    )
+    near = _random.Random(0).sample(complete, 199)
+    value, cover = minimum_weight_vertex_cover(range(21), near, weight, node_budget=200_000)
+    assert value == 144 and len(cover) == 18, (
+        f"expected the measured cell-16 value of 144.0 over 18 blocks, got {float(value)}"
+    )
