@@ -1354,6 +1354,55 @@ def _greedy_cover(costs: np.ndarray, cuts: Sequence[np.ndarray]) -> Tuple[int, .
     return tuple(sorted(selected))
 
 
+def separating_action_cut(
+    witness: WorldPair,
+    actions: Sequence[MeasurementAction],
+    selected: Sequence[int],
+    *,
+    candidate_id: Optional[str] = None,
+) -> np.ndarray:
+    """The Theorem-1 separator cut for one collision witness: the 0/1 indicator over
+    `actions` of those that separate it and are still buyable.
+
+    This rule decides which lower bounds the method is allowed to certify, and it was
+    written out twice -- here and in `policies._cut`, whose comment said only "same rule
+    as the exact synthesizer". Two copies of a theorem cannot check each other.
+
+    Action `a` separates the pair iff `|v_a . delta| > tolerance`. The cut must be a
+    SUPERSET of the true separators for the hitting-set lower bound to be valid. An
+    earlier form used `> tolerance + separation_tolerance`, which EXCLUDED genuine
+    separators whose gap fell in `(tolerance, tolerance + sep]`. That made the cut a
+    subset -- a too-strong constraint that can push the master optimum ABOVE C* and
+    inflate the certified lower bound. It was found in peer review.
+
+    The `+ sep` guard had been doing double duty: excluding already SELECTED actions
+    (whose agreement gap sits at ~tolerance) and leaving a slack margin. That double duty
+    forced the unsound direction, because shrinking the margin instead counts a selected
+    action pinned at the agreement boundary as a separator, and a cut containing an
+    already-bought action fails to eliminate the current selection (UNRESOLVED). The two
+    concerns are separated here: a SELECTED action provably cannot separate the collision
+    it helped define -- or the pair would not be a collision under that selection -- so it
+    is excluded by INDEX, not by a numerical guard, and everything else is tested at the
+    exact Theorem-1 threshold, which admits every genuine separator.
+
+    `candidate_id` restricts the cut to one candidate's actions. The ordered-query
+    policies need that because they carry the whole library; single-polytope synthesis
+    passes None because its action list is already candidate-local.
+    """
+
+    delta = witness.safe_power_w - witness.unsafe_power_w
+    selected_set = set(selected)
+    return np.asarray(
+        [
+            index not in selected_set
+            and (candidate_id is None or action.candidate_id == candidate_id)
+            and abs(float(action.vector @ delta)) > action.tolerance
+            for index, action in enumerate(actions)
+        ],
+        dtype=float,
+    )
+
+
 def _cut_mask(cut: np.ndarray) -> int:
     mask = 0
     for index in np.flatnonzero(cut):
@@ -1793,38 +1842,7 @@ def synthesize_minimum_observation(
                 # crediting the untouched remainder as "generated" would inflate
                 # the separation work actually done.
                 ledger.generated += 1
-                delta = witness.safe_power_w - witness.unsafe_power_w
-                # Theorem 1: action a separates the pair iff |v_a.delta| >
-                # tolerance -- the cut is the set of such actions and must be a
-                # SUPERSET of the true separators for the hitting-set lower bound
-                # to be valid. The old `> tolerance + separation_tolerance`
-                # EXCLUDED genuine separators with gap in (tolerance,
-                # tolerance+sep], making the cut a subset -- a too-strong
-                # constraint that can push the master optimum ABOVE C* and
-                # inflate the certified lower bound (found in peer review).
-                #
-                # The `+ sep` guard was doing double duty: excluding already
-                # SELECTED actions (whose agreement gap sits at ~tolerance) and
-                # leaving a slack margin. That double duty is what forced the
-                # unsound direction -- shrinking the margin instead counts a
-                # selected action pinned at the agreement boundary as a
-                # separator, and a cut containing an already-bought action fails
-                # to eliminate the current selection (UNRESOLVED).
-                #
-                # Separate the two concerns: a SELECTED action provably cannot
-                # separate the collision it helped define (or the pair would not
-                # be a collision under that selection), so exclude it by INDEX,
-                # not by a numerical guard. For the rest use the exact Theorem-1
-                # threshold `> tolerance`, which admits every genuine separator.
-                selected_set = set(selected)
-                cut = np.asarray(
-                    [
-                        index not in selected_set
-                        and abs(float(action.vector @ delta)) > action.tolerance
-                        for index, action in enumerate(actions)
-                    ],
-                    dtype=float,
-                )
+                cut = separating_action_cut(witness, actions, selected)
                 if not np.any(cut):
                     witnesses.append(witness)
                     candidate_ids, candidate_cost = _candidate_fields()

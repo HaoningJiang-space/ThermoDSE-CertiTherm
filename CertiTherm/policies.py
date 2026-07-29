@@ -12,7 +12,12 @@ from scipy.optimize import linprog
 
 from .core import CandidateSpace, MeasurementAction, PowerPolytope, WorldPair
 from .solver_budget import run_highs
-from .synthesis import _collision, _configured_workers, _required_candidate_indices
+from .synthesis import (
+    _collision,
+    _configured_workers,
+    _required_candidate_indices,
+    separating_action_cut,
+)
 
 
 @dataclass(frozen=True)
@@ -59,21 +64,11 @@ def _cut(
     actions: Sequence[MeasurementAction],
     selected: Sequence[int],
 ) -> np.ndarray:
-    delta = witness.safe_power_w - witness.unsafe_power_w
-    # Same rule as the exact synthesizer (see the long note in synthesis.py):
-    # a SELECTED action cannot separate the collision it helped define, so
-    # exclude it by index; for the rest use the exact Theorem-1 threshold
-    # `> tolerance`. The old `> tolerance + separation_tolerance` dropped genuine
-    # borderline separators (a subset cut).
-    selected_set = set(selected)
-    return np.asarray(
-        [
-            index not in selected_set
-            and action.candidate_id == candidate_id
-            and abs(float(action.vector @ delta)) > action.tolerance
-            for index, action in enumerate(actions)
-        ],
-        dtype=float,
+    """Candidate-local Theorem-1 separator cut. The rule itself lives in
+    `synthesis.separating_action_cut`; the baselines must not carry a second copy of it."""
+
+    return separating_action_cut(
+        witness, actions, selected, candidate_id=candidate_id
     )
 
 
