@@ -134,7 +134,43 @@ certified per-cell OPTIMUM rather than a bound; how the maximum grows with the n
 cells sampled; and whether the same decomposition applied to pairs or small groups of cells
 is stronger still without returning to the pooled regime.
 
-## The naive dimension bound is too weak to be worth building
+## The thermal kernel is not local, which is why one cell is not cheap
+
+The obvious reading of "one reject cell" is that it should be cheap: certify one block's peak,
+measure near that block. Measured from the committed operator, it is not.
+
+For cell (model 0, point 0), the fraction of that block's temperature rise contributed by the
+top-k blocks:
+
+| coverage | blocks required |
+| ---: | ---: |
+| 50% | 93 |
+| 80% | 171 |
+| 90% | 199 |
+| 95% | 213 |
+| 99% | 225 |
+
+Across 69 sampled cells the 90% support width has median **190 of 227 blocks**, range 184-199.
+The steady-state Green's function is essentially global: almost every block materially affects
+almost every other block's temperature.
+
+That is the same physics the spectral measurement found from the other side -- discarding 1.7%
+of operator energy still admits 20.7 K of worst-case peak error -- and it explains why a
+single cell is a substantial problem rather than a local one.
+
+It also suggests where the per-cell optimum sits. The certified bound of 316.4 is worth about
+**39.5** post-route actions at 8.0 each, while the footprint spans ~190 blocks. If resolving
+the footprint is what separation requires, the per-cell optimum would be on the order of
+190 x 8 = 1520 -- the same order as the whole instance's certified upper bound of ~1450, which
+would mean the interval is much closer to closed than the current 4.6x suggests and that the
+existing plan is near-optimal.
+
+**Stated as a prediction, not a result.** Contributing to a temperature is not the same as
+requiring an independent measurement of it: a chiplet read covers 112 blocks at 2.0, so a
+large footprint may be coverable far more cheaply than one action per block. What the
+measurement establishes is only that the kernel is delocalised, which rules out the "one cell
+is a local problem" intuition. Whether the per-cell optimum is near 1520 is exactly what
+running a cell to termination would answer.
 
 `docs/CERTIFIED_GAP_CONVERGENCE.md` lists a dimension argument as one of two shapes a
 genuinely non-enumerative bound could take. Worked out on paper before writing any code, the
