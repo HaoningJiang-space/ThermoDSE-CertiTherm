@@ -111,7 +111,7 @@ bound with an admissible in-polytope witness that attains a large tail error AND
 registered decision margin. Until then 1450 is a feasible plan found by one search, not an
 irreducible minimum.
 
-`docs/PER_CELL_DECOMPOSITION_BOUND.md` is the first partial answer in that direction: it
+`docs/PER_CELL_DECOMPOSITION_RETRACTED.md` is the first partial answer in that direction: it
 raises the certified lower bound for this candidate from 32 to 215 by a decomposition whose
 soundness is a one-line subset argument. The interval is 6.7x rather than 45x, still open.
 

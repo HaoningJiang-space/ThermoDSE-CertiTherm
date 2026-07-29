@@ -84,7 +84,7 @@ suboptimality: the plan the method already produces would be within about 27% of
 the 45x interval would be an artifact of the proving machinery.
 
 That is consistent with the three independent measurements in
-`COARSE_INSTRUMENTATION_OBSERVATIONS.md` and `PER_CELL_DECOMPOSITION_BOUND.md`: the thermal
+`COARSE_INSTRUMENTATION_OBSERVATIONS.md` and `PER_CELL_DECOMPOSITION_RETRACTED.md`: the thermal
 kernel is delocalised (90% of a block's temperature comes from ~190 of 227 blocks), the peak
 functional does not compress spectrally (20.7 K worst-case error at 98.3% retained energy),
 and a single cell's cover exhausts every coarse read and still needs dozens of per-block
