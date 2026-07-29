@@ -173,6 +173,37 @@ def _expanded(value: float, tolerance: float, direction: float) -> float:
     return float(np.nextafter(value + direction * tolerance, direction * math.inf))
 
 
+def outward_abs_dot_upper(matrix: np.ndarray, vector: np.ndarray) -> np.ndarray:
+    """Row-wise upper bound on `|matrix[i] . vector|` that no rounding can fall below.
+
+    Returns one bound per row, each at least the exact real-arithmetic magnitude. Used
+    where a DECISION must not depend on which side of a threshold binary64 happened to
+    round to: comparing this bound against the threshold errs toward "cannot rule it out",
+    which is the fail-closed direction for a constraint that must be a superset.
+
+    Same technique as `verify_shared_collision_batch` -- a Higham gamma_n bound on the
+    products plus one ulp for the summation -- rather than `_outward_dot`, which is exact
+    per element via `math.fsum` but runs a Python loop and measured 50x the cost of a NumPy
+    dot. This is 4x, and it is WIDER, so nothing it admits would have been rejected by the
+    tighter bound. Width in this direction is free; narrowness would not be.
+    """
+
+    rows = np.atleast_2d(np.asarray(matrix, dtype=float))
+    values = np.asarray(vector, dtype=float)
+    products = rows * values
+    if not np.all(np.isfinite(products)):
+        raise ValueError("non-finite dot product")
+    center = products.sum(axis=1)
+    magnitude = np.abs(products).sum(axis=1)
+    unit = np.finfo(float).eps / 2.0
+    terms = max(1, rows.shape[1])
+    gamma = terms * unit / (1.0 - terms * unit)
+    radius = gamma * magnitude + np.abs(
+        np.nextafter(center, math.inf) - center
+    )
+    return np.abs(center) + radius
+
+
 def verify_feasible_point(
     system: LinearFeasibilitySystem,
     point: Sequence[float],

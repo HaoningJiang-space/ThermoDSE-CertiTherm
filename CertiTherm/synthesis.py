@@ -23,6 +23,7 @@ import numpy as np
 from scipy.optimize import Bounds, LinearConstraint, linprog, milp
 
 from .thermal_constraints import robust_safe_cell_rows, two_world_polytope_rows
+from .collision_proof import outward_abs_dot_upper
 from .core import (
     CandidateSpace,
     CandidateWorldPair,
@@ -1209,11 +1210,22 @@ def separating_action_cut(
 
     delta = witness.safe_power_w - witness.unsafe_power_w
     selected_set = set(selected)
+    if not actions:
+        return np.zeros(0, dtype=float)
+    # An action is dropped only when it is PROVED not to separate. `abs(v @ delta)` is one
+    # binary64 dot product, so at the boundary it can round to just below `tolerance` while
+    # the exact real value is just above -- silently excluding a genuine separator and
+    # making the cut a SUBSET, which is the one direction that can inflate the certified
+    # lower bound above C*. Comparing an outward upper bound instead makes the uncertain
+    # case fall on the include side, where an extra action is merely a weaker constraint.
+    magnitude_upper = outward_abs_dot_upper(
+        np.asarray([action.vector for action in actions], dtype=float), delta
+    )
     return np.asarray(
         [
             index not in selected_set
             and (candidate_id is None or action.candidate_id == candidate_id)
-            and abs(float(action.vector @ delta)) > action.tolerance
+            and magnitude_upper[index] > action.tolerance
             for index, action in enumerate(actions)
         ],
         dtype=float,
