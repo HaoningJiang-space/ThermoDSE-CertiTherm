@@ -138,6 +138,41 @@ certified per-cell OPTIMUM rather than a bound; how the maximum grows with the n
 cells sampled; and whether the same decomposition applied to pairs or small groups of cells
 is stronger still without returning to the pooled regime.
 
+## Wiring it into the shipped method -- proposal, not a change
+
+Everything above lives in a research probe. The production path still reports certified
+lower bounds of 22.8-88.3 on the dev split, because `synthesize_ordered_query` derives L only
+from the pooled trajectory. Nothing here has improved the method as shipped, and this section
+states what the change would be so it can be reviewed rather than made.
+
+**The change.** After (or alongside) the pooled proof search, run the same
+`synthesize_minimum_observation` on single-cell restrictions of the candidate's thermal
+family, and report `max(pooled L, best per-cell L)`.
+
+**Soundness.** A plan sufficient for the candidate is sufficient for any subset of its reject
+cells, so the globally sufficient plans are contained in the plans sufficient for one cell and
+`C* >= C*(cell)`. Any valid lower bound on a per-cell optimum is therefore a valid lower bound
+on `C*`. Taking a maximum over independently valid lower bounds is valid. The argument uses no
+property of the separation oracle, the master, or the trajectory, so it does not inherit any
+of their open questions.
+
+**What must be settled before it is made.** This is a change to the certified path, which the
+project's own review tiers put at tier 2 or 3 -- reviewed before running, not after.
+Specifically:
+
+  * budget accounting. The per-cell runs consume wall clock. Under the frozen protocol a
+    certified endpoint must be attributable to one budget, and the existing controller already
+    refuses to substitute a separately budgeted baseline into U for exactly this reason. The
+    same objection applies to L and has to be answered, not assumed away.
+  * which cells, and how many. The bound is carried by the hardest cell and the spread is 3x
+    at fixed budget, so an arbitrary or averaged sample discards most of the value. A
+    registered selection rule is needed, or the choice becomes a tuning knob on a frozen
+    method.
+  * failure semantics. A per-cell run that raises must not silently contribute nothing; it has
+    to surface the same way any other unresolved computation does.
+
+Until those are settled the per-cell bound is a measurement about the method, not part of it.
+
 ## The thermal kernel is not local, which is why one cell is not cheap
 
 The obvious reading of "one reject cell" is that it should be cheap: certify one block's peak,
