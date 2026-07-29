@@ -276,6 +276,29 @@ what the bound uses -- but the header disagreed with what the probe did, which i
 kind of quiet mismatch that makes a diagnostic untrustworthy for any number a reader did not
 check themselves. Fixed to place exactly `cells` indices across the range.
 
+## A stronger decomposition, stated and not yet measured
+
+The subset argument holds for any subset, not only a singleton, and a subset is strictly
+stronger than the maximum over its members because one plan must separate all of them at
+once:
+
+    C*(whole)  >=  C*(subset)  >=  max over members of C*(cell).
+
+`docs/TRACTABILITY_FRONTIER.md` supplies the reason not to simply take everything: cost
+explodes with instance size, and the full 681-cell problem is far past where the method
+returns anything. A k-cell restriction carries k reject cells rather than 681, so there may be
+a k where the bound is much stronger than a single cell's and the instance still solves.
+
+`research/triangle/cell_subset_bound_probe.py` measures that trade over nested subsets of
+sizes 1, 2, 4, 8, 16. **Only the first point is in hand**: subset size 1 certifies 260.73 at
+600 s, reproducing an independent single-cell run of the same budget exactly, which confirms
+the measurement is repeatable. The larger subsets were not obtained -- the shared host
+restarted the job repeatedly and chasing it further stopped being a good use of the machine.
+
+So whether a subset beats its best member here is open. The inequality is not: it holds by the
+same one-line argument, so the only question is how much it buys and at what size the instance
+stops solving.
+
 ## Scope
 
 One candidate, one package, one workload, dev split, three sampled cells, 120 s each. Nothing
