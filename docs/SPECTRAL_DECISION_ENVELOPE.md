@@ -81,6 +81,37 @@ The spectrum can expose low-dimensional structure and justify a certified
 reduction, but it cannot improve an exact cost merely by renaming the
 coordinates.
 
+### Measured, 2026-07-29: it does not expose enough structure here
+
+The "could justify a certified reduction" clause above was an open possibility. On the dev
+split it is now a measured negative, from `artifacts/dev/spectral_envelopes.tsv`
+(transformer / default / arch_b, 227 blocks, 3 models):
+
+| rank | retained operator energy | certified peak tail bound |
+| ---: | ---: | ---: |
+| 8 | 0.427 | 72.4 K |
+| 32 | 0.757 | 66.3 K |
+| 64 | 0.909 | 49.9 K |
+| 128 | 0.983 | **20.7 K** |
+| 227 | 1.000 | 1.9e-13 K |
+
+Retaining 98.3% of the operator energy still leaves a worst-case peak error of 20.7 K,
+against a 0.01 K model-error contract and sub-kelvin decision margins. The energy is
+compressible; the PEAK is not. That is the physics, not a weakness of the bound: peak
+temperature is a worst-case functional over a polytope, so an adversarial power map may put
+all of its mass on the 1.7% of energy the truncation discarded, and diffusion smoothing does
+not prevent that.
+
+Two consequences worth recording, because both are easy to assume otherwise:
+
+  * A spectral or otherwise coarse-resolution certificate is not available for this decision.
+    Per-block resolution is forced by the worst case, not by a conservative formulation.
+  * The dev split's certified plans buying roughly 80% of the per-block post-route library
+    (U = 4174 of a 5250 full registry, at 8.0 per post-route action against 2.0 for a
+    whole-chiplet read covering 112 blocks) are therefore **not** obviously an artifact of a
+    weak search. The open question is the size of the certified interval -- L was 22.8-88.3
+    against that U -- not whether a cheap coarse plan was overlooked.
+
 ## Unrestricted information limit
 
 An idealized rank-\(k\) linear observation lower bound is related to
