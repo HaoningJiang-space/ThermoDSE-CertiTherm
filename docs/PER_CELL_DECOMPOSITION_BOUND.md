@@ -265,6 +265,17 @@ so the statement is "every action set of cost at most C leaves a collision" rath
 set of cardinality at most k does". That is the semi-infinite dual, and it is research work
 rather than an afternoon's instrumentation.
 
+## A correction to the probe, not to the results
+
+The cell sampler used `range(0, total, total // cells)`, which overshoots: asking for 2 cells
+of 681 ran three, and asking for 8 ran nine, while the header reported the number requested.
+Every run behind the tables above therefore covered one cell more than it announced.
+
+The numbers are unaffected -- each cell is reported individually and the maximum over them is
+what the bound uses -- but the header disagreed with what the probe did, which is exactly the
+kind of quiet mismatch that makes a diagnostic untrustworthy for any number a reader did not
+check themselves. Fixed to place exactly `cells` indices across the range.
+
 ## Scope
 
 One candidate, one package, one workload, dev split, three sampled cells, 120 s each. Nothing
