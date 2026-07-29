@@ -337,6 +337,16 @@ def verify_shared_collision_batch(
 ) -> Tuple[ProofCheck, ...]:
     """Vectorized proof gate for cells sharing one constraint operator."""
 
+    # Same validation as the scalar `verify_feasible_point`, and for the same reason: every
+    # bound and right-hand side here is widened by `tolerance`, so an infinite one widens
+    # them all to infinity and ACCEPTS an arbitrary primal as "all primal constraints
+    # verified". Measured before the fix: a point violating every constraint by 1e6 was
+    # returned FEASIBLE. The scalar verifier already refused that input, so the batch path
+    # was the only way to obtain the fabricated acceptance -- a fail-open in a proof gate,
+    # which the fail-closed contract does not permit anywhere.
+    if tolerance < 0 or not math.isfinite(tolerance):
+        raise ValueError("tolerance must be finite and non-negative")
+
     cells, n = spec_rows.shape
     m, e = common.b_ub.size, common.b_eq.size
     expected = (
