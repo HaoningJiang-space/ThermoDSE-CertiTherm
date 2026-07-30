@@ -1382,7 +1382,11 @@ def _archive_query_evidence(
     width = methods.width.value
     dual = methods.dual.value
     anytime = methods.anytime
-    method_errors = methods.errors
+    # `QueryMethodResults.errors` is a property that builds a fresh dict on every access, so the
+    # replay error added below is already local -- but relying on that is exactly the kind of
+    # implementation detail a caller should not depend on, and archiving must not be able to alter
+    # the evaluated result. Peer review flagged the bare assignment; the copy makes it explicit.
+    method_errors = dict(methods.errors)
     failures = [
         {
             "stage": method,

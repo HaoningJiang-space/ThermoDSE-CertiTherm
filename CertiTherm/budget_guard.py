@@ -15,6 +15,7 @@ Layer position: depends on the `solver_budget` leaf and on nothing else in this 
 
 from __future__ import annotations
 
+import math
 import signal
 import time
 from typing import Callable, Optional, TypeVar
@@ -80,17 +81,30 @@ def call_under_budget(
             finished = True
             return None, time.perf_counter() - started, f"{type(exc).__name__}: {exc}"
 
+    # Rejected before any signal state changes. A NaN budget makes every comparison below False,
+    # so `effective` would be NaN and `setitimer` would raise with the handler already installed;
+    # an infinite budget arms a timer that never fires, which is a deadline that does not bind.
+    # Peer review raised both.
+    if not math.isfinite(budget_s) or budget_s <= 0.0:
+        raise ValueError(f"budget_s must be finite and positive, got {budget_s}")
+
     # An outer budget still owns whatever time remains on it; this call may
-    # tighten that deadline but must never extend or discard it.
-    outer_remaining = signal.getitimer(signal.ITIMER_REAL)[0]
+    # tighten that deadline but must never extend or discard it. Both the delay and the REPEAT
+    # interval are saved -- restoring only the delay silently converted a periodic outer timer
+    # into a one-shot.
+    outer_remaining, outer_interval = signal.getitimer(signal.ITIMER_REAL)
     effective = max(budget_s, 0.001)
     if outer_remaining > 0.0:
         effective = min(effective, outer_remaining)
 
-    previous = signal.signal(signal.SIGALRM, expire)
-    signal.setitimer(signal.ITIMER_REAL, effective)
+    # `started` is assigned BEFORE the handler is installed, and the arming happens inside the
+    # try. Arming first left a window where a delivery, or a failing `setitimer`, escaped with the
+    # previous handler unrestored and `started` unbound -- the same shape of hole that a test found
+    # in the bridge's context manager.
     started = time.perf_counter()
+    previous = signal.signal(signal.SIGALRM, expire)
     try:
+        signal.setitimer(signal.ITIMER_REAL, effective)
         return guarded()
     except TimeoutError:
         return None, time.perf_counter() - started, f"TimeoutError: {message}"
@@ -103,4 +117,6 @@ def call_under_budget(
             # already-expired outer budget must fire promptly rather than be
             # silently dropped, so it is rearmed at the smallest positive value.
             rest = outer_remaining - (time.perf_counter() - started)
-            signal.setitimer(signal.ITIMER_REAL, rest if rest > 0.0 else 1e-6)
+            signal.setitimer(
+                signal.ITIMER_REAL, rest if rest > 0.0 else 1e-6, outer_interval
+            )
