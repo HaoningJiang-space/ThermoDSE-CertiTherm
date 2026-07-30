@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 from pathlib import Path
 import shutil
 import time
@@ -14,21 +13,13 @@ import numpy as np
 from .gpu_hotspot import GpuHotSpotBackend, build_grid_operator_gpu
 from .hotspot import HotSpotModel, build_operator, replay_power
 from .digest import sha256_file as _sha256
+from .frozen_limits import MODEL_ERROR_LIMIT_K as ERROR_LIMIT_K, THERMAL_LIMIT_K
+from .tabular import write_rows as _write_tsv
 
 
-ERROR_LIMIT_K = 0.01
-THERMAL_LIMIT_K = 330.0
 DECISION_MARGIN_K = 1e-4
 MODELS = ("grid64-avg", "grid128-avg")
 CASES = ("example1", "thermodse-227")
-
-
-def _write_tsv(path: Path, rows: list[dict[str, object]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(rows[0]), delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 def _thermal_state(peak_k: float) -> str:

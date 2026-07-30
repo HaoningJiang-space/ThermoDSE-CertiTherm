@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import contextmanager
-import csv
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -53,6 +52,24 @@ from .spectral import (
 from .solver_budget import budget_scope
 from .synthesis import synthesize_ordered_query
 from .digest import sha256_file as _sha256
+from .frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
+from .split_protocol import (
+    ANYTIME_SPLITS as _ANYTIME_SPLITS,
+    BURNED_SPLITS as _BURNED_SPLITS,
+    DEVELOPMENT_SPLITS as _DEVELOPMENT_SPLITS,
+    FREEZE_ID as _SPLIT_FREEZE_ID,
+    FROZEN_ENABLED_SPLITS as _FROZEN_ENABLED_SPLITS,
+    FROZEN_ONLY_SPLITS as _FROZEN_ONLY_SPLITS,
+    HELDOUT_SPLITS as _HELDOUT_SPLITS,
+    PROTOCOL_STATE as _SPLIT_PROTOCOL_STATE,
+    registry_split as _registry_split,
+)
+from .run_report import (
+    AnytimeGateSummary,
+    summarize_anytime_gate as _summarize_anytime_gate,
+    write_run_report as _write_report,
+)
+from .tabular import read_rows as _rows, write_rows as _write_tsv
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,8 +80,6 @@ GPU_HOTSPOT_BUILD = ROOT / ".build" / "hotspot-gpu-export"
 GPU_HOTSPOT_EXPORTER = GPU_HOTSPOT_BUILD / "hotspot"
 GPU_HOTSPOT_SOLVER = ROOT / ".build" / "hotspot-cuda" / "certitherm_hotspot_cuda"
 MODELS = ("block", "grid64-avg", "grid128-avg")
-THERMAL_LIMIT_K = 330.0
-MODEL_ERROR_LIMIT_K = 0.01
 SUBMODULE_PATHS = ("ThermoDSE", "HotSpot", "Rodinia", "SuperLU")
 RESULT_ARTIFACT_NAMES = frozenset(
     {
@@ -149,11 +164,6 @@ def _gpu_backend() -> Optional[GpuHotSpotBackend]:
         GPU_HOTSPOT_SOLVER,
         device=int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
     )
-
-
-def _rows(path: Path) -> list[dict[str, str]]:
-    with path.open(encoding="utf-8", newline="") as stream:
-        return list(csv.DictReader(stream, delimiter="\t"))
 
 
 def _canonical_sha256(payload: Mapping[str, object]) -> str:
@@ -872,25 +882,6 @@ def _power_space(
         placed,
         floorplan_text,
     )
-
-
-def _write_tsv(
-    path: Path,
-    rows: Iterable[dict[str, object]],
-    *,
-    fieldnames: Optional[Sequence[str]] = None,
-) -> None:
-    rows = list(rows)
-    if not rows:
-        raise RuntimeError("refusing to write empty evidence table")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as stream:
-        columns = list(fieldnames) if fieldnames is not None else list(
-            dict.fromkeys(key for row in rows for key in row)
-        )
-        writer = csv.DictWriter(stream, fieldnames=columns, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 # Bumped whenever the result-table contract changes shape. Explicit, because
@@ -2126,287 +2117,12 @@ def _archive_query_evidence(
     )
 
 
-@dataclass(frozen=True)
-class AnytimeGateSummary:
-    """Frozen v2+ endpoints computed directly from result rows."""
-
-    queries: int
-    frozen_budget_rows: int
-    certified_contracts: int
-    finite_intervals: int
-    false_certificates: int
-    unexpected_failures: int
-    median_upper_saving: Optional[float]
-    self_verifiable: int
-    solver_attested: int
-    bounded_gap: int
-
-    @property
-    def passes(self) -> bool:
-        return (
-            self.queries == 12
-            and self.frozen_budget_rows == self.queries
-            and self.false_certificates == 0
-            and self.unexpected_failures == 0
-            and self.certified_contracts >= 10
-            and self.median_upper_saving is not None
-            and self.median_upper_saving >= 0.15
-            and self.finite_intervals >= 6
-        )
 
 
-def _optional_float(row: Mapping[str, object], field: str) -> Optional[float]:
-    value = row.get(field)
-    return None if value in (None, "") else float(value)
 
 
-def _summarize_anytime_gate(
-    rows: Iterable[Mapping[str, object]],
-) -> AnytimeGateSummary:
-    rows = list(rows)
-    certified = [
-        row
-        for row in rows
-        if row.get("plan_validity") == "CERTIFIED"
-        and _optional_float(row, "certified_upper_bound") is not None
-        and not row.get("interval_violation")
-    ]
-    savings = []
-    for row in certified:
-        upper = _optional_float(row, "certified_upper_bound")
-        full = _optional_float(row, "full_registry_cost")
-        if upper is not None and full is not None and full > 0:
-            savings.append(1.0 - upper / full)
-    finite_intervals = sum(
-        row.get("plan_validity") == "CERTIFIED"
-        and _optional_float(row, "certified_upper_bound") is not None
-        and _optional_float(row, "certified_lower_bound") is not None
-        and not row.get("interval_violation")
-        for row in rows
-    )
-    false_certificates = sum(
-        bool(row.get("interval_violation"))
-        or bool(int(row.get("false_certificate") or 0))
-        for row in rows
-    )
-    optimality = [row.get("cost_optimality") for row in rows]
-    return AnytimeGateSummary(
-        queries=len(rows),
-        frozen_budget_rows=sum(
-            int(row.get("budget_is_frozen") or 0) == 1 for row in rows
-        ),
-        certified_contracts=len(certified),
-        finite_intervals=finite_intervals,
-        false_certificates=false_certificates,
-        unexpected_failures=sum(
-            bool(row.get("unexpected_failure")) for row in rows
-        ),
-        median_upper_saving=(float(np.median(savings)) if savings else None),
-        self_verifiable=optimality.count("PROVEN_SELF_VERIFIABLE"),
-        solver_attested=optimality.count("PROVEN_SOLVER_ATTESTED"),
-        bounded_gap=optimality.count("BOUNDED_GAP"),
-    )
 
 
-def _write_report(
-    path: Path,
-    split: str,
-    operators: Mapping[tuple[str, str], Path],
-    results: Iterable[dict[str, object]],
-    order_rows: Iterable[dict[str, object]],
-    failures: Iterable[dict[str, object]],
-    spectral_rows: Iterable[dict[str, object]],
-) -> None:
-    rows, failures, spectral_rows = (
-        list(results),
-        list(failures),
-        list(spectral_rows),
-    )
-    statuses = {
-        status: sum(row.get("exact_status") == status for row in rows)
-        for status in ("OPTIMAL", "UNSYNTHESIZABLE", "UNRESOLVED")
-    }
-    resolved = [
-        row
-        for row in rows
-        if row.get("exact_status") == "OPTIMAL"
-        and row.get("exact_cost") is not None
-    ]
-    savings = [
-        1 - float(row["exact_cost"]) / float(row["full_registry_cost"])
-        for row in resolved
-    ]
-    false_certificates = sum(
-        int(row.get("false_certificate") or 0) for row in rows
-    )
-    model_disagreements = sum(
-        int(row.get("placed_model_disagreement") or 0) for row in rows
-    )
-    comparable = [
-        row for row in resolved if row.get("dual_cost") != "" and row.get("width_cost") != ""
-    ]
-    dual_wins = sum(
-        float(row["dual_cost"]) < float(row["width_cost"])
-        for row in comparable
-    )
-    calibration_errors = []
-    for operator in operators.values():
-        for row in _rows(operator.with_suffix(".calibration.tsv")):
-            calibration_errors.append(float(row["max_abs_error_k"]))
-    full_tail = [
-        float(row["certified_peak_tail_k"])
-        for row in spectral_rows
-        if int(row["rank"]) == int(row["dimension"])
-    ]
-    anytime_gate = _summarize_anytime_gate(rows)
-    protocol_state = _SPLIT_PROTOCOL_STATE.get(split, "UNREGISTERED")
-    if protocol_state == "FROZEN_ACTIVE":
-        anytime_verdict = "PASS" if anytime_gate.passes else "FAIL"
-    else:
-        anytime_verdict = f"NOT_SCORED ({protocol_state})"
-    lines = [
-        f"# CertiTherm {split} gate report",
-        "",
-        f"- Physical operators admitted: {len(operators)}",
-        f"- Direct operator replays: {len(calibration_errors)}",
-        f"- Certified spectral-envelope records: {len(spectral_rows)}",
-        (
-            f"- Maximum full-rank spectral residual: {max(full_tail):.9g} K"
-            if full_tail
-            else "- Maximum full-rank spectral residual: unavailable"
-        ),
-        f"- Exact status: {statuses}",
-        f"- Internal false/contradictory certificates: {false_certificates}",
-        f"- Archived placed-reference model disagreements: {model_disagreements}",
-        (
-            f"- Maximum direct-replay residual: {max(calibration_errors):.9g} K "
-            f"(frozen bound {MODEL_ERROR_LIMIT_K:.3g} K)"
-            if calibration_errors
-            else "- Maximum direct-replay residual: unavailable"
-        ),
-        (
-            f"- Median exact saving vs full registry: {np.median(savings):.1%}"
-            if savings
-            else "- Median exact saving vs full registry: unavailable"
-        ),
-        f"- Dual policy beats width: {dual_wins}/{len(comparable)} comparable queries",
-        f"- Archived failures: {len(failures)}",
-        "",
-        "## Proof-carrying Anytime-DSOS gate",
-        "",
-        f"- Protocol state: {protocol_state}",
-        f"- Gate verdict: {anytime_verdict}",
-        (
-            f"- Frozen-budget rows: "
-            f"{anytime_gate.frozen_budget_rows}/{anytime_gate.queries}"
-        ),
-        (
-            f"- Certified-contract coverage: "
-            f"{anytime_gate.certified_contracts}/{anytime_gate.queries}"
-        ),
-        (
-            f"- Finite certified intervals: "
-            f"{anytime_gate.finite_intervals}/{anytime_gate.queries}"
-        ),
-        f"- False/contradictory certificates: {anytime_gate.false_certificates}",
-        (
-            "- Unexpected method/infrastructure failures: "
-            f"{anytime_gate.unexpected_failures}"
-        ),
-        (
-            f"- Median certified-U saving vs full registry: "
-            f"{anytime_gate.median_upper_saving:.1%}"
-            if anytime_gate.median_upper_saving is not None
-            else "- Median certified-U saving vs full registry: unavailable"
-        ),
-        (
-            "- Cost proof classes: "
-            f"self-verifiable={anytime_gate.self_verifiable}, "
-            f"solver-attested={anytime_gate.solver_attested}, "
-            f"bounded-gap={anytime_gate.bounded_gap}"
-        ),
-        "",
-        "## Workload-specific EDYP order",
-        "",
-        "| Workload | Rank | Architecture | EDYP |",
-        "|---|---:|---|---:|",
-    ]
-    for row in order_rows:
-        lines.append(
-            f"| {row['workload']} | {row['objective_rank']} | "
-            f"{row['architecture']} | {float(row['edyp']):.9g} |"
-        )
-    lines += [
-        "",
-        "## Query evidence",
-        "",
-        "| Workload | Package | Exact | Exact cost | Anytime U | Anytime L | U/L | Validity | Optimality | Fixed | Width | Dual | Full |",
-        "|---|---|---|---:|---:|---:|---:|---|---|---:|---:|---:|---:|",
-    ]
-    numeric = lambda value: (
-        "" if value in (None, "") else f"{float(value):.9g}"
-    )
-    for row in rows:
-        lines.append(
-            f"| {row['workload']} | {row['package']} | {row['exact_status']} | "
-            f"{numeric(row.get('exact_cost'))} | "
-            f"{numeric(row.get('certified_upper_bound'))} | "
-            f"{numeric(row.get('certified_lower_bound'))} | "
-            f"{numeric(row.get('approximation_ratio'))} | "
-            f"{row.get('plan_validity', '')} | "
-            f"{row.get('cost_optimality', '')} | "
-            f"{numeric(row.get('fixed_cost'))} | "
-            f"{numeric(row.get('width_cost'))} | "
-            f"{numeric(row.get('dual_cost'))} | "
-            f"{numeric(row.get('full_registry_cost'))} |"
-        )
-    lines += [
-        "",
-        "The exact cost is the registered finite-library non-adaptive batch "
-        "optimum, not an unrestricted or continuous-adaptive sensor limit.",
-        "",
-    ]
-    path.write_text("\n".join(lines), encoding="utf-8")
-
-
-# Splits whose results are preregistered and must never be used for tuning.
-# `heldout` is method-freeze-v1's split; `heldout_v2` is method-freeze-v2's,
-# registered in experiments/architectures.tsv and disjoint from both dev and
-# v1. They are listed together so a future split cannot be added to the CLI
-# without also being recognised as frozen here.
-_DEVELOPMENT_SPLITS = ("dev", "dev_v3")
-_HELDOUT_SPLITS = ("heldout", "heldout_v2", "heldout_v3")
-_BURNED_SPLITS = frozenset({"heldout_v2"})
-_FROZEN_ONLY_SPLITS = frozenset({"heldout_v3"})
-_FROZEN_ENABLED_SPLITS = frozenset({"heldout"})
-_ANYTIME_SPLITS = frozenset({"dev", "dev_v3", "heldout_v2", "heldout_v3"})
-_REGISTRY_SPLITS = {"dev_v3": "dev"}
-_SPLIT_PROTOCOL_STATE = {
-    "dev": "DEVELOPMENT_REHEARSAL",
-    "dev_v3": "DEVELOPMENT_REHEARSAL",
-    "heldout": "LEGACY_V1",
-    "heldout_v2": "OPENED_INVALID",
-    "heldout_v3": "PRECHECK_PASS_DEV_REHEARSAL_PENDING",
-}
-
-# Which frozen protocol each split is evidence for. Hard-coding
-# "method-freeze-v1" at the row level silently mislabelled every non-v1 run as
-# v1 evidence, which is an evidence-integrity defect rather than a cosmetic one:
-# an artifact table is only meaningful if it names the protocol whose
-# preregistered endpoints it was produced under.
-_SPLIT_FREEZE_ID = {
-    "dev": "method-freeze-v1",
-    "dev_v3": "method-freeze-v3.1",
-    "heldout": "method-freeze-v1",
-    "heldout_v2": "method-freeze-v2.1",
-    "heldout_v3": "method-freeze-v3.1",
-}
-
-
-def _registry_split(split: str) -> str:
-    """Map a method profile to the physical registry rows it evaluates."""
-
-    return _REGISTRY_SPLITS.get(split, split)
 
 
 def _query_worker_count(split: str) -> int:
