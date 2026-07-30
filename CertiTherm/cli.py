@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 from pathlib import Path
 from typing import Sequence
 
@@ -13,6 +12,7 @@ from .core import MeasurementAction, PowerPolytope
 from .gpu_hotspot import GpuHotSpotBackend
 from .hotspot import build_family, load_family, save_family
 from .synthesis import synthesize_minimum_observation
+from .tabular import write_rows
 
 
 def _build(args: argparse.Namespace) -> None:
@@ -70,6 +70,17 @@ def _synthesize(args: argparse.Namespace) -> None:
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    _write_plan(plan, output)
+
+
+def _write_plan(plan, output: Path) -> None:
+    """Serialize one plan, its witnesses and its declared column order.
+
+    Split out of `_synthesize` so it can be tested without running a synthesis: the column order is
+    a contract with whatever reads the file, and a round trip through `read_rows` is the cheapest
+    way to hold it.
+    """
+
     fields = (
         "status",
         "selected_actions",
@@ -80,10 +91,11 @@ def _synthesize(args: argparse.Namespace) -> None:
         "iterations",
         "message",
     )
-    with output.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields, delimiter="\t")
-        writer.writeheader()
-        writer.writerow(
+    # The one writer, not a third copy of DictWriter. `write_rows` pins the column order from the
+    # explicit `fields` above and refuses an empty table, which a hand-rolled writer here would not.
+    write_rows(
+        output,
+        [
             {
                 "status": plan.status,
                 "selected_actions": ",".join(plan.selected_action_ids),
@@ -94,7 +106,9 @@ def _synthesize(args: argparse.Namespace) -> None:
                 "iterations": plan.iterations,
                 "message": plan.message,
             }
-        )
+        ],
+        fieldnames=fields,
+    )
     if plan.witnesses:
         np.savez_compressed(
             output.with_suffix(".witnesses.npz"),
