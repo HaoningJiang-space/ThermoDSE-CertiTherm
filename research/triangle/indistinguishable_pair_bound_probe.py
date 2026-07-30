@@ -11,12 +11,19 @@ simply an edge the graph does not have, and a subgraph's minimum vertex cover is
 on the whole graph's.
 
 Scan restriction. Moving t of power from c to b changes point q's temperature by exactly
-`t * (R[m,q,b] - R[m,q,c])`, so the reject cells with the most leverage on the blind direction
-are those where that difference is largest. The scan ranks every (model, point) by it and takes
-the strongest `scan_points`. Peer review noted the earlier rule -- scan only the pair's own two
-points -- was leaving valid edges undiscovered. Either way this is a heuristic about WHERE TO
-LOOK, never an assumption about what is not there: a pair no scanned cell establishes is
-recorded as unestablished, which only ever lowers the bound.
+`t * (R[m,q,b] - R[m,q,c])`, and the cell rejects only once that change closes the distance between
+the highest temperature the cell can reach while the whole map stays SAFE and its own reject floor.
+That distance -- the cell's GAP -- is a property of the cell, not of the pair, so it is computed once
+per instance by one LP per cell and reused for all pairs.
+
+Ranking by leverage ALONE ignored it, and the gaps are far from uniform: on arch_a they run 0.1 K to
+8.13 K, so a leverage-ranked scan could prefer a cell needing eighty times the movable power of one
+it passed over. Measured, that heuristic recovered 1 of 20 edges an exhaustive scan recovered 20 of
+20. The ranking is now `leverage / gap`, which is the quantity the reject condition actually
+contains.
+
+Either way this is a heuristic about WHERE TO LOOK, never an assumption about what is not there: a
+pair no scanned cell establishes is recorded as unestablished, which only ever lowers the bound.
 
 With `seeds_out` the established cuts are written as action-ID lists so the 27-minute pair scan
 does not have to be repeated to try a different synthesis budget, and with `synthesis_budget_s`
@@ -71,6 +78,7 @@ def main() -> None:
     scan_points = int(sys.argv[7]) if len(sys.argv) > 7 else 8
     seeds_out = Path(sys.argv[8]) if len(sys.argv) > 8 and sys.argv[8] != "-" else None
     synthesis_budget_s = float(sys.argv[9]) if len(sys.argv) > 9 else 0.0
+    gaps_path = Path(sys.argv[10]) if len(sys.argv) > 10 and sys.argv[10] != "-" else None
 
     polytope, blocks, _placed, floorplan_text = _power_space(
         artifacts / "captures" / f"{workload}--{candidate}.npz"
@@ -90,6 +98,15 @@ def main() -> None:
     )
     response = family.response_k_per_w
     models, points = response.shape[:2]
+    # The per-cell gap, from `reject_cell_tightness_probe`. Absent, every cell weighs the same and
+    # the ranking degrades to leverage alone -- the behaviour this replaced, kept as the fallback so
+    # a missing file cannot silently change what is being measured.
+    if gaps_path is not None:
+        gap_grid = np.asarray(json.loads(gaps_path.read_text())["gaps"]).reshape(models, points)
+        if not np.all(np.isfinite(gap_grid)) or np.any(gap_grid <= 0):
+            raise SystemExit("gap table must be finite and positive to divide by")
+    else:
+        gap_grid = np.ones((models, points))
     single_block_actions, cells = blind_direction_cells(actions, len(blocks))
     cost = block_instrumentation_cost(actions, single_block_actions, range(len(blocks)))
 
@@ -142,10 +159,11 @@ def main() -> None:
             if time.monotonic() - started > budget_s:
                 stopped_early = "budget_s"
                 break
-            # Rank every reject cell by the temperature swing the blind direction produces
-            # there, and scan only the strongest few.
+            # Rank by the swing DIVIDED BY the distance that cell has to close. Leverage alone
+            # prefers cells that move a lot but start far from their floor; what matters is which
+            # cell the direction can actually tip.
             leverage = abs(response[:, :, b] - response[:, :, other])
-            order = np.argsort(leverage, axis=None)[::-1][:scan_points]
+            order = np.argsort((leverage / gap_grid), axis=None)[::-1][:scan_points]
             specs = tuple(
                 (int(i // points), int(i % points)) for i in order
             )
