@@ -577,6 +577,7 @@ def _operator(
     captures: Iterable[Path],
     output: Path,
     workers: int = HOTSPOT_WORKERS,
+    gpu: Optional[GpuSelection] = None,
 ) -> Path:
     target = output / "operators" / f"{arch['architecture_id']}--{package['package_id']}.npz"
     captures = tuple(captures)
@@ -584,7 +585,7 @@ def _operator(
     # ONE reading of the GPU configuration for this operator: the cache identity below and the
     # backend that builds it further down must not consult the environment separately, or a
     # signature can describe a CPU build while a GPU produced the operator.
-    gpu = GpuSelection.from_environment()
+    gpu = GpuSelection.from_environment() if gpu is None else gpu
     signature = _operator_cache_signature(arch, package, captures, gpu)
     expected_rows = len(captures) * (2 + len(CALIBRATION_SEEDS)) * len(MODELS)
     if _cache_receipt_matches(
@@ -1295,8 +1296,19 @@ def _run_receipt(
     frozen: bool,
     started_at: datetime,
     hotspot_digest: str,
+    gpu: Optional[GpuSelection] = None,
 ) -> dict[str, object]:
-    """Build one complete, path-private provenance row for an artifact."""
+    """Build one complete, path-private provenance row for an artifact.
+
+    `gpu` is the run's single snapshot. This function used to read
+    `CERTITHERM_GPU_HOTSPOT` twice and `CERTITHERM_GPU_DEVICE` once on its own, so the receipt
+    described a configuration read at receipt-writing time rather than the one every operator was
+    built under -- and its two readings of the same variable were not even tied to each other.
+    Environment variables do not change inside a process, so this was never reachable by accident;
+    the point is that nothing enforced it. The default keeps existing test callers working.
+    """
+
+    gpu = GpuSelection.from_environment() if gpu is None else gpu
 
     registries = {
         name: _sha256(ROOT / "experiments" / f"{name}.tsv")
@@ -1313,7 +1325,7 @@ def _run_receipt(
         for name in FROZEN_NUMERIC_THREAD_VARIABLES
     }
     gpu_digests = {}
-    if os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") == "1":
+    if gpu.enabled:
         gpu_receipt = GPU_HOTSPOT_BUILD / "GPU_SHA256SUMS"
         gpu_digests = {
             "gpu_exporter_sha256": _verified_binary_digest(
@@ -1324,7 +1336,7 @@ def _run_receipt(
                 GPU_HOTSPOT_SOLVER,
                 gpu_receipt,
             ),
-            "gpu_device": os.environ.get("CERTITHERM_GPU_DEVICE", "0"),
+            "gpu_device": str(gpu.device),
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
         }
     return {
@@ -1352,9 +1364,7 @@ def _run_receipt(
         "hotspot_binary_sha256": hotspot_digest,
         **gpu_digests,
         "operator_backend": (
-            "gpu-proposal+cpu-hotspot-calibration"
-            if os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") == "1"
-            else "cpu-hotspot"
+            "gpu-proposal+cpu-hotspot-calibration" if gpu.enabled else "cpu-hotspot"
         ),
         **{f"{name}_registry_sha256": digest for name, digest in registries.items()},
         "host": socket.gethostname(),
@@ -1367,6 +1377,12 @@ def _run_receipt(
 
 def run(split: str, output: Path, frozen: bool) -> None:
     started_at = datetime.now(timezone.utc)
+    # ONE reading of the GPU configuration for the whole run. Every operator's cache identity and
+    # the run receipt must describe the same configuration; taking separate readings meant nothing
+    # enforced that the receipt described what the operators were actually built under. Environment
+    # variables do not change inside a process, so this was not reachable by accident -- but the
+    # invariant was held by nothing, and `_run_receipt` alone read one of them twice.
+    gpu = GpuSelection.from_environment()
     _validate_run_request(split, frozen)
     if frozen:
         _assert_clean_revision()
@@ -1424,6 +1440,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                 package,
                 operator_captures,
                 output,
+                gpu=gpu,
             ), None
         except Exception as exc:  # archive physical/timeout failures unchanged
             if not _is_archivable_operator_failure(exc):
@@ -1637,7 +1654,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
     git_sha = _git_revision(ROOT)
     _write_tsv(
         output / "RUN_RECEIPT.tsv",
-        [_run_receipt(split, frozen, started_at, hotspot_digest)],
+        [_run_receipt(split, frozen, started_at, hotspot_digest, gpu)],
     )
     scientific_paths = [
         path

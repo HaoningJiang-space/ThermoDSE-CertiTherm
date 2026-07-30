@@ -98,3 +98,50 @@ def test_the_operator_threads_one_snapshot_through_both_consumers() -> None:
     assert source.count("GpuSelection.from_environment()") == 1, (
         "the operator took the snapshot more than once, which reopens the disagreement"
     )
+
+
+def test_the_run_receipt_records_the_snapshot_it_is_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The receipt must describe what the operators were built under, not a later reading.
+
+    `_run_receipt` read `CERTITHERM_GPU_HOTSPOT` twice and `CERTITHERM_GPU_DEVICE` once on its own,
+    so nothing tied the receipt's description to any operator's cache identity, and its two readings
+    of the same variable were not tied to each other either.
+    """
+
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(experiments, "_sha256", lambda _p: "a" * 64)
+    monkeypatch.setattr(experiments, "_git_revision", lambda _p: "b" * 40)
+    monkeypatch.setattr(experiments, "_verified_binary_digest", lambda *_a: "c" * 64)
+    monkeypatch.setenv("CERTITHERM_GPU_HOTSPOT", "1")
+    monkeypatch.setenv("CERTITHERM_GPU_DEVICE", "9")
+    started = datetime.now(timezone.utc)
+
+    cpu = experiments._run_receipt(
+        "dev", False, started, "d" * 64, GpuSelection(enabled=False, device=0)
+    )
+    assert cpu["operator_backend"] == "cpu-hotspot", (
+        "the live environment leaked past the snapshot"
+    )
+    assert "gpu_device" not in cpu
+
+    on_two = experiments._run_receipt(
+        "dev", False, started, "d" * 64, GpuSelection(enabled=True, device=2)
+    )
+    assert on_two["operator_backend"] == "gpu-proposal+cpu-hotspot-calibration"
+    assert on_two["gpu_device"] == "2", "the receipt recorded a device it was not given"
+
+
+def test_the_run_takes_exactly_one_snapshot_and_shares_it() -> None:
+    """One reading for the whole run: every operator identity and the receipt describe the same one."""
+
+    import inspect
+
+    source = inspect.getsource(experiments.run)
+    assert source.count("GpuSelection.from_environment()") == 1, (
+        "the run took the GPU snapshot more than once, so its consumers can disagree again"
+    )
+    assert "gpu=gpu," in source, "the operators were not given the run's snapshot"
+    assert "_run_receipt(split, frozen, started_at, hotspot_digest, gpu)" in source
