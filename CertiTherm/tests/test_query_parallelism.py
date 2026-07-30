@@ -53,6 +53,7 @@ def test_spawn_pool_evaluates_complete_queries_in_registry_order() -> None:
         queries,
         include_anytime=False,
         workers=2,
+        method_workers=1,
     )
 
     assert len(results) == len(queries)
@@ -71,6 +72,7 @@ def test_query_batch_rejects_nonpositive_worker_count() -> None:
             (_prepared_query("only"),),
             include_anytime=False,
             workers=0,
+            method_workers=1,
         )
 
 
@@ -101,6 +103,10 @@ def test_worker_failure_is_archived_without_dropping_the_query(
         (query,),
         include_anytime=True,
         workers=2,
+        # Two, not one: with a single method worker the batch runs serially and a patched pool
+        # failure surfaces per method instead of as a query_error, which is a different scenario
+        # than this test is about.
+        method_workers=2,
     )
 
     assert len(results) == 1

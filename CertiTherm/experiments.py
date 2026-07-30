@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import multiprocessing
+import math
 import os
 from pathlib import Path
 import re
@@ -829,8 +830,12 @@ def anytime_dsos(
     """
 
     started = time.perf_counter()
-    if budget_s <= 0:
-        raise ValueError("budget_s must be positive")
+    # `NaN <= 0` is False, so the positivity test alone let a NaN budget through to
+    # `_budgeted_call`, whose own `remaining <= 1.0` also passes it. Timeout and certification
+    # behaviour then become undefined. Peer review found this one; it is the fourth instance of the
+    # same comparison-based hole in this package.
+    if not math.isfinite(budget_s) or budget_s <= 0:
+        raise ValueError(f"budget_s must be finite and positive, got {budget_s}")
     contract: Optional[CertifiedContract] = None
     width, upper_seconds, upper_error = _budgeted_call(
         lambda: sequential_early_stop(
@@ -1049,10 +1054,16 @@ def _evaluate_query_batch(
     queries: Sequence[PreparedQuery],
     *,
     include_anytime: bool,
-    workers: int = QUERY_WORKERS,
-    method_workers: int = METHOD_WORKERS,
+    workers: int,
+    method_workers: int,
 ) -> tuple[QueryMethodResults, ...]:
     """Evaluate independent queries in one persistent process pool.
+
+    Both worker counts are REQUIRED. They defaulted to `QUERY_WORKERS` and `METHOD_WORKERS`, which
+    a default argument evaluates once at DEFINITION time -- so `monkeypatch.setattr(experiments,
+    "METHOD_WORKERS", ...)` changed what the run receipt recorded while execution kept using the
+    value frozen into the signature. `run` supplied `workers` explicitly but not `method_workers`,
+    so that mismatch was one patch away from being real. Peer review found it.
 
     The old failed parallel path built a spawn-context pool inside every
     separation iteration. Here the pool is created exactly once for the whole
@@ -1596,10 +1607,14 @@ def run(split: str, output: Path, frozen: bool) -> None:
                 )
             )
 
+    # The same two counts the receipt records. `method_workers` was previously left to a
+    # definition-time default, so a patched METHOD_WORKERS moved the receipt without moving
+    # execution.
     method_batches = _evaluate_query_batch(
         prepared_queries,
         include_anytime=split in _ANYTIME_SPLITS,
         workers=_query_worker_count(split),
+        method_workers=METHOD_WORKERS,
     )
     if len(method_batches) != len(prepared_queries):
         raise RuntimeError("query evaluator returned an incomplete result batch")
