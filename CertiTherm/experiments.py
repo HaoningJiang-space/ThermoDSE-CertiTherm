@@ -55,6 +55,16 @@ from . import cache_receipts as _cache_receipts
 from .cache_receipts import CACHE_RECEIPT_SCHEMA, canonical_sha256 as _canonical_sha256
 from .digest import sha256_file as _sha256
 from .paths import HOTSPOT, ROOT, SUBMODULE_PATHS, TEMPLATE, THERMODSE
+from .thermodse_bridge import (
+    apply_cli_options as _configure,
+    build_evaluator as _thermodse_evaluator,
+    capture_metrics as _capture_metrics,
+    design_vector as _architecture,
+    hotspot_disabled as _hotspot_disabled,
+    install_compatibility_layer as _install_thermodse_compatibility,
+    prepare_simulation_dir as _prepare_thermodse_sim,
+)
+from .thermodse_bridge import capture as _bridge_capture
 from .frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
 from .split_protocol import (
     ANYTIME_SPLITS as _ANYTIME_SPLITS,
@@ -200,6 +210,30 @@ def _cache_receipt_matches(
     )
 
 
+
+def _capture(
+    arch: dict[str, str],
+    workload: dict[str, str],
+    package: dict[str, str],
+    output: Path,
+) -> Path:
+    """Compute this capture's cache identity here, then hand the work to the bridge.
+
+    A wrapper rather than a re-export: it resolves `_sha256` in THIS module, so the existing
+    `monkeypatch.setattr(experiments, "_sha256", ...)` still reaches the moved implementation.
+    Eleven research probes call this four-argument form, which is why the shape is unchanged.
+    """
+
+    return _bridge_capture(
+        arch,
+        workload,
+        package,
+        output,
+        signature=_capture_cache_signature(arch, workload, package),
+        sha256_file=_sha256,
+    )
+
+
 def _capture_cache_signature(
     arch: Mapping[str, str],
     workload: Mapping[str, str],
@@ -228,7 +262,13 @@ def _capture_cache_signature(
                 # after the writer moved out of this file -- the bundle still named only the
                 # module the logic used to live in.
                 "CertiTherm/cache_receipts.py",
+                # The capture's CONTENT is produced by the bridge, and the paths it reads the
+                # ThermoDSE tree and the HotSpot template from live in paths.py. Both are
+                # behaviour-bearing for this artifact, so a change there must move this digest --
+                # the same omission peer review found when the TSV writer moved out.
+                "CertiTherm/paths.py",
                 "CertiTherm/tabular.py",
+                "CertiTherm/thermodse_bridge.py",
                 "requirements.lock",
             )
         ),
@@ -287,8 +327,10 @@ def _operator_cache_signature(
                 "CertiTherm/hotspot.py",
                 "CertiTherm/measurements.py",
                 # See _capture_cache_signature: the receipt is written and validated through
-                # cache_receipts, over tabular.write_rows / read_rows.
+                # cache_receipts over tabular, and paths.py decides WHICH HotSpot binary and
+                # template the inputs above are read from.
                 "CertiTherm/cache_receipts.py",
+                "CertiTherm/paths.py",
                 "CertiTherm/tabular.py",
                 "requirements.lock",
             )
@@ -327,35 +369,8 @@ def _verified_binary_digest(binary: Path, receipt: Path) -> str:
     return actual
 
 
-def _architecture(row: dict[str, str]) -> list[float]:
-    keys = (
-        "chiplet_x",
-        "chiplet_y",
-        "cut_x",
-        "cut_y",
-        "interval",
-        "mtxu_h",
-        "mtxu_w",
-        "ubuf",
-        "nop_bw",
-        "dram_bw",
-    )
-    return [float(row[key]) if key == "interval" else int(row[key]) for key in keys]
 
 
-def _capture_metrics(capture: Path) -> dict[str, float]:
-    with np.load(capture, allow_pickle=False) as data:
-        latency = float(data["latency_ms"])
-        energy = float(data["energy_mj"])
-        die_yield = float(data["die_yield"])
-    if min(latency, energy, die_yield) <= 0:
-        raise RuntimeError(f"nonpositive objective metric in {capture.name}")
-    return {
-        "latency_ms": latency,
-        "energy_mj": energy,
-        "die_yield": die_yield,
-        "edyp": latency * energy / die_yield,
-    }
 
 
 def _ordered_architectures(
@@ -374,251 +389,16 @@ def _ordered_architectures(
     )
 
 
-def _configure(source: Path, output: Path, package: dict[str, str]) -> None:
-    text = source.read_text(encoding="utf-8")
-    for option in (
-        "r_convec",
-        "s_sink",
-        "s_spreader",
-        "t_spreader",
-        "ambient",
-        "init_temp",
-        "t_sink",
-        "t_interface",
-    ):
-        value = package["ambient"] if option == "init_temp" else package[option]
-        pattern = rf"(?m)^(\s*-{re.escape(option)}\s+)\S+"
-        text, count = re.subn(pattern, rf"\g<1>{value}", text, count=1)
-        if count != 1:
-            raise RuntimeError(f"template does not uniquely define -{option}")
-    output.write_text(text, encoding="utf-8")
 
 
-def _prepare_thermodse_sim(
-    arch: dict[str, str],
-    workload: dict[str, str],
-    package: dict[str, str],
-    output: Path,
-    *,
-    allow_hotspot: bool,
-) -> Path:
-    """Create one isolated ThermoDSE work directory and backend entrypoint."""
-
-    kind = "capture" if allow_hotspot else "precheck"
-    sim = output / "work" / f"{kind}--{workload['workload_id']}--{arch['architecture_id']}"
-    if sim.exists():
-        shutil.rmtree(sim)
-    shutil.copytree(TEMPLATE, sim)
-    _configure(TEMPLATE / "example.config", sim / "example.config", package)
-    if allow_hotspot:
-        runner = ROOT / "CertiTherm" / "trace_runner.py"
-        # --allow-unplaced is a DECLARED BOUNDARY, not a convenience. ThermoDSE emits an
-        # `interposer` column holding all NoP power and no floorplan unit is named
-        # `interposer`, so name alignment cannot place it: 10.90% of the dissipated energy
-        # does not reach HotSpot. That was silent until `align_trace` was made fail-closed;
-        # passing the flag here keeps the existing pipeline's boundary UNCHANGED while making
-        # it visible in every run log, instead of relaxing the check for future work.
-        # See docs/THERMODSE_ENDPOINT_AUDIT.md; removing the omission means placing NoP
-        # power on real floorplan units, which changes the frozen thermal inputs.
-        wrapper = (
-            "#!/bin/sh\nexec "
-            + shlex.quote(sys.executable)
-            + " "
-            + shlex.quote(str(runner))
-            + ' "$@" --allow-unplaced --hotspot '
-            + shlex.quote(str(HOTSPOT))
-            + "\n"
-        )
-    else:
-        for stale_temperature in (sim / "outputs").glob("*.steady"):
-            stale_temperature.unlink()
-        wrapper = (
-            "#!/bin/sh\n"
-            "echo 'HotSpot is forbidden during the non-thermal precheck' >&2\n"
-            "exit 97\n"
-        )
-    (sim / "run.sh").write_text(wrapper, encoding="utf-8")
-    (sim / "run.sh").chmod(0o755)
-    return sim
 
 
-def _thermodse_evaluator(
-    arch: dict[str, str],
-    workload: dict[str, str],
-    sim: Path,
-    *,
-    physical_nop: bool = False,
-):
-    """Build the pinned evaluator after installing narrow API shims."""
-
-    thermodse_path = str(THERMODSE)
-    if thermodse_path not in sys.path:
-        sys.path.insert(0, thermodse_path)
-    from core.chiplet_eva import chiplet_evaluator  # type: ignore
-
-    _install_thermodse_compatibility()
-    if physical_nop:
-        from .physical_nop import install_physical_nop
-
-        install_physical_nop()
-
-    evaluator = chiplet_evaluator(
-        hotspot_path=str(HOTSPOT.parent),
-        sim_path=str(sim),
-        sys_info=_architecture(arch),
-        thermal_map=False,
-        baseline1=False,
-        baseline2=False,
-        baseline3=False,
-        wkld_idpdt=False,
-        clock_freq=1.8e9,
-    )
-    evaluator.nets = [workload["thermodse_name"]]
-    evaluator.b_tot = [int(workload["b_tot"])]
-    evaluator.b_exe = [int(workload["b_exe"])]
-    evaluator.sparsty = [float(workload["sparsity"])]
-    return evaluator
 
 
-def _install_thermodse_compatibility() -> None:
-    """Repair two pinned-upstream API drifts without modifying the submodule."""
-
-    from core.layer import GemmLayer  # type: ignore
-    from core.network import Network  # type: ignore
-
-    # The base and Conv APIs default to one-byte words; the pinned Gemm
-    # override accidentally dropped that default. Keep the submodule clean
-    # and restore only the upstream interface convention at runtime.
-    original_filter_size = GemmLayer.total_filter_size
-    if original_filter_size.__defaults__ is None:
-        def filter_size_with_default(self, word_bytes=1):
-            return original_filter_size(self, word_bytes)
-
-        GemmLayer.total_filter_size = filter_size_with_default  # type: ignore[assignment]
-
-    # Two bundled upstream network definitions still use the predecessor
-    # keyword `prevs`; the pinned Network implementation renamed it to
-    # `ifm_prevs`. Preserve one implementation and expose only that alias.
-    original_add = Network.add
-    if not getattr(original_add, "_certitherm_accepts_prevs", False):
-        def add_with_prevs(
-            self,
-            layer_name,
-            layer,
-            ifm_prevs=None,
-            wgt_prevs=None,
-            *,
-            prevs=None,
-        ):
-            if prevs is not None:
-                if ifm_prevs is not None:
-                    raise TypeError("specify only one of prevs and ifm_prevs")
-                ifm_prevs = prevs
-            return original_add(self, layer_name, layer, ifm_prevs, wgt_prevs)
-
-        add_with_prevs._certitherm_accepts_prevs = True  # type: ignore[attr-defined]
-        Network.add = add_with_prevs  # type: ignore[assignment]
-
-    # The pinned breadth-first traversal omits external inputs from its
-    # initially satisfied dependency set. Recurrent networks therefore stall
-    # even though Network itself explicitly supports external layers.
-    original_traverse = Network.traverese_layer
-    if not getattr(original_traverse, "_certitherm_handles_external", False):
-        def traverse_with_external_inputs(self, check=False) -> None:
-            self.layer_idx_bfs = type(self.layer_dict)()
-            finished = {self.INPUT_LAYER_KEY, *self.ext_layers()}
-            pending = [
-                name for name in self.layer_dict if name != self.INPUT_LAYER_KEY
-            ]
-            depth = 0
-            while pending:
-                ready = []
-                for name in pending:
-                    dependencies = tuple(self.ifm_prevs_dict[name])
-                    if self.wgt_prevs_dict[name] is not None:
-                        dependencies += tuple(self.wgt_prevs_dict[name])
-                    if all(dependency in finished for dependency in dependencies):
-                        ready.append(name)
-                if not ready:
-                    raise RuntimeError(
-                        "ThermoDSE network contains cyclic or unresolved dependencies: "
-                        + ", ".join(pending)
-                    )
-                self.layer_idx_bfs[depth] = ready
-                if check:
-                    print(f"Depth {depth}: {ready}")
-                finished.update(ready)
-                pending = [name for name in pending if name not in finished]
-                depth += 1
-            self.depth = depth
-
-        traverse_with_external_inputs._certitherm_handles_external = True  # type: ignore[attr-defined]
-        Network.traverese_layer = traverse_with_external_inputs  # type: ignore[assignment]
 
 
-def _capture(
-    arch: dict[str, str],
-    workload: dict[str, str],
-    package: dict[str, str],
-    output: Path,
-) -> Path:
-    capture = output / "captures" / f"{workload['workload_id']}--{arch['architecture_id']}.npz"
-    signature = _capture_cache_signature(arch, workload, package)
-    if _cache_receipt_matches(capture, signature):
-        return capture
-    capture.unlink(missing_ok=True)
-    _cache_receipt_path(capture).unlink(missing_ok=True)
-    sim = _prepare_thermodse_sim(
-        arch,
-        workload,
-        package,
-        output,
-        allow_hotspot=True,
-    )
-    evaluator = _thermodse_evaluator(arch, workload, sim)
-    evaluator.generate_hardware()
-    latency, energy, die_yield = evaluator.evaluate()
-    trace = sim / "ptrace" / "name_aligned.ptrace"
-    lines = [line.split() for line in trace.read_text(encoding="utf-8").splitlines()]
-    if len(lines) != 2 or len(lines[0]) != len(lines[1]):
-        raise RuntimeError("frozen workload capture requires exactly one aligned power sample")
-    floorplan = sim / "floorplan" / "output_3D.flp"
-    capture.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        capture,
-        block_ids=np.asarray(lines[0]),
-        placed_power_w=np.asarray(lines[1], dtype=float),
-        floorplan_text=np.asarray(floorplan.read_text(encoding="utf-8")),
-        latency_ms=np.asarray(latency),
-        energy_mj=np.asarray(energy),
-        die_yield=np.asarray(die_yield),
-    )
-    _write_cache_receipt(capture, signature)
-    return capture
 
 
-@contextmanager
-def _hotspot_disabled(evaluator):
-    """Disable both ThermoDSE routes to HotSpot for a narrow code region."""
-
-    from core import chiplet_eva as evaluator_module  # type: ignore
-
-    original_run_hotspot = evaluator.flp_generator.run_hotspot
-    original_find_hotpoint = evaluator_module.find_hotpoint
-
-    def skip_hotspot(*_args, **_kwargs) -> None:
-        return None
-
-    def unavailable_temperature(*_args, **_kwargs) -> float:
-        return float("nan")
-
-    evaluator.flp_generator.run_hotspot = skip_hotspot
-    evaluator_module.find_hotpoint = unavailable_temperature
-    try:
-        yield
-    finally:
-        evaluator.flp_generator.run_hotspot = original_run_hotspot
-        evaluator_module.find_hotpoint = original_find_hotpoint
 
 
 def evaluate_nonthermal_candidate(

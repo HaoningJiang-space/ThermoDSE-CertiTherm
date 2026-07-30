@@ -28,6 +28,22 @@ _EXECUTED_BY_EVERY_RECEIPT = (
     "CertiTherm/tabular.py",
 )
 
+# Modules only ONE builder executes. The capture's content comes from the bridge over the paths
+# leaf; the operator's comes from the HotSpot construction path. Listing them per builder keeps
+# the check specific -- a blanket "every module" rule would force an expensive rebuild of every
+# cached capture on an unrelated edit.
+_EXECUTED_PER_BUILDER = {
+    "_capture_cache_signature": (
+        "CertiTherm/paths.py",
+        "CertiTherm/thermodse_bridge.py",
+    ),
+    "_operator_cache_signature": (
+        "CertiTherm/core.py",
+        "CertiTherm/hotspot.py",
+        "CertiTherm/measurements.py",
+    ),
+}
+
 _ARCH = {"architecture_id": "arch_a", "chiplet_x": "2", "chiplet_y": "2", "cut_x": "1", "cut_y": "1"}
 _WORKLOAD = {"workload_id": "resnet50"}
 _PACKAGE = {"package_id": "default"}
@@ -72,6 +88,8 @@ def test_every_receipt_binds_the_modules_it_executes(builder: str) -> None:
         "a cache written under the old logic would be accepted under the new one"
     )
     assert "CertiTherm/experiments.py" in declared
+    own = [path for path in _EXECUTED_PER_BUILDER[builder] if path not in declared]
+    assert not own, f"{builder} does not bind its own construction path: {own}"
 
 
 @pytest.mark.parametrize(
@@ -105,19 +123,21 @@ def test_substituting_any_listed_module_changes_the_builder_digest(
         )
 
 
-def test_the_two_bundles_are_not_accidentally_the_same_list() -> None:
+def test_the_two_bundles_differ_by_exactly_their_own_construction_paths() -> None:
     """Non-vacuity: if both builders shared one list, the parametrised tests would test one thing.
 
-    The operator receipt binds the operator construction path -- core, hotspot, gpu_hotspot,
-    measurements -- which the capture receipt has no business depending on.
+    They are NOT nested. An earlier version of this test asserted the operator bundle strictly
+    contained the capture bundle, which stopped being true once the ThermoDSE bridge moved out --
+    the capture's content comes from the bridge, which the operator has no business binding. What
+    must hold is that each bundle names its own path and not the other's.
     """
 
     capture = set(_bundle_paths("_capture_cache_signature"))
     operator = set(_bundle_paths("_operator_cache_signature"))
-    assert capture < operator, (
-        "the operator bundle must strictly contain the capture bundle's shared modules plus its "
-        f"own construction path; capture={sorted(capture)} operator={sorted(operator)}"
-    )
+    shared = {"CertiTherm/experiments.py", "CertiTherm/digest.py", "CertiTherm/tabular.py",
+              "CertiTherm/cache_receipts.py", "CertiTherm/paths.py", "requirements.lock"}
+    assert shared <= capture and shared <= operator
+    assert "CertiTherm/thermodse_bridge.py" in capture - operator
     assert "CertiTherm/hotspot.py" in operator - capture
 
 
