@@ -213,14 +213,15 @@ class GpuSelection:
         )
 
 
-def _gpu_backend(selection: Optional[GpuSelection] = None) -> Optional[GpuHotSpotBackend]:
+def _gpu_backend(selection: GpuSelection) -> Optional[GpuHotSpotBackend]:
     """Build the GPU backend for a given selection, or None when it is disabled.
 
-    `selection` defaults to a fresh reading only so the existing callers keep working; a caller that
-    also computes a cache signature must pass the SAME snapshot to both.
+    `selection` is REQUIRED. It defaulted to a fresh environment read so existing callers kept
+    working, and peer review was right that an ambient fallback inside a core helper is a liability:
+    it is precisely how the identity and the build came to disagree in the first place, and a default
+    lets a future caller reintroduce that without writing anything that looks wrong.
     """
 
-    selection = GpuSelection.from_environment() if selection is None else selection
     if not selection.enabled:
         return None
     receipt = GPU_HOTSPOT_BUILD / "GPU_SHA256SUMS"
@@ -366,11 +367,10 @@ def _operator_cache_signature(
     arch: Mapping[str, str],
     package: Mapping[str, str],
     captures: Sequence[Path],
-    gpu: Optional[GpuSelection] = None,
+    gpu: GpuSelection,
 ) -> dict[str, str]:
-    # The SAME snapshot the backend is built from, when the caller passes one. Reading the
-    # environment again here is what allowed the identity and the build to disagree.
-    gpu = GpuSelection.from_environment() if gpu is None else gpu
+    # The SAME snapshot the backend is built from. Required, not defaulted: reading the environment
+    # here is exactly what allowed the identity and the build to disagree.
     gpu_enabled = gpu.enabled
     inputs: dict[str, object] = {
         "architecture": dict(arch),
@@ -577,7 +577,8 @@ def _operator(
     captures: Iterable[Path],
     output: Path,
     workers: int = HOTSPOT_WORKERS,
-    gpu: Optional[GpuSelection] = None,
+    *,
+    gpu: GpuSelection,
 ) -> Path:
     target = output / "operators" / f"{arch['architecture_id']}--{package['package_id']}.npz"
     captures = tuple(captures)
@@ -585,7 +586,6 @@ def _operator(
     # ONE reading of the GPU configuration for this operator: the cache identity below and the
     # backend that builds it further down must not consult the environment separately, or a
     # signature can describe a CPU build while a GPU produced the operator.
-    gpu = GpuSelection.from_environment() if gpu is None else gpu
     signature = _operator_cache_signature(arch, package, captures, gpu)
     expected_rows = len(captures) * (2 + len(CALIBRATION_SEEDS)) * len(MODELS)
     if _cache_receipt_matches(
@@ -1296,7 +1296,8 @@ def _run_receipt(
     frozen: bool,
     started_at: datetime,
     hotspot_digest: str,
-    gpu: Optional[GpuSelection] = None,
+    gpu: GpuSelection,
+    git_sha: str,
 ) -> dict[str, object]:
     """Build one complete, path-private provenance row for an artifact.
 
@@ -1308,7 +1309,6 @@ def _run_receipt(
     the point is that nothing enforced it. The default keeps existing test callers working.
     """
 
-    gpu = GpuSelection.from_environment() if gpu is None else gpu
 
     registries = {
         name: _sha256(ROOT / "experiments" / f"{name}.tsv")
@@ -1359,7 +1359,9 @@ def _run_receipt(
         ),
         "lp_separation_workers": os.environ.get("CERTITHERM_LP_WORKERS", "1"),
         **numeric_threads,
-        "git_sha": _git_revision(ROOT),
+        # The SAME revision the artifact rows record. Read twice, RUN_RECEIPT.tsv and
+        # ARTIFACTS.tsv could claim different revisions for one bundle.
+        "git_sha": git_sha,
         **submodules,
         "hotspot_binary_sha256": hotspot_digest,
         **gpu_digests,
@@ -1654,7 +1656,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
     git_sha = _git_revision(ROOT)
     _write_tsv(
         output / "RUN_RECEIPT.tsv",
-        [_run_receipt(split, frozen, started_at, hotspot_digest, gpu)],
+        [_run_receipt(split, frozen, started_at, hotspot_digest, gpu, git_sha)],
     )
     scientific_paths = [
         path

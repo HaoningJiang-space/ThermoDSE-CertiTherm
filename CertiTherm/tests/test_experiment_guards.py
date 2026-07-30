@@ -193,7 +193,7 @@ def test_gpu_backend_verifies_the_registered_exporter_and_solver(
     monkeypatch.setattr(experiments, "GPU_HOTSPOT_SOLVER", solver)
     monkeypatch.setenv("CERTITHERM_GPU_HOTSPOT", "1")
 
-    backend = experiments._gpu_backend()
+    backend = experiments._gpu_backend(experiments.GpuSelection(enabled=True, device=0))
 
     assert backend is not None
     assert backend.exporter == exporter
@@ -331,13 +331,20 @@ def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
         False,
         datetime(2026, 7, 22, tzinfo=timezone.utc),
         "c" * 64,
+        experiments.GpuSelection(enabled=False, device=0),
+        "b" * 40,
     )
 
     # Both stubs are asserted THROUGH the receipt. Without this the substitutions were pure
     # noise suppression: nothing checked that `_run_receipt` routed their output anywhere, so
     # if either function were moved to another module the patch would silently stop applying
     # and this test would keep passing against real digests.
-    assert receipt["git_sha"] == "b" * 40, "_git_revision was not the function that ran"
+    # `git_sha` is now the caller's, so it no longer proves the stub ran. The SUBMODULE revisions
+    # still come from `_git_revision` inside the receipt, so they are what keeps this assertion
+    # non-vacuous -- without one of them, moving that function would silently stop the patch from
+    # applying and this test would pass against real digests.
+    assert receipt["git_sha"] == "b" * 40, "the receipt discarded the revision it was given"
+    assert receipt["thermodse_sha"] == "b" * 40, "_git_revision was not the function that ran"
     assert receipt["architectures_registry_sha256"] == "a" * 64, "_sha256 did not reach the receipt"
 
     assert receipt["query_workers"] == experiments.QUERY_WORKERS
@@ -365,13 +372,20 @@ def test_gpu_run_receipt_records_the_visible_device_mapping(monkeypatch) -> None
         False,
         datetime(2026, 7, 22, tzinfo=timezone.utc),
         "d" * 64,
+        experiments.GpuSelection(enabled=True, device=0),
+        "b" * 40,
     )
 
     assert receipt["gpu_device"] == "0"
     assert receipt["cuda_visible_devices"] == "0"
     # As above: prove each stub reached the receipt, so that moving any of these three
     # functions out of `experiments` breaks this test instead of silently un-patching it.
-    assert receipt["git_sha"] == "b" * 40, "_git_revision was not the function that ran"
+    # `git_sha` is now the caller's, so it no longer proves the stub ran. The SUBMODULE revisions
+    # still come from `_git_revision` inside the receipt, so they are what keeps this assertion
+    # non-vacuous -- without one of them, moving that function would silently stop the patch from
+    # applying and this test would pass against real digests.
+    assert receipt["git_sha"] == "b" * 40, "the receipt discarded the revision it was given"
+    assert receipt["thermodse_sha"] == "b" * 40, "_git_revision was not the function that ran"
     assert receipt["architectures_registry_sha256"] == "a" * 64, "_sha256 did not reach the receipt"
     assert receipt["gpu_exporter_sha256"] == "c" * 64, "_verified_binary_digest did not reach the receipt"
     assert receipt["gpu_solver_sha256"] == "c" * 64

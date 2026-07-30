@@ -92,11 +92,15 @@ def test_the_operator_threads_one_snapshot_through_both_consumers() -> None:
     import inspect
 
     source = inspect.getsource(experiments._operator)
-    assert "gpu = GpuSelection.from_environment()" in source
     assert "_operator_cache_signature(arch, package, captures, gpu)" in source
     assert "_gpu_backend(gpu)" in source
-    assert source.count("GpuSelection.from_environment()") == 1, (
-        "the operator took the snapshot more than once, which reopens the disagreement"
+    assert "GpuSelection.from_environment()" not in source, (
+        "the operator took its own reading again; the run's snapshot is the only one allowed"
+    )
+    parameter = inspect.signature(experiments._operator).parameters["gpu"]
+    assert parameter.default is inspect.Parameter.empty, (
+        "an ambient default lets a caller reintroduce the disagreement without writing anything "
+        "that looks wrong"
     )
 
 
@@ -120,7 +124,7 @@ def test_the_run_receipt_records_the_snapshot_it_is_given(
     started = datetime.now(timezone.utc)
 
     cpu = experiments._run_receipt(
-        "dev", False, started, "d" * 64, GpuSelection(enabled=False, device=0)
+        "dev", False, started, "d" * 64, GpuSelection(enabled=False, device=0), "e" * 40
     )
     assert cpu["operator_backend"] == "cpu-hotspot", (
         "the live environment leaked past the snapshot"
@@ -128,7 +132,7 @@ def test_the_run_receipt_records_the_snapshot_it_is_given(
     assert "gpu_device" not in cpu
 
     on_two = experiments._run_receipt(
-        "dev", False, started, "d" * 64, GpuSelection(enabled=True, device=2)
+        "dev", False, started, "d" * 64, GpuSelection(enabled=True, device=2), "e" * 40
     )
     assert on_two["operator_backend"] == "gpu-proposal+cpu-hotspot-calibration"
     assert on_two["gpu_device"] == "2", "the receipt recorded a device it was not given"
@@ -144,4 +148,8 @@ def test_the_run_takes_exactly_one_snapshot_and_shares_it() -> None:
         "the run took the GPU snapshot more than once, so its consumers can disagree again"
     )
     assert "gpu=gpu," in source, "the operators were not given the run's snapshot"
-    assert "_run_receipt(split, frozen, started_at, hotspot_digest, gpu)" in source
+    assert "_run_receipt(split, frozen, started_at, hotspot_digest, gpu, git_sha)" in source
+    assert source.count("_git_revision(ROOT)") == 1, (
+        "the run read its own revision more than once, so RUN_RECEIPT.tsv and ARTIFACTS.tsv can "
+        "claim different revisions for one bundle"
+    )
