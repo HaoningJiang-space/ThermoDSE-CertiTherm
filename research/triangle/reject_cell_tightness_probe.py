@@ -23,9 +23,21 @@ a larger gap is useless; a cell with modest leverage and a tiny gap is where col
 live. The ranking that matters is `leverage / gap`, and because `gap` is a property of the cell
 rather than of the pair, it is computed ONCE per instance and reused for all 1166 pairs.
 
-This probe computes `gap` for every cell and reports whether the top-K cells under the corrected
-ranking recover the edges that only an exhaustive scan found. If they do, the 711-cell scan becomes
-a K-cell scan and a full dev sweep becomes affordable.
+**MEASURED, AND THE IDEA IS REFUTED.** `gap[m,q] = 0.1 K = 2 * margin_k` for all 711 cells, with zero
+variance. The reason is visible once seen: the SAFE row for cell (m,q) already says
+`R[m,q].p <= ceiling[m,q]`, that bound is achievable, and `floor - ceiling` is exactly twice the
+margin by construction. The gap carries no ranking information, so dividing by it cannot reorder
+anything.
+
+The derivation was right and its premise degenerate. What that leaves is the real reason the
+leverage ranking fails: the `p_safe` maximising one cell's temperature is a particular vertex, and at
+that vertex the power movable between b and c may already be zero -- `p_b` at its upper bound or
+`p_c` at zero. The binding condition is joint feasibility of the pair and the cell, which is exactly
+what one LP per (pair, cell) answers and nothing cheaper does. The exhaustive scan is not a brute
+force to be avoided; it is the question.
+
+This file is kept as the record of a refuted shortcut, and because the constant gap is itself worth
+knowing: no cell is intrinsically tighter than another on this instance.
 
 NON-CLAIM diagnostic. Reads committed artifacts; writes only the gap table it is asked for.
 
