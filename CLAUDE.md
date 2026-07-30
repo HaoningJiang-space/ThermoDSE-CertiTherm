@@ -94,9 +94,11 @@ CertiTherm/paths.py                         → ROOT / TEMPLATE / THERMODSE / HO
 CertiTherm/tabular.py                       → the ONE TSV reader and writer; leaf, no deps
 CertiTherm/split_protocol.py                → registry / protocol-state / freeze-ID tables, cross-checked at import
 CertiTherm/thermal_constraints.py           → SAFE/REJECT LP rows and their two-world lift; depends only on core
+CertiTherm/budget_guard.py                  → one call under a deadline that neither escapes nor releases its caller's
 CertiTherm/cache_receipts.py                → the false-hit guard: signature, receipt, exact total comparison
 CertiTherm/result_schema.py                 → AnytimeResult + the exact columns it serialises, in one place
 CertiTherm/thermodse_bridge.py              → everything that talks to the pinned submodule; decides nothing
+CertiTherm/query_evidence.py                → replay, witness NPZs and every coordinated result table
 CertiTherm/run_report.py                    → REPORT.md and the frozen v2+ anytime gate endpoints
 CertiTherm/hotspot.py    build_family()     → ThermalFamily (registered HotSpot operators, sha256-bound)
 CertiTherm/measurements.py                  → obtainable module/chiplet/region/post-route action library
@@ -128,8 +130,25 @@ NumPy payloads were mutable in place, and the collision LP holds `ThermalFamily`
 arrays. Sealing is in place, not by copying, so handing an array to one of these dataclasses
 hands over ownership; a caller that still needs to write passes `array.copy()`.
 
-**Decomposing `experiments.py` (in progress, 2 911 → 2 114 lines).** The rule that makes it safe
-is peer review's, not mine: **move the body, leave a thin wrapper**. A re-exported alias preserves
+**`experiments.py` was decomposed 2 911 → 1 933 lines; `run` is 108 lines of composition** over four
+phases — `_build_operators`, `_prepare_queries`, `_write_run_outputs`, `_seal_run_artifacts`. Stop
+there. `anytime_dsos`, `_certified_contract`, the patched wrappers and the small orchestration helpers
+stay in `experiments`: splitting further purely for the line count makes the dependency flow less
+explicit, not better.
+
+**The gate sits between writing findings and sealing claims about them.** `_write_run_outputs`
+emits the scientific tables; `_seal_run_artifacts` checks the tree is clean and only then stamps the
+receipt, `SHA256SUMS` and `ARTIFACTS.tsv`. That order is load-bearing and tested: with the gate last,
+a run that FAILED it left an output directory that looked like a complete, sealed evidence bundle.
+
+**A guard written as one inequality does not reject NaN.** Five separate instances were found and
+fixed during this decomposition — `load_capture_metrics`, `CertifiedContract`, the vertex-cover
+weights, `anytime_dsos`'s budget and the spectral tail — and every one of them is a number a
+certificate is built from. `NaN <= 0` and `NaN > 1e-7` are both False, so the value passes the check
+AND gets recorded. Check `math.isfinite` first, separately.
+
+**The rule that makes moving code safe:** **move the body, leave a thin wrapper**. A re-exported alias
+preserves
 calls but NOT `monkeypatch.setattr(experiments, "_sha256", ...)`, because Python resolves a
 function's globals in the module where it was DEFINED — and since the real files exist, the
 affected tests would go VACUOUS rather than fail. `_sha256`, `_git_revision`, `_budgeted_call`,
