@@ -22,10 +22,11 @@ The gap to the upper bound closes from roughly 94% to **23%**.
 
 The last 8.0 came from an edge the scan had missed. Its heuristic looks at the eight (model, point)
 cells with the most leverage on each blind direction, and scanning the resulting cover turned up
-twenty survivors that looked like two-block zero-sum pairs. Re-proving them through the exact path
-admitted ONE. The other nineteen were not blind-direction pairs at all -- see the boundary discussion
-below -- which is why the recovery is worth doing and worth doing this way: a survivor is a proposal,
-not an edge.
+twenty survivors that looked like two-block zero-sum pairs. Re-proving each through the exact path,
+scanning every one of the 711 reject cells, admitted ONE. The nineteen that did not are recorded as
+"not re-established", not as "not confusable" -- the support criterion (two coordinates above a 1e-7
+floor, zero-sum to the same floor) is a proposal heuristic, not a definition of an exactly-shaped
+blind direction, so a survivor is a proposal and nothing more.
 
 Compose with any other certified bound by `max`, never by addition: both lower-bound the same
 selection cost, and the generic cuts can be hit by the very single-block actions this cover
@@ -95,8 +96,17 @@ The composition of those survivors is the useful part:
 | exact cut disjoint from the selection | 7 | structurally distinct collisions the pairwise argument does not reach |
 
 A selected action is constrained to read zero on the delta, so a cut containing one is only possible
-at the solver's feasibility boundary. Those 425 are **conservative refusals -- the fail-closed
-behaviour working** -- not missing structure. The real structural blocker is seven.
+at the solver's feasibility boundary: exact recomputation says the returned point is NOT a valid
+collision for this plan, and refusing to certify on the strength of an invalid witness is the
+fail-closed behaviour working.
+
+**What that does NOT establish is that no valid collision is nearby.** Peer review corrected an
+earlier version of this section which called them "not missing structure". The same LP cell may
+contain a genuine collision the solver failed to return accurately; all that is known is that these
+particular points are numerically unresolved. The honest name is *numerically unresolved boundary
+witnesses causing a fail-closed refusal*, and with a justified positive `guard` they would surface
+as `CertificateUnresolved` rather than as separators. So seven is a lower bound on the structural
+blocker, not a count of it.
 
 **A fail-open fix was considered and rejected.** Tightening the collision LP's right-hand side from
 `tol` to `tol - feasibility_slack` would make every returned point genuinely satisfy the constraint

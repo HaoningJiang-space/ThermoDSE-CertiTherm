@@ -13,11 +13,14 @@ added.
 
 This is a sound gain, unlike the other 425 survivors. Those have a cut MEETING the current selection
 with a worst |a.delta|/tolerance of 1.000016, so they sit on the LP's feasibility boundary: the
-solver returned points that violate an action's tolerance by a fraction of a part per million and
-the exact classifier then calls that action a separator. Those are conservative refusals, not
-missing structure, and the tempting fix -- tightening the LP's right-hand side to `tol - slack` --
-is FAIL-OPEN: it shrinks the collision set, so the oracle could certify a plan that has a real
-collision just inside the boundary. They are left alone deliberately.
+solver returned points that violate an action's tolerance by a fraction of a part per million, which
+means the returned point is not a valid collision for this plan and refusing to certify on it is
+fail-closed. It does NOT mean no valid collision is nearby -- the same LP cell may hold a genuine one
+the solver could not return accurately -- so they are *numerically unresolved*, not dismissed.
+
+The tempting fix, tightening the LP's right-hand side to `tol - slack`, is FAIL-OPEN: it shrinks the
+collision set, so the oracle could certify a plan that has a real collision just inside the boundary.
+They are left alone deliberately.
 
 NON-CLAIM diagnostic. Reads committed artifacts and one saved cut file; writes an updated cut file
 only when asked.
