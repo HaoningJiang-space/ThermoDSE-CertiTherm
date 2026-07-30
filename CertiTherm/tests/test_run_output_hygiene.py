@@ -36,7 +36,7 @@ def _cleared_names() -> set:
 
     import ast
 
-    tree = ast.parse(inspect.getsource(experiments.run).lstrip())
+    tree = ast.parse(inspect.getsource(experiments._write_run_outputs).lstrip())
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.For)
@@ -48,13 +48,13 @@ def _cleared_names() -> set:
                 for element in node.iter.elts
                 if isinstance(element, ast.Constant)
             }
-    raise AssertionError("run() no longer clears its conditional tables")
+    raise AssertionError("_write_run_outputs no longer clears its conditional tables")
 
 
 def test_every_conditionally_written_table_is_cleared_first() -> None:
     """The clearing set and the conditionally-written set must be identical."""
 
-    source = inspect.getsource(experiments.run)
+    source = inspect.getsource(experiments._write_run_outputs)
     written = {name for name in _CONDITIONAL_TABLES if f'output / "{name}"' in source}
     assert written == set(_CONDITIONAL_TABLES), (
         f"the fixture no longer matches the writes in run(): {sorted(written)}"

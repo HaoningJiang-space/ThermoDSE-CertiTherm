@@ -1421,6 +1421,147 @@ def _assert_repository_unchanged_by_run() -> None:
         raise RuntimeError(f"repository became dirty during experiment:\n{status}")
 
 
+@dataclass(frozen=True)
+class RunEvidence:
+    """Every row collection one run produced, named once so the write phase takes one argument.
+
+    A frozen record rather than a mutable context bag. Peer review warned that one large mutable
+    context makes the dependency flow LESS explicit than a long parameter list; the difference is
+    that this one cannot be added to by the phase that consumes it.
+    """
+
+    results: list
+    order_rows: list
+    registry_rows: list
+    spectral_rows: list
+    plan_rows: list
+    witness_rows: list
+    witness_replay_rows: list
+    failures: list
+
+
+def _write_run_outputs(
+    output: Path,
+    split: str,
+    operators: Mapping[tuple[str, str], Path],
+    evidence: RunEvidence,
+) -> None:
+    """Write every scientific table and the report, and nothing that seals the bundle.
+
+    Split from sealing on purpose. These files are the run's FINDINGS; the receipt, the checksums and
+    the manifest are claims ABOUT those findings, and the integrity gate has to sit between the two.
+    """
+
+    _write_tsv(
+        output / "results.tsv",
+        evidence.results,
+        fieldnames=_result_fieldnames(split),
+    )
+    # Every table below is written only when it has rows, and the checksum and artifact scans that
+    # follow walk the whole output directory. A re-run into a directory that already held one of
+    # these would therefore keep the STALE file and record it as this run's evidence. Peer review
+    # found it. Removing them first makes "no rows" and "no file" the same statement.
+    for conditional in (
+        "measurement_registry.tsv",
+        "spectral_envelopes.tsv",
+        "plans.tsv",
+        "witnesses.tsv",
+        "witness_replays.tsv",
+        "FAILURES.tsv",
+    ):
+        (output / conditional).unlink(missing_ok=True)
+    _write_tsv(output / "candidate_order.tsv", evidence.order_rows)
+    if evidence.registry_rows:
+        _write_tsv(output / "measurement_registry.tsv", evidence.registry_rows)
+    if evidence.spectral_rows:
+        _write_tsv(output / "spectral_envelopes.tsv", evidence.spectral_rows)
+    if evidence.plan_rows:
+        _write_tsv(output / "plans.tsv", evidence.plan_rows)
+    if evidence.witness_rows:
+        _write_tsv(output / "witnesses.tsv", evidence.witness_rows)
+    if evidence.witness_replay_rows:
+        _write_tsv(output / "witness_replays.tsv", evidence.witness_replay_rows)
+    if evidence.failures:
+        _write_tsv(output / "FAILURES.tsv", evidence.failures)
+    _write_report(
+        output / "REPORT.md",
+        split,
+        operators,
+        evidence.results,
+        evidence.order_rows,
+        evidence.failures,
+        evidence.spectral_rows,
+    )
+
+
+def _seal_run_artifacts(
+    output: Path,
+    split: str,
+    frozen: bool,
+    started_at: datetime,
+    hotspot_digest: str,
+    gpu: GpuSelection,
+) -> None:
+    """Gate the tree, then stamp the receipt, the checksums and the manifest.
+
+    Nothing here is a finding. Everything here is a claim that the findings were produced by a known
+    revision under a known configuration -- which is why the gate comes first, and why a failure now
+    leaves the directory unsealed instead of sealed-but-wrong.
+    """
+
+    # The integrity gate runs BEFORE the bundle is sealed. It used to run last, after the receipt,
+    # the checksums and the artifact manifest were already on disk -- so a run that FAILED this gate
+    # left an output directory that looked like a complete, sealed evidence bundle. Peer review found
+    # it. Everything scientific has been written by this point, so the gate still covers the whole
+    # experiment; what changes is that a dirty repository now prevents the bundle from ever looking
+    # sealed.
+    _assert_repository_unchanged_by_run()
+    git_sha = _git_revision(ROOT)
+    completed_at = datetime.now(timezone.utc)
+    _write_tsv(
+        output / "RUN_RECEIPT.tsv",
+        [
+            _run_receipt(
+                split, frozen, started_at, hotspot_digest, gpu, git_sha, completed_at
+            )
+        ],
+    )
+    scientific_paths = [
+        path
+        for path in sorted(output.rglob("*"))
+        if (
+            path.is_file()
+            and "work" not in path.parts
+            and path.name not in {"SHA256SUMS", "ARTIFACTS.tsv"}
+        )
+    ]
+    sums = output / "SHA256SUMS"
+    sums.write_text(
+        "".join(
+            f"{_sha256(path)}  {path.relative_to(output)}\n"
+            for path in scientific_paths
+        ),
+        encoding="utf-8",
+    )
+    artifacts = []
+    for path in sorted(output.rglob("*")):
+        if (
+            path.is_file()
+            and "work" not in path.parts
+            and path.name != "ARTIFACTS.tsv"
+        ):
+            artifacts.append(
+                {
+                    "role": _artifact_role(path.relative_to(output)),
+                    "path": str(path.relative_to(output)),
+                    "sha256": _sha256(path),
+                    "git_sha": git_sha,
+                    "producer": _canonical_producer(split, frozen),
+                }
+            )
+    _write_tsv(output / "ARTIFACTS.tsv", artifacts)
+
+
 def run(split: str, output: Path, frozen: bool) -> None:
     started_at = datetime.now(timezone.utc)
     # ONE reading of the GPU configuration for the whole run. Every operator's cache identity and
@@ -1684,109 +1825,19 @@ def run(split: str, output: Path, frozen: bool) -> None:
         key=lambda row: query_order[(str(row["workload"]), str(row["package"]))]
     )
 
-    _write_tsv(
-        output / "results.tsv",
-        results,
-        fieldnames=_result_fieldnames(split),
-    )
-    # Every table below is written only when it has rows, and the checksum and artifact scans that
-    # follow walk the whole output directory. A re-run into a directory that already held one of
-    # these would therefore keep the STALE file and record it as this run's evidence. Peer review
-    # found it. Removing them first makes "no rows" and "no file" the same statement.
-    for conditional in (
-        "measurement_registry.tsv",
-        "spectral_envelopes.tsv",
-        "plans.tsv",
-        "witnesses.tsv",
-        "witness_replays.tsv",
-        "FAILURES.tsv",
-    ):
-        (output / conditional).unlink(missing_ok=True)
-    _write_tsv(output / "candidate_order.tsv", order_rows)
-    if registry_rows:
-        _write_tsv(output / "measurement_registry.tsv", registry_rows)
-    if spectral_rows:
-        _write_tsv(output / "spectral_envelopes.tsv", spectral_rows)
-    if plan_rows:
-        _write_tsv(output / "plans.tsv", plan_rows)
-    if witness_rows:
-        _write_tsv(output / "witnesses.tsv", witness_rows)
-    if witness_replay_rows:
-        _write_tsv(output / "witness_replays.tsv", witness_replay_rows)
-    if failures:
-        _write_tsv(output / "FAILURES.tsv", failures)
-    _write_report(
-        output / "REPORT.md",
+    _write_run_outputs(
+        output,
         split,
         operators,
-        results,
-        order_rows,
-        failures,
-        spectral_rows,
-    )
-    # The integrity gate runs BEFORE the bundle is sealed. It used to run last, after the receipt,
-    # the checksums and the artifact manifest were already on disk -- so a run that FAILED this gate
-    # left an output directory that looked like a complete, sealed evidence bundle. Peer review found
-    # it. Everything scientific has been written by this point, so the gate still covers the whole
-    # experiment; what changes is that a dirty repository now prevents the bundle from ever looking
-    # sealed.
-    _assert_repository_unchanged_by_run()
-    git_sha = _git_revision(ROOT)
-    completed_at = datetime.now(timezone.utc)
-    _write_tsv(
-        output / "RUN_RECEIPT.tsv",
-        [
-            _run_receipt(
-                split, frozen, started_at, hotspot_digest, gpu, git_sha, completed_at
-            )
-        ],
-    )
-    scientific_paths = [
-        path
-        for path in sorted(output.rglob("*"))
-        if (
-            path.is_file()
-            and "work" not in path.parts
-            and path.name not in {"SHA256SUMS", "ARTIFACTS.tsv"}
-        )
-    ]
-    sums = output / "SHA256SUMS"
-    sums.write_text(
-        "".join(
-            f"{_sha256(path)}  {path.relative_to(output)}\n"
-            for path in scientific_paths
+        RunEvidence(
+            results=results,
+            order_rows=order_rows,
+            registry_rows=registry_rows,
+            spectral_rows=spectral_rows,
+            plan_rows=plan_rows,
+            witness_rows=witness_rows,
+            witness_replay_rows=witness_replay_rows,
+            failures=failures,
         ),
-        encoding="utf-8",
     )
-    artifacts = []
-    for path in sorted(output.rglob("*")):
-        if (
-            path.is_file()
-            and "work" not in path.parts
-            and path.name != "ARTIFACTS.tsv"
-        ):
-            artifacts.append(
-                {
-                    "role": _artifact_role(path.relative_to(output)),
-                    "path": str(path.relative_to(output)),
-                    "sha256": _sha256(path),
-                    "git_sha": git_sha,
-                    "producer": _canonical_producer(split, frozen),
-                }
-            )
-    _write_tsv(output / "ARTIFACTS.tsv", artifacts)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--split", choices=_DEVELOPMENT_SPLITS + _HELDOUT_SPLITS, required=True
-    )
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--frozen", action="store_true")
-    args = parser.parse_args()
-    run(args.split, args.output, args.frozen)
-
-
-if __name__ == "__main__":
-    main()
+    _seal_run_artifacts(output, split, frozen, started_at, hotspot_digest, gpu)

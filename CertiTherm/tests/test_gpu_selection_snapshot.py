@@ -143,19 +143,25 @@ def test_the_run_takes_exactly_one_snapshot_and_shares_it() -> None:
 
     import inspect
 
-    source = inspect.getsource(experiments.run)
-    assert source.count("GpuSelection.from_environment()") == 1, (
+    run_source = inspect.getsource(experiments.run)
+    assert run_source.count("GpuSelection.from_environment()") == 1, (
         "the run took the GPU snapshot more than once, so its consumers can disagree again"
     )
-    assert "gpu=gpu," in source, "the operators were not given the run's snapshot"
-    assert "split, frozen, started_at, hotspot_digest, gpu, git_sha, completed_at" in source
-    assert source.index("_assert_repository_unchanged_by_run()") < source.index(
+    assert "gpu=gpu," in run_source, "the operators were not given the run's snapshot"
+    assert "_seal_run_artifacts(output, split, frozen, started_at, hotspot_digest, gpu)" in run_source
+
+    sealing = inspect.getsource(experiments._seal_run_artifacts)
+    assert "split, frozen, started_at, hotspot_digest, gpu, git_sha, completed_at" in sealing
+    assert sealing.index("_assert_repository_unchanged_by_run()") < sealing.index(
         'output / "RUN_RECEIPT.tsv"'
     ), (
         "the integrity gate must run BEFORE the bundle is sealed, or a failed run leaves an output "
         "directory that looks like a complete evidence bundle"
     )
-    assert source.count("_git_revision(ROOT)") == 1, (
-        "the run read its own revision more than once, so RUN_RECEIPT.tsv and ARTIFACTS.tsv can "
-        "claim different revisions for one bundle"
+    assert sealing.count("_git_revision(ROOT)") == 1, (
+        "the sealing phase read the revision more than once, so RUN_RECEIPT.tsv and ARTIFACTS.tsv "
+        "can claim different revisions for one bundle"
+    )
+    assert "_git_revision(ROOT)" not in run_source, (
+        "the revision must be read once, in the phase that records it"
     )
