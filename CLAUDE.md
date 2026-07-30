@@ -89,7 +89,15 @@ defines `PowerPolytope`, `ThermalFamily`, `MeasurementAction`, `CandidateSpace`,
 
 ```
 CertiTherm/digest.py                        → the ONE definition of "the SHA-256 of a file"; leaf, no deps
+CertiTherm/frozen_limits.py                 → the frozen 330 K limit and 0.01 K error band; leaf, no deps
+CertiTherm/paths.py                         → ROOT / TEMPLATE / THERMODSE / HOTSPOT; leaf, no deps
+CertiTherm/tabular.py                       → the ONE TSV reader and writer; leaf, no deps
+CertiTherm/split_protocol.py                → registry / protocol-state / freeze-ID tables, cross-checked at import
 CertiTherm/thermal_constraints.py           → SAFE/REJECT LP rows and their two-world lift; depends only on core
+CertiTherm/cache_receipts.py                → the false-hit guard: signature, receipt, exact total comparison
+CertiTherm/result_schema.py                 → AnytimeResult + the exact columns it serialises, in one place
+CertiTherm/thermodse_bridge.py              → everything that talks to the pinned submodule; decides nothing
+CertiTherm/run_report.py                    → REPORT.md and the frozen v2+ anytime gate endpoints
 CertiTherm/hotspot.py    build_family()     → ThermalFamily (registered HotSpot operators, sha256-bound)
 CertiTherm/measurements.py                  → obtainable module/chiplet/region/post-route action library
 CertiTherm/synthesis.py  synthesize_ordered_query() → ObservationPlan (MILP hitting-set + LP separation oracle)
@@ -119,6 +127,24 @@ before storing it, because `@dataclass(frozen=True)` only stops attribute rebind
 NumPy payloads were mutable in place, and the collision LP holds `ThermalFamily`'s own
 arrays. Sealing is in place, not by copying, so handing an array to one of these dataclasses
 hands over ownership; a caller that still needs to write passes `array.copy()`.
+
+**Decomposing `experiments.py` (in progress, 2 911 → 2 114 lines).** The rule that makes it safe
+is peer review's, not mine: **move the body, leave a thin wrapper**. A re-exported alias preserves
+calls but NOT `monkeypatch.setattr(experiments, "_sha256", ...)`, because Python resolves a
+function's globals in the module where it was DEFINED — and since the real files exist, the
+affected tests would go VACUOUS rather than fail. `_sha256`, `_git_revision`, `_budgeted_call`,
+`anytime_dsos`, `ProcessPoolExecutor`, `QUERY_WORKERS` and `GPU_HOTSPOT_*` are patched there, so
+their lookup must stay in `experiments`; `cache_receipts` takes `sha256_file` as an argument for
+exactly that reason. `tests/test_cache_source_bundle.py` proves each seam still reaches the moved
+code with a sentinel exception no production path raises.
+
+**Every extraction must be added to the cache source bundles.** `_capture_cache_signature` and
+`_operator_cache_signature` hash the modules whose behaviour builds or validates the artifact.
+Twice during this decomposition a module moved out and the bundle still named only where the logic
+used to live — first `tabular.py`, then `trace_runner.py` — which would have left `builder_sha256`
+fixed and accepted a cache written under the old logic. The failure direction is a false HIT:
+results internally consistent but built from the wrong thermal operator, which can enter
+claim-grade evidence unnoticed. The bundle membership is a test, not a convention.
 
 **`experiments/private_api_census.tsv` is a precondition, not documentation.** It lists every
 private symbol crossing a module boundary, with which callers are covered by tests and which
