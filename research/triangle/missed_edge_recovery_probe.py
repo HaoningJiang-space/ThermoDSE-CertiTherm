@@ -82,6 +82,19 @@ def main() -> None:
     index_of = {action.action_id: i for i, action in enumerate(actions)}
     single_block_actions, cells = blind_direction_cells(actions, len(blocks))
     cost = block_instrumentation_cost(actions, single_block_actions, range(len(blocks)))
+    # The probes below index a block by its FIRST single-block action. Peer review found that this
+    # silently misclassifies a block's second single-block action as coarse, charges the cover the
+    # first action's cost rather than the cheapest, and can parse a saved cut into more than two
+    # endpoints. The current library happens to have exactly one per block; relying on that without
+    # saying so is the defect, so it is asserted.
+    multi_action_blocks = {b: v for b, v in single_block_actions.items() if len(v) != 1}
+    if multi_action_blocks:
+        raise SystemExit(
+            f"{len(multi_action_blocks)} block(s) have more than one single-block action; the "
+            "block-to-action map used here assumes exactly one and would misclassify the rest"
+        )
+    if len(index_of) != len(actions):
+        raise SystemExit("action IDs are not unique; the id-to-index map would overwrite entries")
     block_of = {indices[0]: block for block, indices in single_block_actions.items()}
     cell_of = {block: i for i, cell in enumerate(cells) for block in cell}
     models, points = family.response_k_per_w.shape[:2]
