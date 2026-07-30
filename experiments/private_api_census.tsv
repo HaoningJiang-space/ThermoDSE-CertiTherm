@@ -11,7 +11,7 @@ experiments	_DIAGNOSTIC_RESULT_FIELDS	1	test	CertiTherm/tests/test_separation_di
 experiments	_SPLIT_FREEZE_ID	2	test	CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_split_protocol.py
 experiments	_SPLIT_PROTOCOL_STATE	2	test	CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_split_protocol.py
 experiments	_anytime_result_fields	1	test	CertiTherm/tests/test_anytime_controller.py
-experiments	_archive_query_evidence	1	test	CertiTherm/tests/test_query_parallelism.py
+experiments	_archive_query_evidence	2	test	CertiTherm/tests/test_query_evidence.py,CertiTherm/tests/test_query_parallelism.py
 experiments	_assert_clean_revision	2	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py
 experiments	_bounded_power	1	test	CertiTherm/tests/test_experiment_semantics.py
 experiments	_budgeted_call	1	test	CertiTherm/tests/test_anytime_controller.py
