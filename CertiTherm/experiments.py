@@ -1931,3 +1931,27 @@ def run(split: str, output: Path, frozen: bool) -> None:
         ),
     )
     _seal_run_artifacts(output, split, frozen, started_at, hotspot_digest, gpu)
+
+
+def main() -> None:
+    """The `python -m CertiTherm.experiments` entry point every claim-grade run goes through.
+
+    Restored after an extraction dropped it: a slice rebuilt the module as `lines[:cut] + call` and
+    never reappended the tail, so `main` and the `__main__` guard vanished and
+    `python -m CertiTherm.experiments --split dev ...` -- which is literally what `make
+    reproduce-dev` runs -- silently did nothing. Six hundred tests stayed green because none of them
+    invokes the module as a script. `tests/test_cli_entrypoint.py` now does.
+    """
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--split", choices=_DEVELOPMENT_SPLITS + _HELDOUT_SPLITS, required=True
+    )
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--frozen", action="store_true")
+    args = parser.parse_args()
+    run(args.split, args.output, args.frozen)
+
+
+if __name__ == "__main__":
+    main()
