@@ -23,21 +23,20 @@ a larger gap is useless; a cell with modest leverage and a tiny gap is where col
 live. The ranking that matters is `leverage / gap`, and because `gap` is a property of the cell
 rather than of the pair, it is computed ONCE per instance and reused for all 1166 pairs.
 
-**MEASURED, AND THE IDEA IS REFUTED.** `gap[m,q] = 0.1 K = 2 * margin_k` for all 711 cells, with zero
-variance. The reason is visible once seen: the SAFE row for cell (m,q) already says
-`R[m,q].p <= ceiling[m,q]`, that bound is achievable, and `floor - ceiling` is exactly twice the
-margin by construction. The gap carries no ranking information, so dividing by it cannot reorder
-anything.
+**MEASURED, and the spread is large.** On arch_a the 711 gaps run from 0.1 K to 8.13 K with a median
+of 0.82 and a standard deviation of 1.52. Exactly 280 cells (39.4%) sit at the floor value of
+`2 * margin_k`, where the cell's own SAFE ceiling is achievable; the rest need between one and
+eighty times more movable power before any blind direction can tip them.
 
-The derivation was right and its premise degenerate. What that leaves is the real reason the
-leverage ranking fails: the `p_safe` maximising one cell's temperature is a particular vertex, and at
-that vertex the power movable between b and c may already be zero -- `p_b` at its upper bound or
-`p_c` at zero. The binding condition is joint feasibility of the pair and the cell, which is exactly
-what one LP per (pair, cell) answers and nothing cheaper does. The exhaustive scan is not a brute
-force to be avoided; it is the question.
+So the gap orders cells strongly, and ranking by leverage alone could pick a cell needing 81x the
+power of one it passed over. That is a sufficient explanation for a heuristic that recovered 1 of 20
+edges.
 
-This file is kept as the record of a refuted shortcut, and because the constant gap is itself worth
-knowing: no cell is intrinsically tighter than another on this instance.
+A correction worth recording, because it is the error this repository keeps catching elsewhere: an
+earlier revision of this file declared the idea REFUTED on the grounds that the gap was constant. It
+was not. The probe prints the twelve TIGHTEST cells, all of which are at the 0.1 floor, and reading
+that truncated list as the whole distribution produced the wrong conclusion. The summary statistics
+were in the same output.
 
 NON-CLAIM diagnostic. Reads committed artifacts; writes only the gap table it is asked for.
 
