@@ -60,7 +60,7 @@ from CertiTherm.experiments import _measurement_costs, _power_space, _rows, ROOT
 from CertiTherm.hotspot import load_family
 from CertiTherm.measurements import build_measurement_library
 from CertiTherm.solver_budget import budget_scope
-from CertiTherm.synthesis import _collision_search
+from CertiTherm.synthesis import UnresolvedComputation, _collision_search
 
 LIMIT_MARGIN_K = 0.05
 FEASIBILITY_TOLERANCE = 1e-9
@@ -171,7 +171,7 @@ def main() -> None:
     # Re-prove each through the SAME exact path the original edges used. A survivor is a proposal;
     # nothing is added on the strength of the LP alone.
     recovered: list[tuple[int, int]] = []
-    unproved = 0
+    unproved = solver_failures = 0
     for left, right in sorted(candidates):
         # EXHAUSTIVE over every reject cell. The first version fell back to the pair's own two
         # points whenever `points > 8`, which is weaker than even the original eight-point leverage
@@ -179,10 +179,19 @@ def main() -> None:
         # review was right that the conclusion drawn from it was unsupported. With twenty candidates
         # the full scan is affordable, and it is the only version whose negatives mean anything.
         specs = tuple((m, q) for m in range(models) for q in range(points))
-        witness = certify_blind_pair(
-            polytope, family, actions, (left, right), single_block_actions,
-            specs, LIMIT_MARGIN_K, FEASIBILITY_TOLERANCE,
-        )
+        try:
+            witness = certify_blind_pair(
+                polytope, family, actions, (left, right), single_block_actions,
+                specs, LIMIT_MARGIN_K, FEASIBILITY_TOLERANCE,
+            )
+        except UnresolvedComputation:
+            # One unresolvable LP must not discard the work done on every preceding candidate.
+            # Measured on arch_b: HiGHS returned status 15 on a single cell and the whole instance's
+            # recovery aborted, losing every edge already proved. Dropping a candidate only ever
+            # LOWERS the bound, so continuing is the fail-closed choice and stopping is not -- the
+            # same reason `synthesize_minimum_observation` hoists its accumulators above its try.
+            solver_failures += 1
+            continue
         if witness is None:
             unproved += 1
             continue
@@ -202,6 +211,7 @@ def main() -> None:
         "candidates": len(candidates),
         "recovered_edges": len(recovered),
         "candidates_not_reprovable": unproved,
+        "candidates_lost_to_solver_failure": solver_failures,
         "reject_cells_scanned_per_candidate": models * points,
         "lower_bound_before": float(before),
         "lower_bound_after": float(after),
