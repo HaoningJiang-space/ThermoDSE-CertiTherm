@@ -31,7 +31,7 @@ import re
 import shlex
 import shutil
 import sys
-from typing import Mapping
+from typing import Mapping, Union
 
 import numpy as np
 
@@ -39,8 +39,11 @@ from . import cache_receipts
 from .cache_receipts import Sha256File
 from .paths import HOTSPOT, ROOT, TEMPLATE, THERMODSE
 
+# Registry identifiers become path components of a directory this module deletes.
+_SAFE_IDENTITY = re.compile(r"[A-Za-z0-9._-]+")
 
-def apply_cli_options(source: Path, output: Path, package: dict[str, str]) -> None:
+
+def write_hotspot_config(source: Path, output: Path, package: dict[str, str]) -> None:
     text = source.read_text(encoding="utf-8")
     for option in (
         "r_convec",
@@ -71,11 +74,25 @@ def prepare_simulation_dir(
     """Create one isolated ThermoDSE work directory and backend entrypoint."""
 
     kind = "capture" if allow_hotspot else "precheck"
-    sim = output / "work" / f"{kind}--{workload['workload_id']}--{arch['architecture_id']}"
+    # Registry IDs become a path component of a directory this function DELETES. A slash or a
+    # `..` would place that directory outside `output/work` and hand rmtree a target nobody
+    # intended -- and a registry can acquire a bad identifier by accident, so trusting it is not
+    # a reason to skip the check. Peer review raised this; the containment assertion below is the
+    # belt to the slug rule's braces, because a slug rule can be relaxed later.
+    identity = f"{kind}--{workload['workload_id']}--{arch['architecture_id']}"
+    if not _SAFE_IDENTITY.fullmatch(identity):
+        raise ValueError(
+            f"refusing to build a work directory named {identity!r}: registry identifiers must "
+            "match [A-Za-z0-9._-]+ so they cannot escape the run's own directory"
+        )
+    work = (output / "work").resolve()
+    sim = (work / identity).resolve()
+    if sim.parent != work:
+        raise ValueError(f"resolved work directory {sim} is not directly under {work}")
     if sim.exists():
         shutil.rmtree(sim)
     shutil.copytree(TEMPLATE, sim)
-    apply_cli_options(TEMPLATE / "example.config", sim / "example.config", package)
+    write_hotspot_config(TEMPLATE / "example.config", sim / "example.config", package)
     if allow_hotspot:
         runner = ROOT / "CertiTherm" / "trace_runner.py"
         # --allow-unplaced is a DECLARED BOUNDARY, not a convenience. ThermoDSE emits an
@@ -108,7 +125,7 @@ def prepare_simulation_dir(
     return sim
 
 
-def build_evaluator(
+def build_thermodse_evaluator(
     arch: dict[str, str],
     workload: dict[str, str],
     sim: Path,
@@ -148,6 +165,19 @@ def build_evaluator(
 
 def install_compatibility_layer() -> None:
     """Repair two pinned-upstream API drifts without modifying the submodule."""
+
+    import core  # type: ignore
+
+    # `sys.path.insert(0, THERMODSE)` does not displace an already-imported `core`, so a
+    # previously loaded unrelated package of that name would have this function patch the wrong
+    # module -- silently, since both patches are conditional and would simply not apply. Peer
+    # review raised it; the provenance is now asserted instead of assumed.
+    origin = getattr(core, "__file__", None)
+    if origin is None or THERMODSE not in Path(origin).resolve().parents:
+        raise RuntimeError(
+            f"the imported `core` package resolves to {origin}, which is not inside the pinned "
+            f"ThermoDSE submodule at {THERMODSE}"
+        )
 
     from core.layer import GemmLayer  # type: ignore
     from core.network import Network  # type: ignore
@@ -222,7 +252,7 @@ def install_compatibility_layer() -> None:
         Network.traverese_layer = traverse_with_external_inputs  # type: ignore[assignment]
 
 
-def design_vector(row: dict[str, str]) -> list[float]:
+def design_vector(row: dict[str, str]) -> list[Union[int, float]]:
     keys = (
         "chiplet_x",
         "chiplet_y",
@@ -235,16 +265,33 @@ def design_vector(row: dict[str, str]) -> list[float]:
         "nop_bw",
         "dram_bw",
     )
-    return [float(row[key]) if key == "interval" else int(row[key]) for key in keys]
+    # Nine ints and one float, which is why the annotation is not `list[float]`: the split is
+    # ThermoDSE's convention and collapsing it would change what the pinned evaluator receives.
+    # `float("nan")` and `float("inf")` both parse, so finiteness is checked rather than assumed;
+    # a missing key raises KeyError and a malformed number ValueError, both fail-closed already.
+    vector: list[Union[int, float]] = [
+        float(row[key]) if key == "interval" else int(row[key]) for key in keys
+    ]
+    for key, value in zip(keys, vector):
+        if not np.isfinite(value):
+            raise ValueError(f"design field {key}={row[key]!r} is not finite")
+    return vector
 
 
-def capture_metrics(capture: Path) -> dict[str, float]:
+def load_capture_metrics(capture: Path) -> dict[str, float]:
     with np.load(capture, allow_pickle=False) as data:
         latency = float(data["latency_ms"])
         energy = float(data["energy_mj"])
         die_yield = float(data["die_yield"])
-    if min(latency, energy, die_yield) <= 0:
-        raise RuntimeError(f"nonpositive objective metric in {capture.name}")
+    # `min(...) <= 0` alone lets NaN through, because every comparison with NaN is False, and
+    # `hotspot_disabled` deliberately yields NaN temperatures -- so a NaN objective is reachable,
+    # not hypothetical. Positive infinity passed too. Both would propagate into `edyp` and from
+    # there into evidence, so finiteness is checked before sign.
+    for name, value in (("latency_ms", latency), ("energy_mj", energy), ("die_yield", die_yield)):
+        if not np.isfinite(value):
+            raise RuntimeError(f"non-finite {name}={value} in {capture.name}")
+        if value <= 0:
+            raise RuntimeError(f"nonpositive {name}={value} in {capture.name}")
     return {
         "latency_ms": latency,
         "energy_mj": energy,
@@ -255,12 +302,33 @@ def capture_metrics(capture: Path) -> dict[str, float]:
 
 @contextmanager
 def hotspot_disabled(evaluator):
-    """Disable both ThermoDSE routes to HotSpot for a narrow code region."""
+    """Close BOTH of ThermoDSE's routes to HotSpot for a narrow region, and always reopen them.
+
+    Two routes, because closing one is not enough: the floorplan generator invokes the binary,
+    and `chiplet_eva.find_hotpoint` reads a temperature back. A region that closed only the first
+    would still return whatever temperature happened to be lying around, so a capture that was
+    meant to be non-thermal could report a stale peak as if it had been measured. The second
+    route is replaced with NaN rather than a plausible number for the same reason.
+
+    Restoration is driven off a list of what was actually mutated, and every mutation happens
+    inside the `try`. Assigning both attributes before entering it left a window where the first
+    could succeed and the second raise, escaping with the generator still patched and no `finally`
+    to undo it -- a partial mutation leaking out of an error path. Nested use is safe: each level
+    saves what it found, which may be the outer level's replacement, and restores in LIFO order.
+
+    An unimportable `core.chiplet_eva` raises before anything is mutated, which is the right
+    failure: the region cannot be made non-thermal, so it must not run.
+
+    **Single-threaded use only, and that is a prohibition rather than a guarantee.**
+    `find_hotpoint` is a module attribute, so two overlapping regions in different threads share
+    it: the first to exit would reopen the readback route while the second still needs it closed,
+    and a capture would silently become thermal again. Different evaluator objects do not help --
+    the second route is global either way. The experiment driver isolates candidates by PROCESS,
+    which is what makes this safe today; a future thread pool over captures would need a lock here
+    or the region moved into the child.
+    """
 
     from core import chiplet_eva as evaluator_module  # type: ignore
-
-    original_run_hotspot = evaluator.flp_generator.run_hotspot
-    original_find_hotpoint = evaluator_module.find_hotpoint
 
     def skip_hotspot(*_args, **_kwargs) -> None:
         return None
@@ -268,16 +336,36 @@ def hotspot_disabled(evaluator):
     def unavailable_temperature(*_args, **_kwargs) -> float:
         return float("nan")
 
-    evaluator.flp_generator.run_hotspot = skip_hotspot
-    evaluator_module.find_hotpoint = unavailable_temperature
+    generator = evaluator.flp_generator
+    restore: list[tuple[object, str, object]] = []
     try:
+        for owner, name, replacement in (
+            (generator, "run_hotspot", skip_hotspot),
+            (evaluator_module, "find_hotpoint", unavailable_temperature),
+        ):
+            restore.append((owner, name, getattr(owner, name)))
+            setattr(owner, name, replacement)
         yield
     finally:
-        evaluator.flp_generator.run_hotspot = original_run_hotspot
-        evaluator_module.find_hotpoint = original_find_hotpoint
+        # Every restore is attempted, independently. A first version restored in a plain loop and
+        # a test found the hole: one failing restore aborted the rest, so the route that COULD
+        # have been reopened stayed closed. An error path must not be able to raise before it has
+        # finished undoing what it did.
+        failures: list[str] = []
+        for owner, name, original in reversed(restore):
+            try:
+                setattr(owner, name, original)
+            except Exception as exc:  # noqa: BLE001 - recorded, then reported below
+                failures.append(f"{name}: {exc}")
+        if failures and sys.exc_info()[0] is None:
+            # Only when nothing else is propagating. Raising here while unwinding would mask the
+            # real failure with its own consequence.
+            raise RuntimeError(
+                "ThermoDSE HotSpot routes could not be reopened: " + "; ".join(failures)
+            )
 
 
-def capture(
+def capture_thermodse_power(
     arch: dict[str, str],
     workload: dict[str, str],
     package: dict[str, str],
@@ -306,7 +394,7 @@ def capture(
         output,
         allow_hotspot=True,
     )
-    evaluator = build_evaluator(arch, workload, sim)
+    evaluator = build_thermodse_evaluator(arch, workload, sim)
     evaluator.generate_hardware()
     latency, energy, die_yield = evaluator.evaluate()
     trace = sim / "ptrace" / "name_aligned.ptrace"

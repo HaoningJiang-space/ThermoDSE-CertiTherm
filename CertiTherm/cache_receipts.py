@@ -35,6 +35,49 @@ CACHE_RECEIPT_SCHEMA = "certitherm-cache-v1"
 
 Sha256File = Callable[[Path], str]
 
+# Columns the receipt owns. A signature that redefined one of them would silently replace a field
+# the comparison depends on -- `schema` is expanded after the fixed value, so a signature key of
+# that name wins, and a related file named `artifact` generates `artifact_sha256` and displaces the
+# artifact's own digest. Both would remove a check from the row while leaving it looking complete,
+# which is the false-hit direction. Peer review raised it; the API refuses rather than documents it.
+_RESERVED_COLUMNS = frozenset({"schema", "artifact_sha256"})
+
+
+def _reject_column_collisions(
+    signature: Mapping[str, str], related: Mapping[str, Path]
+) -> None:
+    """Refuse a request whose names would displace a column the comparison depends on.
+
+    Checked BEFORE any file access, so `receipt_matches` cannot answer False for a request it
+    could never have evaluated: a missing receipt is a cache miss, an unusable request is not.
+    """
+
+    clashing = sorted(_RESERVED_COLUMNS & set(signature))
+    if clashing:
+        raise ValueError(f"signature may not define reserved receipt columns: {clashing}")
+    related_columns = {f"{name}_sha256" for name in related}
+    displaced = sorted(related_columns & (_RESERVED_COLUMNS | set(signature)))
+    if displaced:
+        raise ValueError(f"related file names generate colliding columns: {displaced}")
+    if len(related_columns) != len(related):
+        raise ValueError("two related files generate the same receipt column")
+
+
+def _row(
+    signature: Mapping[str, str],
+    artifact_digest: str,
+    related_digests: Mapping[str, str],
+) -> dict[str, object]:
+    """Assemble the receipt row. Collisions are already refused by the caller."""
+
+    row: dict[str, object] = {
+        "schema": CACHE_RECEIPT_SCHEMA,
+        **signature,
+        "artifact_sha256": artifact_digest,
+    }
+    row.update({f"{name}_sha256": digest for name, digest in related_digests.items()})
+    return row
+
 
 def canonical_sha256(payload: Mapping[str, object]) -> str:
     """A digest of a mapping that does not depend on key order or JSON whitespace.
@@ -85,12 +128,12 @@ def write_receipt(
     """Record the signature plus the artifact's own digest, and those of any related files."""
 
     related = {} if related is None else related
-    row: dict[str, object] = {
-        "schema": CACHE_RECEIPT_SCHEMA,
-        **signature,
-        "artifact_sha256": sha256_file(artifact),
-    }
-    row.update({f"{name}_sha256": sha256_file(path) for name, path in related.items()})
+    _reject_column_collisions(signature, related)
+    row = _row(
+        signature,
+        sha256_file(artifact),
+        {name: sha256_file(path) for name, path in related.items()},
+    )
     write_rows(receipt_path(artifact), [row])
 
 
@@ -110,9 +153,14 @@ def receipt_matches(
     A missing artifact, a missing receipt, an unreadable receipt or a receipt with anything other
     than exactly one row are all misses too. Returning False rather than raising is right here:
     the caller's next move is to rebuild, and a corrupt receipt is not a reason to abort a run.
+
+    A COLLIDING signature or related name is different and does raise. That is the caller passing
+    an unusable request, not a damaged cache, and turning it into a miss would hide a receipt whose
+    columns no longer mean what the comparison assumes.
     """
 
     related = {} if related is None else related
+    _reject_column_collisions(signature, related)
     receipt = receipt_path(artifact)
     if not artifact.is_file() or not receipt.is_file():
         return False
@@ -120,12 +168,11 @@ def receipt_matches(
         rows = read_rows(receipt)
         if len(rows) != 1:
             return False
-        expected = {
-            "schema": CACHE_RECEIPT_SCHEMA,
-            **signature,
-            "artifact_sha256": sha256_file(artifact),
-            **{f"{name}_sha256": sha256_file(path) for name, path in related.items()},
-        }
-    except (OSError, ValueError):
+        expected = _row(
+            signature,
+            sha256_file(artifact),
+            {name: sha256_file(path) for name, path in related.items()},
+        )
+    except OSError:
         return False
     return rows[0] == expected

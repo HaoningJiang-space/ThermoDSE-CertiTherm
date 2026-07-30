@@ -36,6 +36,7 @@ _EXECUTED_PER_BUILDER = {
     "_capture_cache_signature": (
         "CertiTherm/paths.py",
         "CertiTherm/thermodse_bridge.py",
+        "CertiTherm/trace_runner.py",
     ),
     "_operator_cache_signature": (
         "CertiTherm/core.py",
@@ -203,3 +204,38 @@ def test_the_root_the_bundle_resolves_against_is_also_patchable(
         "patching experiments.ROOT did not change which file the bundle hashed, so the wrapper is "
         "resolving ROOT somewhere the tests cannot reach"
     )
+
+
+@pytest.mark.parametrize(
+    "signature,related,pattern",
+    [
+        ({"kind": "t", "schema": "forged"}, None, "reserved receipt columns"),
+        ({"kind": "t", "artifact_sha256": "forged"}, None, "reserved receipt columns"),
+        ({"kind": "t"}, {"artifact": "self"}, "colliding columns"),
+        ({"kind": "t", "tmpl_sha256": "x"}, {"tmpl": "self"}, "colliding columns"),
+    ],
+)
+def test_a_receipt_column_may_not_be_displaced_by_a_caller(
+    signature, related, pattern, tmp_path
+) -> None:
+    """A displaced column removes a check while leaving the row looking complete.
+
+    `schema` is expanded after the fixed value, so a signature key of that name wins, and a
+    related file named `artifact` generates `artifact_sha256` and pushes out the artifact's own
+    digest. Either way the comparison would still succeed on a row that no longer proves what it
+    appears to -- the false-hit direction. Peer review raised it, so the API refuses.
+    """
+
+    from CertiTherm import cache_receipts
+
+    artifact = tmp_path / "artifact.npz"
+    artifact.write_bytes(b"payload")
+    resolved = None if related is None else {k: artifact for k in related}
+    with pytest.raises(ValueError, match=pattern):
+        cache_receipts.write_receipt(
+            artifact, signature, resolved, sha256_file=lambda _p: "a" * 64
+        )
+    with pytest.raises(ValueError, match=pattern):
+        cache_receipts.receipt_matches(
+            artifact, signature, resolved, sha256_file=lambda _p: "a" * 64
+        )

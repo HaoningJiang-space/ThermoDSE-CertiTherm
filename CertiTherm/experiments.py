@@ -56,15 +56,15 @@ from .cache_receipts import CACHE_RECEIPT_SCHEMA, canonical_sha256 as _canonical
 from .digest import sha256_file as _sha256
 from .paths import HOTSPOT, ROOT, SUBMODULE_PATHS, TEMPLATE, THERMODSE
 from .thermodse_bridge import (
-    apply_cli_options as _configure,
-    build_evaluator as _thermodse_evaluator,
-    capture_metrics as _capture_metrics,
+    build_thermodse_evaluator as _thermodse_evaluator,
+    capture_thermodse_power as _bridge_capture,
     design_vector as _architecture,
     hotspot_disabled as _hotspot_disabled,
     install_compatibility_layer as _install_thermodse_compatibility,
+    load_capture_metrics as _capture_metrics,
     prepare_simulation_dir as _prepare_thermodse_sim,
+    write_hotspot_config as _configure,
 )
-from .thermodse_bridge import capture as _bridge_capture
 from .frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
 from .split_protocol import (
     ANYTIME_SPLITS as _ANYTIME_SPLITS,
@@ -269,6 +269,10 @@ def _capture_cache_signature(
                 "CertiTherm/paths.py",
                 "CertiTherm/tabular.py",
                 "CertiTherm/thermodse_bridge.py",
+                # run.sh execs trace_runner.py, so the capture's power map is produced by it.
+                # Peer review found this still missing after the bridge moved: a changed
+                # trace-alignment rule would have left builder_sha256 fixed.
+                "CertiTherm/trace_runner.py",
                 "requirements.lock",
             )
         ),
