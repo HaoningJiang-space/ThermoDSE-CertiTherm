@@ -100,6 +100,14 @@ def main() -> None:
         )
     scan_seconds = round(time.monotonic() - started, 1)
 
+    # How far past its tolerance does the WORST SELECTED action read? A selected action satisfies
+    # |a.delta| <= tol only to the LP's feasibility slack, so a survivor whose worst selected ratio
+    # sits just above 1.0 is a tolerance-boundary artifact rather than a structurally new collision.
+    # 416 of 432 exact cuts contained a coarse action the plan had already selected, which is only
+    # possible that way -- so this ratio decides whether the real blocker is 432 collisions or 16.
+    selected_set = set(selected)
+    boundary = genuine = 0
+    worst_ratios: list[float] = []
     support_sizes: Counter = Counter()
     cut_sizes: Counter = Counter()
     within_one_cell = coarse_in_cut = 0
@@ -116,6 +124,17 @@ def main() -> None:
             Fraction(0),
         )
         cut_sizes[len(cut)] += 1
+        ratios = [
+            abs(float(actions[i].vector @ delta)) / actions[i].tolerance
+            for i in cut
+            if i in selected_set and actions[i].tolerance > 0
+        ]
+        worst = max(ratios) if ratios else 0.0
+        worst_ratios.append(worst)
+        if set(cut) & selected_set:
+            boundary += 1
+        else:
+            genuine += 1
         if set(cut) & coarse:
             coarse_in_cut += 1
         cells_touched = {cell_of[b] for b in support}
@@ -137,6 +156,13 @@ def main() -> None:
         "supported_within_one_cell": within_one_cell,
         "within_one_cell_and_zero_sum": zero_sum_within_cell,
         "cuts_containing_a_coarse_action": coarse_in_cut,
+        "cuts_meeting_the_selection_at_all": boundary,
+        "cuts_disjoint_from_the_selection": genuine,
+        "worst_selected_ratio_over_tolerance": {
+            "max": max(worst_ratios) if worst_ratios else 0.0,
+            "median": sorted(worst_ratios)[len(worst_ratios) // 2] if worst_ratios else 0.0,
+            "above_10x": sum(1 for r in worst_ratios if r > 10.0),
+        },
         "distinct_uncovered_blocks_touched": len(uncovered_blocks),
         "most_frequent_uncovered_blocks": [
             [blocks[b], n] for b, n in uncovered_blocks.most_common(8)
@@ -145,7 +171,10 @@ def main() -> None:
             "support size 2 within one cell would mean the pair scan MISSED edges; three or more "
             "with zero sum means the pairwise graph is the 2-uniform slice of a hypergraph and the "
             "next family is higher arity; a cut containing a coarse action is hittable for 1.0 and "
-            "caps what any structural argument can charge for it"
+            "caps what any structural argument can charge for it. A cut MEETING the selection is "
+            "only possible at the LP's tolerance boundary, since a selected action is constrained "
+            "to read zero; if those ratios sit near 1.0 the survivor is numerical, and the real "
+            "structural blocker is the disjoint count, not the total"
         ),
     }, indent=2), flush=True)
 
