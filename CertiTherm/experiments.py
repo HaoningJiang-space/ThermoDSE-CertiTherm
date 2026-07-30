@@ -4,23 +4,20 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
-import json
 import multiprocessing
 import math
 import os
 from pathlib import Path
 import re
-import shlex
 import shutil
 import socket
 from dataclasses import dataclass
 import subprocess
 import sys
 import time
-from typing import Callable, Generic, Iterable, Mapping, Optional, Sequence, TypeVar
+from typing import Callable, Iterable, Mapping, Optional, Sequence, TypeVar
 
 import numpy as np
 
@@ -28,7 +25,6 @@ from .core import (
     CandidateSpace,
     MeasurementAction,
     PowerPolytope,
-    QueryObservationPlan,
 )
 from .gpu_hotspot import GpuHotSpotBackend
 from .hotspot import build_family, load_family, replay_power, save_family
@@ -38,7 +34,6 @@ from .measurements import (
     content_upper_bounds,
 )
 from .policies import (
-    PolicyResult,
     dual_price_greedy,
     sequential_early_stop,
     uncertainty_width_order,
@@ -49,36 +44,28 @@ from .spectral import (
     channel_spectral_leverage,
     thermal_spectrum,
 )
-from .solver_budget import budget_scope
 from .synthesis import synthesize_ordered_query
 from . import cache_receipts as _cache_receipts
 from . import query_evidence as _query_evidence
 from .budget_guard import call_under_budget as _call_under_budget
-from .cache_receipts import CACHE_RECEIPT_SCHEMA, canonical_sha256 as _canonical_sha256
+from .cache_receipts import canonical_sha256 as _canonical_sha256
 from .digest import sha256_file as _sha256
 from .paths import HOTSPOT, ROOT, SUBMODULE_PATHS, TEMPLATE, THERMODSE
 from .query_evidence import (
     PreparedQuery,
-    QueryEvidence,
     QueryMethodResults,
     TimedResult,
-    anytime_plan_row as _anytime_plan_row,
     failed_query_methods as _failed_query_methods,
-    ordered_outcome as _ordered_outcome,
     placed_evidence as _placed_evidence,
-    replay_unsynth_witness as _replay_unsynth_witness,
-    save_unsynth_witness as _save_unsynth_witness,
     unexpected_method_failures as _unexpected_method_failures,
 )
 from .result_schema import (
     ANYTIME_RESULT_FIELDS as _ANYTIME_RESULT_FIELDS,
     AnytimeResult,
-    BASE_RESULT_FIELDS as _BASE_RESULT_FIELDS,
     BUDGET_IS_FROZEN as _BUDGET_IS_FROZEN,
     CertifiedContract,
     DIAGNOSTIC_RESULT_FIELDS as _DIAGNOSTIC_RESULT_FIELDS,
     FROZEN_QUERY_BUDGET_S,
-    POLICY_RESULT_FIELDS as _POLICY_RESULT_FIELDS,
     QUERY_METHOD_TIMEOUT_S,
     RESULT_SCHEMA_VERSION,
     anytime_result_fields as _anytime_result_fields,
@@ -89,7 +76,6 @@ from .result_schema import (
 from .thermodse_bridge import (
     build_thermodse_evaluator as _thermodse_evaluator,
     capture_thermodse_power as _bridge_capture,
-    design_vector as _architecture,
     hotspot_disabled as _hotspot_disabled,
     install_compatibility_layer as _install_thermodse_compatibility,
     load_capture_metrics as _capture_metrics,
@@ -109,7 +95,6 @@ from .split_protocol import (
     registry_split as _registry_split,
 )
 from .run_report import (
-    AnytimeGateSummary,
     summarize_anytime_gate as _summarize_anytime_gate,
     write_run_report as _write_report,
 )
