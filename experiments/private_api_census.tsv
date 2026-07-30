@@ -16,7 +16,7 @@ experiments	_assert_clean_revision	2	prod+test	CertiTherm/precheck.py,CertiTherm
 experiments	_bounded_power	1	test	CertiTherm/tests/test_experiment_semantics.py
 experiments	_budgeted_call	1	test	CertiTherm/tests/test_anytime_controller.py
 experiments	_cache_receipt_matches	2	test	CertiTherm/tests/test_cache_source_bundle.py,CertiTherm/tests/test_experiment_guards.py
-experiments	_call_under_budget	4	research+test	CertiTherm/tests/test_budget_containment.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py
+experiments	_call_under_budget	5	research+test	CertiTherm/tests/test_budget_containment.py,CertiTherm/tests/test_budget_guard.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py
 experiments	_canonical_producer	1	test	CertiTherm/tests/test_experiment_guards.py
 experiments	_capture	11	research	research/triangle/fidelity_cost.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/phase_timescale.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
 experiments	_configure	2	research	research/triangle/fidelity_cost.py,research/triangle/phase_timescale.py
