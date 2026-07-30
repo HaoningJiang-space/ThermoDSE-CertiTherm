@@ -25,9 +25,18 @@ They are left alone deliberately.
 NON-CLAIM diagnostic. Reads committed artifacts and one saved cut file; writes an updated cut file
 only when asked.
 
+Two candidate sources, because the same exhaustive re-proof serves both:
+
+* `survivors` -- pairs proposed by collisions that survive the current cover.
+* `unestablished` -- every within-cell pair the original scan never established. That scan used the
+  eight highest-leverage reject cells per pair, and the survivors experiment showed how weak that
+  is: with two reject points 1 of 20 candidates re-proved, with all 711 it was 20 of 20. So a pair
+  the heuristic failed to establish is very likely establishable, and 137 of them were left on the
+  table.
+
 Usage (on moe-server, from the repo root):
     .venv/bin/python research/triangle/missed_edge_recovery_probe.py <artifact-root> \\
-        <candidate> <package> <workload> <seed-cuts.json> [out.json] [budget_s]
+        <candidate> <package> <workload> <seed-cuts.json> [out.json] [budget_s] [mode]
 """
 
 from __future__ import annotations
@@ -36,6 +45,7 @@ import json
 import sys
 import time
 from fractions import Fraction
+from itertools import combinations
 from pathlib import Path
 
 sys.path.insert(0, ".")
@@ -63,6 +73,9 @@ def main() -> None:
     seeds_path = Path(sys.argv[5])
     out_path = Path(sys.argv[6]) if len(sys.argv) > 6 and sys.argv[6] != "-" else None
     budget_s = float(sys.argv[7]) if len(sys.argv) > 7 else 3600.0
+    mode = sys.argv[8] if len(sys.argv) > 8 else "survivors"
+    if mode not in ("survivors", "unestablished"):
+        raise SystemExit(f"unknown candidate source {mode!r}")
 
     polytope, blocks, _placed, floorplan_text = _power_space(
         artifacts / "captures" / f"{workload}--{candidate}.npz"
@@ -124,14 +137,24 @@ def main() -> None:
     )
 
     started = time.monotonic()
-    with budget_scope(budget_s):
-        witnesses = _collision_search(
-            polytope, family, actions, selected, LIMIT_MARGIN_K,
-            FEASIBILITY_TOLERANCE, None, True,
-        )
+    witnesses: tuple = ()
+    candidates: set[tuple[int, int]] = set()
+
+    if mode == "unestablished":
+        # Every within-cell pair the original scan never established. No collision search is needed
+        # to propose them: they are exactly the complement of the saved edges.
+        for cell in cells:
+            for left, right in combinations(cell, 2):
+                if (left, right) not in known:
+                    candidates.add((left, right))
+    else:
+        with budget_scope(budget_s):
+            witnesses = _collision_search(
+                polytope, family, actions, selected, LIMIT_MARGIN_K,
+                FEASIBILITY_TOLERANCE, None, True,
+            )
 
     # Candidate pairs: a survivor supported on exactly two blocks of one cell, with zero sum.
-    candidates: set[tuple[int, int]] = set()
     for witness in witnesses:
         delta = witness.safe_power_w - witness.unsafe_power_w
         support = [i for i, v in enumerate(delta) if abs(v) > SUPPORT_FLOOR_W]
@@ -174,8 +197,9 @@ def main() -> None:
 
     print(json.dumps({
         "candidate": candidate, "workload": workload,
+        "candidate_source": mode,
         "surviving_collisions": len(witnesses),
-        "two_block_within_cell_candidates": len(candidates),
+        "candidates": len(candidates),
         "recovered_edges": len(recovered),
         "candidates_not_reprovable": unproved,
         "reject_cells_scanned_per_candidate": models * points,
