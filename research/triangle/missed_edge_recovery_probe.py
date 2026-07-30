@@ -134,11 +134,12 @@ def main() -> None:
     recovered: list[tuple[int, int]] = []
     unproved = 0
     for left, right in sorted(candidates):
-        specs = tuple(
-            (m, q) for m in range(models) for q in range(points)
-        ) if points <= 8 else tuple(
-            (m, q) for m in range(models) for q in (left, right) if q < points
-        )
+        # EXHAUSTIVE over every reject cell. The first version fell back to the pair's own two
+        # points whenever `points > 8`, which is weaker than even the original eight-point leverage
+        # scan -- so "could not be re-proved" meant only "not found in two of 237 points", and peer
+        # review was right that the conclusion drawn from it was unsupported. With twenty candidates
+        # the full scan is affordable, and it is the only version whose negatives mean anything.
+        specs = tuple((m, q) for m in range(models) for q in range(points))
         witness = certify_blind_pair(
             polytope, family, actions, (left, right), single_block_actions,
             specs, LIMIT_MARGIN_K, FEASIBILITY_TOLERANCE,
@@ -161,6 +162,7 @@ def main() -> None:
         "two_block_within_cell_candidates": len(candidates),
         "recovered_edges": len(recovered),
         "candidates_not_reprovable": unproved,
+        "reject_cells_scanned_per_candidate": models * points,
         "lower_bound_before": float(before),
         "lower_bound_after": float(after),
         "gain": float(after - before),
@@ -169,7 +171,9 @@ def main() -> None:
             "every recovered edge was re-proved through the exact path -- repaired to exact "
             "polytope feasibility, validated with zero slack, cut recomputed -- so the new bound "
             "rests on the same evidence as the old one. A candidate that could not be re-proved is "
-            "simply not added."
+            "simply not added -- and since the scan is exhaustive over every reject cell, that "
+            "negative now means the pair admits no exactly-shaped, exactly-feasible witness at all, "
+            "rather than merely none at the points that were looked at."
         ),
     }, indent=2), flush=True)
 
