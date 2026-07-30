@@ -53,7 +53,9 @@ def test_spawn_pool_evaluates_complete_queries_in_registry_order() -> None:
         queries,
         include_anytime=False,
         workers=2,
-        method_workers=1,
+        # Zero, which is METHOD_WORKERS' own default: it is a scheduler SELECTOR, not just a
+        # count, and any nonzero value routes the batch through the method-level path instead.
+        method_workers=0,
     )
 
     assert len(results) == len(queries)
@@ -72,7 +74,7 @@ def test_query_batch_rejects_nonpositive_worker_count() -> None:
             (_prepared_query("only"),),
             include_anytime=False,
             workers=0,
-            method_workers=1,
+            method_workers=0,
         )
 
 
@@ -103,10 +105,10 @@ def test_worker_failure_is_archived_without_dropping_the_query(
         (query,),
         include_anytime=True,
         workers=2,
-        # Two, not one: with a single method worker the batch runs serially and a patched pool
-        # failure surfaces per method instead of as a query_error, which is a different scenario
-        # than this test is about.
-        method_workers=2,
+        # Zero: `method_workers` selects the SCHEDULER, not just a count. Any nonzero value sends
+        # the batch down the method-level path, where a patched pool failure surfaces per method
+        # instead of as the query_error this test is about.
+        method_workers=0,
     )
 
     assert len(results) == 1

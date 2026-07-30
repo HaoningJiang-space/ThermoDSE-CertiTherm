@@ -1065,6 +1065,11 @@ def _evaluate_query_batch(
     value frozen into the signature. `run` supplied `workers` explicitly but not `method_workers`,
     so that mismatch was one patch away from being real. Peer review found it.
 
+    `method_workers` is a scheduler SELECTOR, not merely a count: zero -- its own default -- keeps
+    the query-level path below, and any nonzero value routes the whole batch through
+    `_evaluate_method_batch` instead. Passing a plausible-looking 1 or 2 silently changes which
+    scheduler runs, which is worth knowing before treating it as a tuning knob.
+
     The old failed parallel path built a spawn-context pool inside every
     separation iteration. Here the pool is created exactly once for the whole
     experiment and each task runs a complete query. Futures are consumed in
@@ -1553,6 +1558,16 @@ def run(split: str, output: Path, frozen: bool) -> None:
                             "certified_peak_tail_k": tail,
                         }
                     )
+                    # Finiteness BEFORE the exactness comparison. `NaN > 1e-7` is False, so a
+                    # non-finite tail passed the full-rank check and was then recorded in
+                    # spectral_envelopes.tsv as a certified bound. Peer review found this; it is the
+                    # same comparison-based hole as load_capture_metrics, CertifiedContract,
+                    # anytime_dsos and the cover search.
+                    if not np.isfinite(tail):
+                        raise RuntimeError(
+                            f"spectral envelope for {candidate_id} produced a non-finite "
+                            f"certified tail {tail}"
+                        )
                     if rank == power.dimension and tail > 1e-7:
                         raise RuntimeError("full-rank spectral envelope is not exact")
                 candidate_actions = build_measurement_library(
@@ -1646,6 +1661,19 @@ def run(split: str, output: Path, frozen: bool) -> None:
         results,
         fieldnames=_result_fieldnames(split),
     )
+    # Every table below is written only when it has rows, and the checksum and artifact scans that
+    # follow walk the whole output directory. A re-run into a directory that already held one of
+    # these would therefore keep the STALE file and record it as this run's evidence. Peer review
+    # found it. Removing them first makes "no rows" and "no file" the same statement.
+    for conditional in (
+        "measurement_registry.tsv",
+        "spectral_envelopes.tsv",
+        "plans.tsv",
+        "witnesses.tsv",
+        "witness_replays.tsv",
+        "FAILURES.tsv",
+    ):
+        (output / conditional).unlink(missing_ok=True)
     _write_tsv(output / "candidate_order.tsv", order_rows)
     if registry_rows:
         _write_tsv(output / "measurement_registry.tsv", registry_rows)
