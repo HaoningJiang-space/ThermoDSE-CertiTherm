@@ -1314,6 +1314,7 @@ def _run_receipt(
     hotspot_digest: str,
     gpu: GpuSelection,
     git_sha: str,
+    completed_at: datetime,
 ) -> dict[str, object]:
     """Build one complete, path-private provenance row for an artifact.
 
@@ -1388,9 +1389,28 @@ def _run_receipt(
         "host": socket.gethostname(),
         "python": sys.version.split()[0],
         "started_at_utc": started_at.isoformat(),
-        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "completed_at_utc": completed_at.isoformat(),
         "producer": _canonical_producer(split, frozen),
     }
+
+
+def _assert_repository_unchanged_by_run() -> None:
+    """Refuse to seal a bundle if the experiment changed the working tree.
+
+    A dirty tree means the revision the receipt is about to record is not the revision that produced
+    the evidence. Called before the receipt, the checksums and the artifact manifest are written:
+    running it afterwards left a failed run looking like a sealed one.
+    """
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--ignore-submodules=none"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if status:
+        raise RuntimeError(f"repository became dirty during experiment:\n{status}")
 
 
 def run(split: str, output: Path, frozen: bool) -> None:
@@ -1696,10 +1716,22 @@ def run(split: str, output: Path, frozen: bool) -> None:
         failures,
         spectral_rows,
     )
+    # The integrity gate runs BEFORE the bundle is sealed. It used to run last, after the receipt,
+    # the checksums and the artifact manifest were already on disk -- so a run that FAILED this gate
+    # left an output directory that looked like a complete, sealed evidence bundle. Peer review found
+    # it. Everything scientific has been written by this point, so the gate still covers the whole
+    # experiment; what changes is that a dirty repository now prevents the bundle from ever looking
+    # sealed.
+    _assert_repository_unchanged_by_run()
     git_sha = _git_revision(ROOT)
+    completed_at = datetime.now(timezone.utc)
     _write_tsv(
         output / "RUN_RECEIPT.tsv",
-        [_run_receipt(split, frozen, started_at, hotspot_digest, gpu, git_sha)],
+        [
+            _run_receipt(
+                split, frozen, started_at, hotspot_digest, gpu, git_sha, completed_at
+            )
+        ],
     )
     scientific_paths = [
         path
@@ -1735,15 +1767,6 @@ def run(split: str, output: Path, frozen: bool) -> None:
                 }
             )
     _write_tsv(output / "ARTIFACTS.tsv", artifacts)
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--ignore-submodules=none"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    if status:
-        raise RuntimeError(f"repository became dirty during experiment:\n{status}")
 
 
 def main() -> None:

@@ -333,6 +333,7 @@ def test_run_receipt_records_query_scheduler(monkeypatch) -> None:
         "c" * 64,
         experiments.GpuSelection(enabled=False, device=0),
         "b" * 40,
+        datetime(2026, 7, 22, tzinfo=timezone.utc),
     )
 
     # Both stubs are asserted THROUGH the receipt. Without this the substitutions were pure
@@ -374,6 +375,7 @@ def test_gpu_run_receipt_records_the_visible_device_mapping(monkeypatch) -> None
         "d" * 64,
         experiments.GpuSelection(enabled=True, device=0),
         "b" * 40,
+        datetime(2026, 7, 22, tzinfo=timezone.utc),
     )
 
     assert receipt["gpu_device"] == "0"
