@@ -55,6 +55,22 @@ from . import cache_receipts as _cache_receipts
 from .cache_receipts import CACHE_RECEIPT_SCHEMA, canonical_sha256 as _canonical_sha256
 from .digest import sha256_file as _sha256
 from .paths import HOTSPOT, ROOT, SUBMODULE_PATHS, TEMPLATE, THERMODSE
+from .result_schema import (
+    ANYTIME_RESULT_FIELDS as _ANYTIME_RESULT_FIELDS,
+    AnytimeResult,
+    BASE_RESULT_FIELDS as _BASE_RESULT_FIELDS,
+    BUDGET_IS_FROZEN as _BUDGET_IS_FROZEN,
+    CertifiedContract,
+    DIAGNOSTIC_RESULT_FIELDS as _DIAGNOSTIC_RESULT_FIELDS,
+    FROZEN_QUERY_BUDGET_S,
+    POLICY_RESULT_FIELDS as _POLICY_RESULT_FIELDS,
+    QUERY_METHOD_TIMEOUT_S,
+    RESULT_SCHEMA_VERSION,
+    anytime_result_fields as _anytime_result_fields,
+    diagnostic_result_fields as _diagnostic_result_fields,
+    optional_seconds as _optional_seconds,
+    result_fieldnames as _result_fieldnames,
+)
 from .thermodse_bridge import (
     build_thermodse_evaluator as _thermodse_evaluator,
     capture_thermodse_power as _bridge_capture,
@@ -113,9 +129,6 @@ CALIBRATION_VECTOR_IDS = (
 # without paying the full budget. A rehearsal is not evidence: any run whose
 # budget differs from 1800 must be labelled as such and must never be reported
 # against a frozen pass condition.
-QUERY_METHOD_TIMEOUT_S = float(os.environ.get("CERTITHERM_QUERY_BUDGET_S", "1800"))
-FROZEN_QUERY_BUDGET_S = 1800.0
-_BUDGET_IS_FROZEN = abs(QUERY_METHOD_TIMEOUT_S - FROZEN_QUERY_BUDGET_S) < 1e-9
 QUERY_WORKERS = int(os.environ.get("CERTITHERM_QUERY_WORKERS", "3"))
 if QUERY_WORKERS < 1:
     raise RuntimeError("CERTITHERM_QUERY_WORKERS must be a positive integer")
@@ -653,99 +666,14 @@ def _power_space(
 # that misdescribes its contents for compatibility reasons.
 #   1 -> pre-diagnostics (method-freeze-v1 through v3.1 rehearsals)
 #   2 -> adds separation diagnostics and explicit bound provenance
-RESULT_SCHEMA_VERSION = 2
 
-_BASE_RESULT_FIELDS = (
-    "result_schema_version",
-    "freeze_id",
-    "split",
-    "registry_split",
-    "workload",
-    "package",
-    "objective",
-    "candidate_order",
-    "exact_status",
-    "exact_cost",
-    "milp_lower_bound",
-    "lp_relaxation_bound",
-    "optimality_gap",
-)
-_ANYTIME_RESULT_FIELDS = (
-    "certified_upper_bound",
-    "certified_lower_bound",
-    "absolute_gap",
-    "relative_gap",
-    "approximation_ratio",
-    "interval_violation",
-    "anytime_upper_source",
-    "anytime_upper_seconds",
-    "anytime_lower_seconds",
-    "anytime_error",
-    "query_budget_s",
-    "budget_is_frozen",
-    "bound_provenance",
-    "plan_validity",
-    "cost_optimality",
-)
 # Separation diagnostics. These answer "why is the lower bound small?", which
 # the endpoint columns alone cannot: a small `certified_lower_bound` is
 # ambiguous between few expensive rounds, a saturating dual, and a candidate
 # schedule that never reached most of its subproblems. They are observational
 # only -- no status, bound, or gate condition reads them.
-_DIAGNOSTIC_RESULT_FIELDS = (
-    # Which algorithm actually produced `milp_lower_bound` for this row.
-    # `milp_lower_bound` is a LEGACY NAME and is frequently NOT a MILP bound:
-    # `_solve_master` runs only on the collision-free branch, so on every other
-    # path the value comes from `_anytime_lower_bound`, an LP weak-duality
-    # Lagrangian. The two differ by orders of magnitude in practice, so no
-    # downstream reader may infer the algorithm from the column name.
-    #   weak_duality           -> restricted-master LP Lagrangian
-    #   solver_branch_and_bound-> restricted-master MILP asserted dual bound
-    # The value is a query-level aggregate: a sum over candidate-local bounds,
-    # which `exact_candidates_completed` qualifies.
-    "exact_lower_bound_provenance",
-    "exact_iterations",
-    "exact_candidates_required",
-    "exact_candidates_completed",
-    "exact_candidate_at_stop",
-    "exact_cuts_generated",
-    "exact_cuts_accepted",
-    "exact_cuts_dominated",
-    "exact_cuts_evicted",
-    "exact_cuts_active",
-)
-_POLICY_RESULT_FIELDS = (
-    "fixed_status",
-    "fixed_cost",
-    "width_status",
-    "width_cost",
-    "dual_status",
-    "dual_cost",
-    "exact_seconds",
-    "fixed_seconds",
-    "width_seconds",
-    "dual_seconds",
-    "full_registry_cost",
-    "witnesses",
-    "placed_robust_outcome",
-    "placed_model_outcomes",
-    "placed_model_disagreement",
-    "false_certificate",
-    "failure",
-    "unexpected_failure",
-)
 
 
-def _result_fieldnames(split: str) -> tuple[str, ...]:
-    """Return the stable result-table contract for one method profile."""
-
-    anytime = _ANYTIME_RESULT_FIELDS if split in _ANYTIME_SPLITS else ()
-    return (
-        _BASE_RESULT_FIELDS
-        + anytime
-        + _DIAGNOSTIC_RESULT_FIELDS
-        + _POLICY_RESULT_FIELDS
-    )
 
 
 def _measurement_costs() -> dict[str, float]:
@@ -847,154 +775,8 @@ def _budgeted_call(
     )
 
 
-@dataclass(frozen=True)
-class CertifiedContract:
-    """One oracle-certified upper bound and the actions that replay it."""
-
-    source: str
-    action_ids: tuple[str, ...]
-    cost: float
-
-    def __post_init__(self) -> None:
-        if self.source not in ("width", "exact"):
-            raise ValueError(f"unsupported contract source {self.source}")
-        if self.cost < 0:
-            raise ValueError("certified contract cost must be nonnegative")
 
 
-@dataclass(frozen=True)
-class AnytimeResult:
-    """Proof state returned by one end-to-end Anytime-DSOS budget.
-
-    `contract` is the only source of an upper bound.  Keeping its cost, action
-    IDs and source in one object prevents a result row from combining a number
-    from one policy with a plan from another.  `proof_search` is the exact/IHS
-    phase that supplies the lower bound and, when it closes, the optimality
-    proof.
-
-    Therefore `lower_bound <= C* <= upper_bound` is a genuine interval rather
-    than a pairing of two independently budgeted runs. That distinction is the
-    whole point of method-freeze-v2.1's budget clause: reporting a `U` from one
-    1800s run beside an `L` from another describes no single algorithm.
-    """
-
-    contract: Optional[CertifiedContract]
-    proof_search: Optional[QueryObservationPlan]
-    # None, not 0.0, when a phase never ran or the worker died before reporting.
-    # Serialized blank (see `_anytime_result_fields`): a hardcoded 0.0 on a
-    # worker-death or pool-failure path reads as "ran instantly", the same
-    # fabricated-timing defect `TimedResult` was fixed to avoid.
-    upper_seconds: Optional[float]
-    lower_seconds: Optional[float]
-    errors: tuple[str, ...] = ()
-
-    @property
-    def upper_bound(self) -> Optional[float]:
-        return None if self.contract is None else self.contract.cost
-
-    @property
-    def upper_action_ids(self) -> tuple[str, ...]:
-        return () if self.contract is None else self.contract.action_ids
-
-    @property
-    def upper_source(self) -> str:
-        return "none" if self.contract is None else self.contract.source
-
-    @property
-    def lower_bound(self) -> Optional[float]:
-        if self.proof_search is None:
-            return None
-        if self.proof_search.bound_provenance == "solver_branch_and_bound":
-            return self.proof_search.relaxation_bound
-        return self.proof_search.lower_bound
-
-    @property
-    def error(self) -> str:
-        return "; ".join(self.errors)
-
-    @property
-    def approximation_ratio(self) -> Optional[float]:
-        """Certified multiplicative bound U/L; one means proven optimal."""
-        if (
-            self.upper_bound is None
-            or self.lower_bound is None
-            or self.interval_violation
-        ):
-            return None
-        if self.lower_bound > 0:
-            return self.upper_bound / self.lower_bound
-        if self.upper_bound == 0:
-            return 1.0
-        return None
-
-    @property
-    def relative_gap(self) -> Optional[float]:
-        """Standard lower-bound-relative gap, equal to U/L - 1."""
-        ratio = self.approximation_ratio
-        return None if ratio is None else max(0.0, ratio - 1.0)
-
-    @property
-    def absolute_gap(self) -> Optional[float]:
-        if (
-            self.upper_bound is None
-            or self.lower_bound is None
-            or self.interval_violation
-        ):
-            return None
-        return max(0.0, self.upper_bound - self.lower_bound)
-
-    @property
-    def interval_violation(self) -> str:
-        if (
-            self.upper_bound is not None
-            and self.proof_search is not None
-            and self.proof_search.status == "UNSYNTHESIZABLE"
-        ):
-            return "certified upper plan conflicts with UNSYNTHESIZABLE result"
-        if self.upper_bound is None or self.lower_bound is None:
-            return ""
-        slack = 1e-6 * max(1.0, abs(self.upper_bound))
-        if self.lower_bound > self.upper_bound + slack:
-            return f"L={self.lower_bound} exceeds U={self.upper_bound}"
-        return ""
-
-    @property
-    def bound_provenance(self) -> str:
-        if self.lower_bound is None or self.proof_search is None:
-            return ""
-        return "weak_duality"
-
-    @property
-    def plan_validity(self) -> str:
-        if self.interval_violation:
-            return "UNRESOLVED"
-        if self.upper_bound is not None:
-            return "CERTIFIED"
-        if (
-            self.proof_search is not None
-            and self.proof_search.status == "UNSYNTHESIZABLE"
-        ):
-            return "UNSYNTHESIZABLE"
-        return "UNRESOLVED"
-
-    @property
-    def cost_optimality(self) -> str:
-        if self.interval_violation:
-            return "UNKNOWN"
-        if (
-            self.proof_search is not None
-            and self.proof_search.status == "UNSYNTHESIZABLE"
-        ):
-            return "NOT_APPLICABLE"
-        if (
-            self.proof_search is not None
-            and self.proof_search.status == "OPTIMAL"
-            and self.upper_source == "exact"
-        ):
-            return self.proof_search.cost_optimality
-        if self.upper_bound is not None and self.lower_bound is not None:
-            return "BOUNDED_GAP"
-        return "UNKNOWN"
 
 
 def _certified_contract(
@@ -1117,68 +899,10 @@ def _anytime_plan_row(query_id: str, result: AnytimeResult) -> dict[str, object]
     }
 
 
-def _optional_seconds(result: "TimedResult") -> object:
-    """Serialize an execution time, or blank when it was never measured."""
-
-    return "" if result.seconds is None else result.seconds
 
 
-def _diagnostic_result_fields(
-    exact: Optional[QueryObservationPlan],
-) -> dict[str, object]:
-    """Serialize the exact method's separation diagnostics.
-
-    Sourced from the `exact` baseline rather than the Anytime controller's
-    internal proof search: `exact` runs the same constraint generation under its
-    own full budget, so it is the cleanest read on separation behaviour and it
-    exists in every profile that runs the exact method.
-
-    Blank rather than zero when the method produced no plan at all -- a zero
-    would assert "ran and did nothing", which is a different claim from "never
-    reported".
-    """
-
-    if exact is None:
-        return {field: "" for field in _DIAGNOSTIC_RESULT_FIELDS}
-    return {
-        "exact_lower_bound_provenance": exact.bound_provenance or "",
-        "exact_iterations": exact.iterations,
-        "exact_candidates_required": exact.candidates_required,
-        "exact_candidates_completed": exact.candidates_completed,
-        "exact_candidate_at_stop": (
-            "" if exact.candidate_at_stop is None else exact.candidate_at_stop
-        ),
-        "exact_cuts_generated": exact.cuts_generated,
-        "exact_cuts_accepted": exact.cuts_accepted,
-        "exact_cuts_dominated": exact.cuts_dominated,
-        "exact_cuts_evicted": exact.cuts_evicted,
-        "exact_cuts_active": exact.cuts_active,
-    }
 
 
-def _anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
-    """Serialize every v2+ endpoint from the same Anytime-DSOS result."""
-
-    def optional(value: Optional[float]) -> object:
-        return "" if value is None else value
-
-    return {
-        "certified_upper_bound": optional(result.upper_bound),
-        "certified_lower_bound": optional(result.lower_bound),
-        "absolute_gap": optional(result.absolute_gap),
-        "relative_gap": optional(result.relative_gap),
-        "approximation_ratio": optional(result.approximation_ratio),
-        "interval_violation": result.interval_violation,
-        "anytime_upper_source": result.upper_source,
-        "anytime_upper_seconds": optional(result.upper_seconds),
-        "anytime_lower_seconds": optional(result.lower_seconds),
-        "anytime_error": result.error,
-        "query_budget_s": QUERY_METHOD_TIMEOUT_S,
-        "budget_is_frozen": int(_BUDGET_IS_FROZEN),
-        "bound_provenance": result.bound_provenance,
-        "plan_validity": result.plan_validity,
-        "cost_optimality": result.cost_optimality,
-    }
 
 
 @dataclass(frozen=True)

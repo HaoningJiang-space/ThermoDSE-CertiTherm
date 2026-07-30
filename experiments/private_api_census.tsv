@@ -5,7 +5,7 @@
 #
 # Regenerate: python -m CertiTherm.tools.private_api_census
 module	symbol	callers	kinds	files
-experiments	_ANYTIME_RESULT_FIELDS	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_ANYTIME_RESULT_FIELDS	2	test	CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_result_schema.py
 experiments	_ANYTIME_SPLITS	2	test	CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_split_protocol.py
 experiments	_DIAGNOSTIC_RESULT_FIELDS	1	test	CertiTherm/tests/test_separation_diagnostics.py
 experiments	_SPLIT_FREEZE_ID	2	test	CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_split_protocol.py
