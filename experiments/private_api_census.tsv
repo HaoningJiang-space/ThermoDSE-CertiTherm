@@ -15,7 +15,7 @@ experiments	_archive_query_evidence	1	test	CertiTherm/tests/test_query_paralleli
 experiments	_assert_clean_revision	2	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py
 experiments	_bounded_power	1	test	CertiTherm/tests/test_experiment_semantics.py
 experiments	_budgeted_call	1	test	CertiTherm/tests/test_anytime_controller.py
-experiments	_cache_receipt_matches	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_cache_receipt_matches	2	test	CertiTherm/tests/test_cache_source_bundle.py,CertiTherm/tests/test_experiment_guards.py
 experiments	_call_under_budget	4	research+test	CertiTherm/tests/test_budget_containment.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py
 experiments	_canonical_producer	1	test	CertiTherm/tests/test_experiment_guards.py
 experiments	_capture	11	research	research/triangle/fidelity_cost.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/phase_timescale.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
@@ -47,7 +47,7 @@ experiments	_thermodse_evaluator	6	research	research/triangle/complete_trace_pro
 experiments	_unexpected_method_failures	1	test	CertiTherm/tests/test_experiment_guards.py
 experiments	_validate_run_request	1	test	CertiTherm/tests/test_experiment_guards.py
 experiments	_verified_binary_digest	1	test	CertiTherm/tests/test_experiment_guards.py
-experiments	_write_cache_receipt	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_write_cache_receipt	2	test	CertiTherm/tests/test_cache_source_bundle.py,CertiTherm/tests/test_experiment_guards.py
 experiments	_write_tsv	3	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_tabular.py
 synthesis	_anytime_lower_bound	5	research+test	CertiTherm/tests/test_final_bound_refresh.py,research/triangle/bound_ceiling_probe.py,research/triangle/bound_growth_probe.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py
 synthesis	_build_collision_problem	3	prod+test	CertiTherm/blind_direction_cuts.py,CertiTherm/kernelized_collision.py,CertiTherm/tests/test_core_arrays_are_immutable.py

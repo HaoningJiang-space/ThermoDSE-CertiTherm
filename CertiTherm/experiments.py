@@ -51,7 +51,10 @@ from .spectral import (
 )
 from .solver_budget import budget_scope
 from .synthesis import synthesize_ordered_query
+from . import cache_receipts as _cache_receipts
+from .cache_receipts import CACHE_RECEIPT_SCHEMA, canonical_sha256 as _canonical_sha256
 from .digest import sha256_file as _sha256
+from .paths import HOTSPOT, ROOT, SUBMODULE_PATHS, TEMPLATE, THERMODSE
 from .frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
 from .split_protocol import (
     ANYTIME_SPLITS as _ANYTIME_SPLITS,
@@ -72,15 +75,10 @@ from .run_report import (
 from .tabular import read_rows as _rows, write_rows as _write_tsv
 
 
-ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "CertiTherm" / "evidence" / "thermodse_tmp_template"
-THERMODSE = ROOT / "ThermoDSE"
-HOTSPOT = ROOT / ".build" / "hotspot" / "hotspot"
 GPU_HOTSPOT_BUILD = ROOT / ".build" / "hotspot-gpu-export"
 GPU_HOTSPOT_EXPORTER = GPU_HOTSPOT_BUILD / "hotspot"
 GPU_HOTSPOT_SOLVER = ROOT / ".build" / "hotspot-cuda" / "certitherm_hotspot_cuda"
 MODELS = ("block", "grid64-avg", "grid128-avg")
-SUBMODULE_PATHS = ("ThermoDSE", "HotSpot", "Rodinia", "SuperLU")
 RESULT_ARTIFACT_NAMES = frozenset(
     {
         "results.tsv",
@@ -130,7 +128,6 @@ FROZEN_V3_ENVIRONMENT = {
     "CUDA_VISIBLE_DEVICES": "0",
 }
 _T = TypeVar("_T")
-CACHE_RECEIPT_SCHEMA = "certitherm-cache-v1"
 
 
 class NonthermalCandidateInvalid(RuntimeError):
@@ -166,26 +163,23 @@ def _gpu_backend() -> Optional[GpuHotSpotBackend]:
     )
 
 
-def _canonical_sha256(payload: Mapping[str, object]) -> str:
-    encoded = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+
+# --- cache receipts -------------------------------------------------------
+# The implementations live in `cache_receipts`; these wrappers exist to keep the injection seam
+# resolving HERE. Tests replace `experiments._sha256`, and Python resolves a function's globals in
+# the module where it was DEFINED -- so a plain re-export would have left those patches with no
+# effect on the moved code, silently. Peer review named this as the reason to wrap rather than
+# alias. `_canonical_sha256` needs no wrapper: it injects nothing.
 
 
 def _source_bundle_sha256(relative_paths: Sequence[str]) -> str:
-    return _canonical_sha256(
-        {
-            relative: _sha256(ROOT / relative)
-            for relative in sorted(relative_paths)
-        }
+    return _cache_receipts.source_bundle_sha256(
+        relative_paths, root=ROOT, sha256_file=_sha256
     )
 
 
 def _cache_receipt_path(artifact: Path) -> Path:
-    return artifact.with_name(f"{artifact.name}.receipt.tsv")
+    return _cache_receipts.receipt_path(artifact)
 
 
 def _write_cache_receipt(
@@ -193,16 +187,7 @@ def _write_cache_receipt(
     signature: Mapping[str, str],
     related: Optional[Mapping[str, Path]] = None,
 ) -> None:
-    related = {} if related is None else related
-    row: dict[str, object] = {
-        "schema": CACHE_RECEIPT_SCHEMA,
-        **signature,
-        "artifact_sha256": _sha256(artifact),
-    }
-    row.update(
-        {f"{name}_sha256": _sha256(path) for name, path in related.items()}
-    )
-    _write_tsv(_cache_receipt_path(artifact), [row])
+    _cache_receipts.write_receipt(artifact, signature, related, sha256_file=_sha256)
 
 
 def _cache_receipt_matches(
@@ -210,26 +195,9 @@ def _cache_receipt_matches(
     signature: Mapping[str, str],
     related: Optional[Mapping[str, Path]] = None,
 ) -> bool:
-    related = {} if related is None else related
-    receipt = _cache_receipt_path(artifact)
-    if not artifact.is_file() or not receipt.is_file():
-        return False
-    try:
-        rows = _rows(receipt)
-        if len(rows) != 1:
-            return False
-        expected = {
-            "schema": CACHE_RECEIPT_SCHEMA,
-            **signature,
-            "artifact_sha256": _sha256(artifact),
-            **{
-                f"{name}_sha256": _sha256(path)
-                for name, path in related.items()
-            },
-        }
-    except (OSError, ValueError):
-        return False
-    return rows[0] == expected
+    return _cache_receipts.receipt_matches(
+        artifact, signature, related, sha256_file=_sha256
+    )
 
 
 def _capture_cache_signature(
@@ -259,6 +227,7 @@ def _capture_cache_signature(
                 # under the old rule pass validation under the new one. Peer review caught this
                 # after the writer moved out of this file -- the bundle still named only the
                 # module the logic used to live in.
+                "CertiTherm/cache_receipts.py",
                 "CertiTherm/tabular.py",
                 "requirements.lock",
             )
@@ -318,7 +287,8 @@ def _operator_cache_signature(
                 "CertiTherm/hotspot.py",
                 "CertiTherm/measurements.py",
                 # See _capture_cache_signature: the receipt is written and validated through
-                # tabular.write_rows / read_rows.
+                # cache_receipts, over tabular.write_rows / read_rows.
+                "CertiTherm/cache_receipts.py",
                 "CertiTherm/tabular.py",
                 "requirements.lock",
             )

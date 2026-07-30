@@ -22,7 +22,11 @@ from CertiTherm import experiments
 # The modules a cache receipt EXECUTES, as opposed to merely importing. digest.py does the
 # hashing; tabular.py writes the receipt row and reads it back for validation. Both must appear
 # in every bundle, or a change to hashing or to the column rule leaves the builder digest fixed.
-_EXECUTED_BY_EVERY_RECEIPT = ("CertiTherm/digest.py", "CertiTherm/tabular.py")
+_EXECUTED_BY_EVERY_RECEIPT = (
+    "CertiTherm/cache_receipts.py",
+    "CertiTherm/digest.py",
+    "CertiTherm/tabular.py",
+)
 
 _ARCH = {"architecture_id": "arch_a", "chiplet_x": "2", "chiplet_y": "2", "cut_x": "1", "cut_y": "1"}
 _WORKLOAD = {"workload_id": "resnet50"}
@@ -115,3 +119,67 @@ def test_the_two_bundles_are_not_accidentally_the_same_list() -> None:
         f"own construction path; capture={sorted(capture)} operator={sorted(operator)}"
     )
     assert "CertiTherm/hotspot.py" in operator - capture
+
+
+class _SeamObserved(Exception):
+    """A sentinel no production path raises, so reaching it proves the injection took effect."""
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "_source_bundle_sha256",
+        "_write_cache_receipt",
+        "_cache_receipt_matches",
+    ],
+)
+def test_patching_the_driver_still_reaches_the_moved_implementation(
+    call: str, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wrappers exist for exactly this, and prose is not evidence that they work.
+
+    The receipt implementations moved to `cache_receipts`, which resolves `sha256_file` from its
+    argument rather than from a module global. Had `experiments` re-exported the functions instead
+    of wrapping them, `monkeypatch.setattr(experiments, "_sha256", ...)` would have stopped
+    affecting them -- and because the real files exist, the affected tests would have gone VACUOUS
+    rather than failed. So the seam is checked by an exception no production path can raise.
+    """
+
+    def exploding(_path):
+        raise _SeamObserved(call)
+
+    monkeypatch.setattr(experiments, "_sha256", exploding)
+    artifact = tmp_path / "artifact.npz"
+    artifact.write_bytes(b"payload")
+    signature = {"kind": "t", "builder_sha256": "a" * 64, "input_sha256": "b" * 64}
+
+    with pytest.raises(_SeamObserved):
+        if call == "_source_bundle_sha256":
+            experiments._source_bundle_sha256(("requirements.lock",))
+        elif call == "_write_cache_receipt":
+            experiments._write_cache_receipt(artifact, signature)
+        else:
+            # `receipt_matches` returns False before hashing if the receipt is absent, so one is
+            # written with the real digest first; otherwise this test would pass on the early exit
+            # and prove nothing about the seam.
+            monkeypatch.undo()
+            experiments._write_cache_receipt(artifact, signature)
+            monkeypatch.setattr(experiments, "_sha256", exploding)
+            experiments._cache_receipt_matches(artifact, signature)
+
+
+def test_the_root_the_bundle_resolves_against_is_also_patchable(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ROOT` moved to the `paths` leaf, so the wrapper must read the driver's copy, not the leaf's."""
+
+    (tmp_path / "requirements.lock").write_text("pinned\n", encoding="utf-8")
+    monkeypatch.setattr(experiments, "ROOT", tmp_path)
+    against_fixture = experiments._source_bundle_sha256(("requirements.lock",))
+
+    monkeypatch.undo()
+    against_repo = experiments._source_bundle_sha256(("requirements.lock",))
+    assert against_fixture != against_repo, (
+        "patching experiments.ROOT did not change which file the bundle hashed, so the wrapper is "
+        "resolving ROOT somewhere the tests cannot reach"
+    )
