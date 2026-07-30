@@ -254,6 +254,12 @@ def _capture_cache_signature(
             (
                 "CertiTherm/digest.py",
                 "CertiTherm/experiments.py",
+                # tabular.py for the same reason as digest.py: the receipt is WRITTEN and
+                # VALIDATED through it, so a change to the column rule would let a cache written
+                # under the old rule pass validation under the new one. Peer review caught this
+                # after the writer moved out of this file -- the bundle still named only the
+                # module the logic used to live in.
+                "CertiTherm/tabular.py",
                 "requirements.lock",
             )
         ),
@@ -311,6 +317,9 @@ def _operator_cache_signature(
                 "CertiTherm/gpu_hotspot.py",
                 "CertiTherm/hotspot.py",
                 "CertiTherm/measurements.py",
+                # See _capture_cache_signature: the receipt is written and validated through
+                # tabular.write_rows / read_rows.
+                "CertiTherm/tabular.py",
                 "requirements.lock",
             )
         ),

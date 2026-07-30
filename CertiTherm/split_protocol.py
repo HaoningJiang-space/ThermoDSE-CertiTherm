@@ -78,3 +78,32 @@ def freeze_id(split: str) -> str:
     """The freeze ID this split's endpoints were declared under, or UNREGISTERED."""
 
     return FREEZE_ID.get(split, "UNREGISTERED")
+
+
+def _known_splits() -> frozenset:
+    """Every split any table in this module names."""
+
+    return frozenset(DEVELOPMENT_SPLITS) | frozenset(HELDOUT_SPLITS)
+
+
+# Checked at import, not at first use. A split registered in two of the three tables and missing
+# from the third would otherwise report a real protocol state next to an UNREGISTERED freeze ID,
+# and the artifact would carry a contradiction rather than an obvious gap. The tables are the
+# whole content of this module, so the check costs nothing and cannot go stale.
+_declared = _known_splits()
+for _name, _table in (("PROTOCOL_STATE", PROTOCOL_STATE), ("FREEZE_ID", FREEZE_ID)):
+    _missing = _declared - set(_table)
+    _extra = set(_table) - _declared
+    if _missing or _extra:
+        raise AssertionError(
+            f"{_name} disagrees with the declared splits: missing {sorted(_missing)}, "
+            f"unexpected {sorted(_extra)}"
+        )
+if set(REGISTRY_SPLITS) - _declared:
+    raise AssertionError(
+        f"REGISTRY_SPLITS maps undeclared splits: {sorted(set(REGISTRY_SPLITS) - _declared)}"
+    )
+for _group in (BURNED_SPLITS, FROZEN_ONLY_SPLITS, FROZEN_ENABLED_SPLITS, ANYTIME_SPLITS):
+    if _group - _declared:
+        raise AssertionError(f"a split set names undeclared splits: {sorted(_group - _declared)}")
+del _declared, _name, _table, _missing, _extra, _group

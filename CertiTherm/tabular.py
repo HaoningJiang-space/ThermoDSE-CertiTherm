@@ -5,13 +5,17 @@ second implementation: `experiments._rows` read them, while `experiments._write_
 `gpu_benchmark._write_tsv` wrote them from two copies that were NOT equivalent. The
 `experiments` copy took the column order from the union of every row's keys and accepted an
 explicit `fieldnames`; the `gpu_benchmark` copy took it from the first row alone and accepted no
-override. A caller passing heterogeneous rows therefore got all its columns from one and lost
-some from the other.
+override.
 
-That difference is why this is one function rather than a mechanical de-duplication. Unifying to
-the first-row behaviour would have silently dropped columns from the experiment driver's own
-evidence tables; the union behaviour is the strictly safer of the two, so it is the one that
-survived.
+The consequence of that difference is a REFUSAL, not a silent truncation -- `csv.DictWriter`
+defaults to `extrasaction="raise"`, so the first-row rule rejects a later row carrying a field
+the first row omitted. Peer review corrected an earlier version of this docstring which claimed
+columns were dropped. Unifying on the union rule therefore turns a raise into a wider table,
+which is a behaviour change and the preferable one; `gpu_benchmark`'s three tables build every
+row from one literal dict shape inside a single loop, so their output is unchanged byte for byte.
+
+Claim-grade schemas should still pass `fieldnames` explicitly. Union inference is for auxiliary
+tables, where discovering the columns is better than pinning a list that can fall out of date.
 
 Layer position: leaf. Imports nothing from this package.
 """
