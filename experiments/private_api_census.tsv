@@ -47,7 +47,7 @@ experiments	_source_bundle_sha256	1	test	CertiTherm/tests/test_cache_source_bund
 experiments	_summarize_anytime_gate	1	test	CertiTherm/tests/test_anytime_report.py
 experiments	_thermodse_evaluator	6	research	research/triangle/complete_trace_probe.py,research/triangle/energy_ledger.py,research/triangle/legacy_core_transient_audit.py,research/triangle/order_trace_probe.py,research/triangle/route_event_probe.py,research/triangle/route_objective_probe.py
 experiments	_unexpected_method_failures	1	test	CertiTherm/tests/test_experiment_guards.py
-experiments	_validate_run_request	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_validate_run_request	2	test	CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_run_output_hygiene.py
 experiments	_verified_binary_digest	1	test	CertiTherm/tests/test_experiment_guards.py
 experiments	_write_cache_receipt	2	test	CertiTherm/tests/test_cache_source_bundle.py,CertiTherm/tests/test_experiment_guards.py
 experiments	_write_tsv	3	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_tabular.py

@@ -1261,10 +1261,18 @@ def _validate_run_request(
             f"workers; got {METHOD_WORKERS}"
         )
     if split == "heldout_v3":
+        # ONE reading per variable. The comprehension read each twice -- once to compare and once to
+        # report -- so a value that changed between the two reads produced a diagnostic naming a
+        # value that had never failed the comparison, or omitted a variable that had. Peer review
+        # raised it. The snapshot is also what a caller would need in order to record the
+        # environment it actually validated.
+        observed = {
+            name: os.environ.get(name, "<unset>") for name in FROZEN_V3_ENVIRONMENT
+        }
         invalid_environment = {
-            name: os.environ.get(name, "<unset>")
+            name: observed[name]
             for name, expected in FROZEN_V3_ENVIRONMENT.items()
-            if os.environ.get(name) != expected
+            if observed[name] != expected
         }
         if invalid_environment:
             raise ValueError(

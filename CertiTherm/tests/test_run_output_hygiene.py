@@ -75,3 +75,21 @@ def test_unconditional_tables_are_not_cleared() -> None:
     cleared = _cleared_names()
     for always_written in ("results.tsv", "candidate_order.tsv", "REPORT.md"):
         assert always_written not in cleared
+
+
+def test_the_frozen_environment_check_reads_each_variable_once() -> None:
+    """A value read twice can be reported as one thing and compared as another.
+
+    The comprehension read every variable once to compare and once to report, so a value changing
+    between the two reads produced a diagnostic naming a value that had never failed the comparison,
+    or omitted a variable that had. Peer review raised it; asserted here on the source because the
+    race is not reproducible in a test.
+    """
+
+    source = inspect.getsource(experiments._validate_run_request)
+    assert "observed = {" in source, "the environment is no longer snapshotted before comparison"
+    frozen_block = source[source.index("observed = {") :]
+    assert frozen_block.count("os.environ.get(") == 1, (
+        "the frozen-environment check reads the environment more than once, so what it reports and "
+        "what it compared can differ"
+    )
