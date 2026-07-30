@@ -11,16 +11,43 @@ On `arch_a` / `default` / `resnet50` (237 blocks, 251 actions):
 
 | quantity | value |
 | --- | --- |
-| certified lower bound, this method | **1120.0** |
+| certified lower bound, this method | **1312.0** |
 | certified lower bound, previously reported range | 22.8 – 88.3 |
 | certified upper bound on the same instance | 1450 |
 | structural ceiling (every within-cell pair confusable) | 1576.0 |
-| pairs scanned / established | 1166 / 1029 |
+| pairs scanned / established | 1166 / 1098, every one against every reject cell |
 | wall time for the scan | 27 min |
 
-The gap to the upper bound closes from roughly 94% to **23%**.
+The gap to the upper bound closes from **94% to 9.5%**, and the bound is **14.9x** the top of the
+range previously reported for this instance.
 
-The last 8.0 came from an edge the scan had missed. Its heuristic looks at the eight (model, point)
+**The pairwise family is now exhausted.** Every within-cell pair has been tested against every one of
+the 711 reject cells, so 1312.0 is the exact maximum this construction can produce here. The 68 pairs
+that remain unestablished admit no exactly-shaped, exactly-feasible witness at all -- that negative
+is meaningful now, which it was not while the scan was heuristic.
+
+### How it got there, and the search bug in the middle
+
+| stage | bound | what changed |
+| --- | --- | --- |
+| previously reported | 22.8 – 88.3 | generic cut accumulation |
+| first blind-direction scan | 1024.0 | two reject points per pair |
+| ranked scan | 1112.0 | eight highest-leverage reject cells per pair |
+| survivor recovery, heuristic re-proof | 1120.0 | one edge recovered of twenty |
+| survivor recovery, EXHAUSTIVE re-proof | 1184.0 | **twenty of twenty** |
+| every unestablished pair, exhaustive | **1312.0** | fifty more of 118 |
+
+The middle two rows are the finding. Re-proving the same twenty candidates admitted 1 with a
+two-point scan and 20 with all 711, so the leverage heuristic was not merely imperfect -- it was
+missing 95% of what was there. Peer review caught the consequence before the numbers did: an earlier
+version of this document said the nineteen failures "were not blind-direction pairs at all", which
+used a HEURISTIC's negative to support a STRUCTURAL claim. They were all pairs. The scan was not
+looking.
+
+That is the reason the last stage was worth running at all: 137 pairs had been left unestablished on
+the same heuristic, and 50 of them were establishable.
+
+The earlier 8.0 came from an edge the scan had missed. Its heuristic looks at the eight (model, point)
 cells with the most leverage on each blind direction, and scanning the resulting cover turned up
 twenty survivors that looked like two-block zero-sum pairs. Re-proving each through the exact path,
 scanning every one of the 711 reject cells, admitted ONE. The nineteen that did not are recorded as
