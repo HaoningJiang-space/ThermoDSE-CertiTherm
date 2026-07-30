@@ -26,11 +26,13 @@ experiments	_evaluate_prepared_method	1	test	CertiTherm/tests/test_budget_contai
 experiments	_evaluate_query_batch	2	test	CertiTherm/tests/test_experiment_semantics.py,CertiTherm/tests/test_query_parallelism.py
 experiments	_evaluate_query_methods	1	test	CertiTherm/tests/test_anytime_controller.py
 experiments	_git_revision	1	prod	CertiTherm/precheck.py
-experiments	_gpu_backend	1	test	CertiTherm/tests/test_experiment_guards.py
+experiments	_gpu_backend	2	test	CertiTherm/tests/test_experiment_guards.py,CertiTherm/tests/test_gpu_selection_snapshot.py
 experiments	_install_thermodse_compatibility	1	test	CertiTherm/tests/test_precheck.py
 experiments	_is_archivable_operator_failure	1	test	CertiTherm/tests/test_experiment_guards.py
 experiments	_measurement_costs	21	prod+research	CertiTherm/gpu_collision_benchmark.py,research/triangle/bound_ceiling_probe.py,research/triangle/bound_growth_probe.py,research/triangle/cell_subset_bound_probe.py,research/triangle/cut_selection_probe.py,research/triangle/cut_strength_probe.py,research/triangle/indistinguishable_pair_bound_probe.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/master_driven_growth_probe.py,research/triangle/per_cell_bound_probe.py,research/triangle/profile_oracle.py,research/triangle/scan_restricted_bound_probe.py,research/triangle/separation_policy_ab.py,research/triangle/strong_oracle.py,research/triangle/tractability_frontier_probe.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
 experiments	_method_schedule	1	test	CertiTherm/tests/test_experiment_semantics.py
+experiments	_operator	1	test	CertiTherm/tests/test_gpu_selection_snapshot.py
+experiments	_operator_cache_signature	1	test	CertiTherm/tests/test_gpu_selection_snapshot.py
 experiments	_optional_seconds	1	test	CertiTherm/tests/test_budget_containment.py
 experiments	_ordered_architectures	13	prod+research+test	CertiTherm/gpu_collision_benchmark.py,CertiTherm/tests/test_experiment_semantics.py,research/triangle/fidelity_cost.py,research/triangle/kernel_audit.py,research/triangle/kernel_verify.py,research/triangle/margin_audit.py,research/triangle/phase_timescale.py,research/triangle/profile_oracle.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py,research/triangle/triangle3_interval.py,research/triangle/upper_bound.py
 experiments	_placed_evidence	1	test	CertiTherm/tests/test_experiment_semantics.py

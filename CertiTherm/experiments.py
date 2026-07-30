@@ -187,8 +187,41 @@ def _is_archivable_operator_failure(error: BaseException) -> bool:
     )
 
 
-def _gpu_backend() -> Optional[GpuHotSpotBackend]:
-    if os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") != "1":
+@dataclass(frozen=True)
+class GpuSelection:
+    """One reading of the GPU configuration, shared by the cache identity and the build.
+
+    `CERTITHERM_GPU_HOTSPOT` was read at four independent points and `CERTITHERM_GPU_DEVICE` at
+    three, so the operator cache signature and the backend that actually built the operator each
+    consulted the environment separately. Nothing tied the two readings together: a signature could
+    describe a CPU build while the operator was produced on the GPU, or the reverse, and the receipt
+    would look entirely consistent. That is the false-hit direction -- results internally coherent
+    but attributed to the wrong operator.
+
+    Peer review named the hazard; the five call sites were what made it concrete. One snapshot per
+    run is the fix, and `enabled`/`device` must be read from HERE by both consumers.
+    """
+
+    enabled: bool
+    device: int
+
+    @classmethod
+    def from_environment(cls) -> "GpuSelection":
+        return cls(
+            enabled=os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") == "1",
+            device=int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
+        )
+
+
+def _gpu_backend(selection: Optional[GpuSelection] = None) -> Optional[GpuHotSpotBackend]:
+    """Build the GPU backend for a given selection, or None when it is disabled.
+
+    `selection` defaults to a fresh reading only so the existing callers keep working; a caller that
+    also computes a cache signature must pass the SAME snapshot to both.
+    """
+
+    selection = GpuSelection.from_environment() if selection is None else selection
+    if not selection.enabled:
         return None
     receipt = GPU_HOTSPOT_BUILD / "GPU_SHA256SUMS"
     _verified_binary_digest(GPU_HOTSPOT_EXPORTER, receipt)
@@ -196,7 +229,7 @@ def _gpu_backend() -> Optional[GpuHotSpotBackend]:
     return GpuHotSpotBackend(
         GPU_HOTSPOT_EXPORTER,
         GPU_HOTSPOT_SOLVER,
-        device=int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
+        device=selection.device,
     )
 
 
@@ -333,8 +366,12 @@ def _operator_cache_signature(
     arch: Mapping[str, str],
     package: Mapping[str, str],
     captures: Sequence[Path],
+    gpu: Optional[GpuSelection] = None,
 ) -> dict[str, str]:
-    gpu_enabled = os.environ.get("CERTITHERM_GPU_HOTSPOT", "0") == "1"
+    # The SAME snapshot the backend is built from, when the caller passes one. Reading the
+    # environment again here is what allowed the identity and the build to disagree.
+    gpu = GpuSelection.from_environment() if gpu is None else gpu
+    gpu_enabled = gpu.enabled
     inputs: dict[str, object] = {
         "architecture": dict(arch),
         "package": dict(package),
@@ -364,7 +401,7 @@ def _operator_cache_signature(
                     GPU_HOTSPOT_SOLVER,
                     gpu_receipt,
                 ),
-                "gpu_device": int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")),
+                "gpu_device": gpu.device,
             }
         )
     return {
@@ -544,7 +581,11 @@ def _operator(
     target = output / "operators" / f"{arch['architecture_id']}--{package['package_id']}.npz"
     captures = tuple(captures)
     calibration_path = target.with_suffix(".calibration.tsv")
-    signature = _operator_cache_signature(arch, package, captures)
+    # ONE reading of the GPU configuration for this operator: the cache identity below and the
+    # backend that builds it further down must not consult the environment separately, or a
+    # signature can describe a CPU build while a GPU produced the operator.
+    gpu = GpuSelection.from_environment()
+    signature = _operator_cache_signature(arch, package, captures, gpu)
     expected_rows = len(captures) * (2 + len(CALIBRATION_SEEDS)) * len(MODELS)
     if _cache_receipt_matches(
         target,
@@ -575,7 +616,7 @@ def _operator(
         work / "impulses",
         THERMAL_LIMIT_K,
         workers=workers,
-        gpu_backend=_gpu_backend(),
+        gpu_backend=_gpu_backend(gpu),
     )
     jobs = []
     for capture_index, capture in enumerate(captures):
