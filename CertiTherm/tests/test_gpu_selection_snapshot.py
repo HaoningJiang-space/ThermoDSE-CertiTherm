@@ -147,7 +147,12 @@ def test_the_run_takes_exactly_one_snapshot_and_shares_it() -> None:
     assert run_source.count("GpuSelection.from_environment()") == 1, (
         "the run took the GPU snapshot more than once, so its consumers can disagree again"
     )
-    assert "gpu=gpu," in run_source, "the operators were not given the run's snapshot"
+    assert "architectures, packages, workloads, captures, output, gpu" in run_source, (
+        "the operator phase was not given the run's snapshot"
+    )
+    assert "gpu=gpu," in inspect.getsource(experiments._build_operators), (
+        "the operator phase did not pass the snapshot on to each operator"
+    )
     assert "_seal_run_artifacts(output, split, frozen, started_at, hotspot_digest, gpu)" in run_source
 
     sealing = inspect.getsource(experiments._seal_run_artifacts)

@@ -1562,49 +1562,27 @@ def _seal_run_artifacts(
     _write_tsv(output / "ARTIFACTS.tsv", artifacts)
 
 
-def run(split: str, output: Path, frozen: bool) -> None:
-    started_at = datetime.now(timezone.utc)
-    # ONE reading of the GPU configuration for the whole run. Every operator's cache identity and
-    # the run receipt must describe the same configuration; taking separate readings meant nothing
-    # enforced that the receipt described what the operators were actually built under. Environment
-    # variables do not change inside a process, so this was not reachable by accident -- but the
-    # invariant was held by nothing, and `_run_receipt` alone read one of them twice.
-    gpu = GpuSelection.from_environment()
-    _validate_run_request(split, frozen)
-    if frozen:
-        _assert_clean_revision()
-    if not HOTSPOT.is_file() or not THERMODSE.is_dir():
-        raise RuntimeError("run make bootstrap before experiments")
-    hotspot_digest = _verified_binary_digest(
-        HOTSPOT,
-        HOTSPOT.parent / "SHA256SUMS",
-    )
-    output.mkdir(parents=True, exist_ok=True)
-    registry_split = _registry_split(split)
-    architectures = sorted(
-        (
-            row
-            for row in _rows(ROOT / "experiments" / "architectures.tsv")
-            if row["split"] == registry_split
-        ),
-        key=lambda row: int(row["rank"]),
-    )
-    packages = _rows(ROOT / "experiments" / "packages.tsv")
-    measurement_costs = _measurement_costs()
-    workloads = [
-        row
-        for row in _rows(ROOT / "experiments" / "workloads.tsv")
-        if row["split"] == registry_split
-    ]
-    default_package = next(row for row in packages if row["package_id"] == "default")
-    captures = {
-        (workload["workload_id"], arch["architecture_id"]): _capture(
-            arch, workload, default_package, output
-        )
-        for workload in workloads
-        for arch in architectures
-    }
-    failures, operators = [], {}
+def _build_operators(
+    architectures: Sequence[Mapping[str, str]],
+    packages: Sequence[Mapping[str, str]],
+    workloads: Sequence[Mapping[str, str]],
+    captures: Mapping[tuple[str, str], Path],
+    output: Path,
+    gpu: GpuSelection,
+) -> tuple[dict[tuple[str, str], Path], list[dict[str, object]]]:
+    """Build every (architecture, package) thermal operator, collecting the physical failures.
+
+    Returns `(operators, failures)`. A physical or infrastructure failure becomes a row rather than
+    an exception -- `_is_archivable_operator_failure` decides which is which, and a programming
+    defect still propagates, because treating a NameError as a scientific UNRESOLVED result would let
+    broken code satisfy a coverage gate.
+
+    `gpu` is the run's single snapshot, passed through to every operator so that each one's cache
+    identity and the run receipt describe the same configuration.
+    """
+
+    failures: list[dict[str, object]] = []
+    operators: dict[tuple[str, str], Path] = {}
     operator_jobs = [
         (
             (arch["architecture_id"], package["package_id"]),
@@ -1650,10 +1628,52 @@ def run(split: str, output: Path, frozen: bool) -> None:
                     "message": str(error),
                 }
             )
-    results, order_rows, registry_rows, spectral_rows = [], [], [], []
-    spectra = {}
-    plan_rows, witness_rows, witness_replay_rows = [], [], []
-    prepared_queries: list[PreparedQuery] = []
+    return operators, failures
+
+
+@dataclass(frozen=True)
+class PreparedRun:
+    """Everything the preparation phase produced, before any method has been evaluated.
+
+    `result_rows` is not empty at this point: a candidate whose operator failed to build already has
+    an UNRESOLVED row, and those rows have to reach the result table alongside the evaluated ones.
+    They are sorted into registry order at the end regardless of which phase produced them.
+    """
+
+    queries: list
+    result_rows: list
+    order_rows: list
+    registry_rows: list
+    spectral_rows: list
+
+
+def _prepare_queries(
+    split: str,
+    registry_split: str,
+    architectures: Sequence[Mapping[str, str]],
+    packages: Sequence[Mapping[str, str]],
+    workloads: Sequence[Mapping[str, str]],
+    captures: Mapping[tuple[str, str], Path],
+    operators: Mapping[tuple[str, str], Path],
+    measurement_costs: Mapping[str, float],
+) -> PreparedRun:
+    """Turn built operators into ordered queries, with their spectral and measurement registries.
+
+    This is where a candidate becomes a `CandidateSpace`: its power polytope, its thermal family, its
+    obtainable action library, and the EDYP order the query will be asked in. The spectral envelope is
+    computed here too, and its exactness checked -- a full-rank envelope with a non-finite or nonzero
+    certified tail stops the run rather than being recorded.
+
+    A candidate whose operator is missing produces an UNRESOLVED result row instead of an exception,
+    which is why `result_rows` comes back non-empty in that case.
+    """
+
+    result_rows: list = []
+    order_rows: list = []
+    registry_rows: list = []
+    spectral_rows: list = []
+    spectra: dict = {}
+    prepared_queries: list = []
     for workload in workloads:
         ordered_arches = _ordered_architectures(
             workload["workload_id"], architectures, captures
@@ -1679,7 +1699,7 @@ def run(split: str, output: Path, frozen: bool) -> None:
                 if (arch["architecture_id"], package["package_id"]) not in operators
             ]
             if missing:
-                results.append(
+                result_rows.append(
                     {
                         "result_schema_version": RESULT_SCHEMA_VERSION,
                         "freeze_id": _SPLIT_FREEZE_ID[split],
@@ -1794,6 +1814,76 @@ def run(split: str, output: Path, frozen: bool) -> None:
     # The same two counts the receipt records. `method_workers` was previously left to a
     # definition-time default, so a patched METHOD_WORKERS moved the receipt without moving
     # execution.
+    return PreparedRun(
+        queries=prepared_queries,
+        result_rows=result_rows,
+        order_rows=order_rows,
+        registry_rows=registry_rows,
+        spectral_rows=spectral_rows,
+    )
+
+
+def run(split: str, output: Path, frozen: bool) -> None:
+    started_at = datetime.now(timezone.utc)
+    # ONE reading of the GPU configuration for the whole run. Every operator's cache identity and
+    # the run receipt must describe the same configuration; taking separate readings meant nothing
+    # enforced that the receipt described what the operators were actually built under. Environment
+    # variables do not change inside a process, so this was not reachable by accident -- but the
+    # invariant was held by nothing, and `_run_receipt` alone read one of them twice.
+    gpu = GpuSelection.from_environment()
+    _validate_run_request(split, frozen)
+    if frozen:
+        _assert_clean_revision()
+    if not HOTSPOT.is_file() or not THERMODSE.is_dir():
+        raise RuntimeError("run make bootstrap before experiments")
+    hotspot_digest = _verified_binary_digest(
+        HOTSPOT,
+        HOTSPOT.parent / "SHA256SUMS",
+    )
+    output.mkdir(parents=True, exist_ok=True)
+    registry_split = _registry_split(split)
+    architectures = sorted(
+        (
+            row
+            for row in _rows(ROOT / "experiments" / "architectures.tsv")
+            if row["split"] == registry_split
+        ),
+        key=lambda row: int(row["rank"]),
+    )
+    packages = _rows(ROOT / "experiments" / "packages.tsv")
+    measurement_costs = _measurement_costs()
+    workloads = [
+        row
+        for row in _rows(ROOT / "experiments" / "workloads.tsv")
+        if row["split"] == registry_split
+    ]
+    default_package = next(row for row in packages if row["package_id"] == "default")
+    captures = {
+        (workload["workload_id"], arch["architecture_id"]): _capture(
+            arch, workload, default_package, output
+        )
+        for workload in workloads
+        for arch in architectures
+    }
+    operators, failures = _build_operators(
+        architectures, packages, workloads, captures, output, gpu
+    )
+    plan_rows, witness_rows, witness_replay_rows = [], [], []
+    prepared = _prepare_queries(
+        split,
+        registry_split,
+        architectures,
+        packages,
+        workloads,
+        captures,
+        operators,
+        measurement_costs,
+    )
+    prepared_queries = prepared.queries
+    results = prepared.result_rows
+    order_rows = prepared.order_rows
+    registry_rows = prepared.registry_rows
+    spectral_rows = prepared.spectral_rows
     method_batches = _evaluate_query_batch(
         prepared_queries,
         include_anytime=split in _ANYTIME_SPLITS,

@@ -15,6 +15,7 @@ experiments	_archive_query_evidence	2	test	CertiTherm/tests/test_query_evidence.
 experiments	_assert_clean_revision	2	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py
 experiments	_bounded_power	1	test	CertiTherm/tests/test_experiment_semantics.py
 experiments	_budgeted_call	1	test	CertiTherm/tests/test_anytime_controller.py
+experiments	_build_operators	1	test	CertiTherm/tests/test_gpu_selection_snapshot.py
 experiments	_cache_receipt_matches	2	test	CertiTherm/tests/test_cache_source_bundle.py,CertiTherm/tests/test_experiment_guards.py
 experiments	_call_under_budget	5	research+test	CertiTherm/tests/test_budget_containment.py,CertiTherm/tests/test_budget_guard.py,research/triangle/strong_oracle.py,research/triangle/triangle1_triangle.py,research/triangle/triangle2_closure.py
 experiments	_canonical_producer	1	test	CertiTherm/tests/test_experiment_guards.py
