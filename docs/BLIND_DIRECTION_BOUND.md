@@ -11,14 +11,21 @@ On `arch_a` / `default` / `resnet50` (237 blocks, 251 actions):
 
 | quantity | value |
 | --- | --- |
-| certified lower bound, this method | **1112.0** |
+| certified lower bound, this method | **1120.0** |
 | certified lower bound, previously reported range | 22.8 – 88.3 |
 | certified upper bound on the same instance | 1450 |
 | structural ceiling (every within-cell pair confusable) | 1576.0 |
-| pairs scanned / established | 1166 / 1028 |
+| pairs scanned / established | 1166 / 1029 |
 | wall time for the scan | 27 min |
 
 The gap to the upper bound closes from roughly 94% to **23%**.
+
+The last 8.0 came from an edge the scan had missed. Its heuristic looks at the eight (model, point)
+cells with the most leverage on each blind direction, and scanning the resulting cover turned up
+twenty survivors that looked like two-block zero-sum pairs. Re-proving them through the exact path
+admitted ONE. The other nineteen were not blind-direction pairs at all -- see the boundary discussion
+below -- which is why the recovery is worth doing and worth doing this way: a survivor is a proposal,
+not an edge.
 
 Compose with any other certified bound by `max`, never by addition: both lower-bound the same
 selection cost, and the generic cuts can be hit by the very single-block actions this cover
@@ -73,6 +80,37 @@ charged twice.
 The load-bearing property is checked against the oracle rather than argued: on a six-block
 fixture that `synthesize_minimum_observation` solves exactly, the bound is **32.0 against a true
 optimum of 33.0**.
+
+## The cover is necessary but NOT sufficient, and the reason is not what it looks like
+
+Instrumenting a minimum cover (139 blocks, 1112.0 at the time) plus all fourteen coarse actions --
+a plan costing 1138.0 -- does not certify. 432 collisions survive it. Had it certified, the interval
+would have closed to about 2%, so this was worth one scan.
+
+The composition of those survivors is the useful part:
+
+| | count | what it means |
+| --- | --- | --- |
+| exact cut MEETS the selection | 425 | the LP returned a point violating a selected action's tolerance by a fraction of a part per million: worst `|a.delta|/tol` = 1.000016, median 1.00000008 |
+| exact cut disjoint from the selection | 7 | structurally distinct collisions the pairwise argument does not reach |
+
+A selected action is constrained to read zero on the delta, so a cut containing one is only possible
+at the solver's feasibility boundary. Those 425 are **conservative refusals -- the fail-closed
+behaviour working** -- not missing structure. The real structural blocker is seven.
+
+**A fail-open fix was considered and rejected.** Tightening the collision LP's right-hand side from
+`tol` to `tol - feasibility_slack` would make every returned point genuinely satisfy the constraint
+and would remove all 425 blockers at a stroke. It is unsound in the dangerous direction: a smaller
+right-hand side means a smaller collision set, so the oracle could certify a plan that has a real
+collision sitting just inside the boundary. Making certification EASIER is never the safe direction
+here, and a change that removes 98% of the obstacles to certifying is exactly the shape of change
+that deserves that suspicion.
+
+What this leaves is an honest limit rather than a defect: at the registered action tolerance of
+1e-8, with the collision LP solved to 1e-9, certification of a plan this tight is below the
+resolution the pair (tolerance, feasibility tolerance) can express. Raising the resolution means
+declaring a different action tolerance, which is a method change and a new freeze ID -- not
+something to slip into a probe.
 
 ## Feeding the cuts back into the master
 
