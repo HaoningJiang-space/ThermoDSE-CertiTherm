@@ -186,6 +186,9 @@ def test_solver_attested_optimum_keeps_only_the_certified_interval_bound() -> No
         lower_seconds=1.0,
     )
     assert result.lower_bound == 2.0
+    # `weak_duality` even though the plan says `solver_branch_and_bound`, because lower_bound
+    # substituted the LP relaxation -- which IS weak-duality-provable. This assertion refuted a
+    # peer-review recommendation to report the plan's provenance instead.
     assert result.bound_provenance == "weak_duality"
     assert result.absolute_gap == 1.0
     assert result.cost_optimality == "PROVEN_SOLVER_ATTESTED"
@@ -271,7 +274,9 @@ def test_query_bundle_serializes_only_its_anytime_evidence(monkeypatch) -> None:
         tuple(range(len(acts))),
         include_anytime=True,
     )
-    fields = _anytime_result_fields(methods.anytime)
+    fields = _anytime_result_fields(
+        methods.anytime, query_budget_s=1800.0, budget_is_frozen=True
+    )
     assert methods.anytime is anytime
     assert fields["certified_upper_bound"] == 2.0
     assert fields["certified_lower_bound"] == 1.0

@@ -24,6 +24,7 @@ package.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 import os
 from typing import Optional, Protocol
 
@@ -139,6 +140,13 @@ class CertifiedContract:
     def __post_init__(self) -> None:
         if self.source not in ("width", "exact"):
             raise ValueError(f"unsupported contract source {self.source}")
+        # `NaN < 0` is False, so the nonnegativity test alone admitted NaN, and positive infinity
+        # passed too. The derived gap and ratio would then serialise NaN while `interval_violation`
+        # stayed empty -- a row that looks non-violating while carrying no meaningful certified
+        # upper bound. Same hole as the one already closed in load_capture_metrics; peer review
+        # found this one.
+        if not math.isfinite(self.cost):
+            raise ValueError(f"certified contract cost must be finite, got {self.cost}")
         if self.cost < 0:
             raise ValueError("certified contract cost must be nonnegative")
 
@@ -240,6 +248,22 @@ class AnytimeResult:
 
     @property
     def bound_provenance(self) -> str:
+        """Always `weak_duality`, and that is correct rather than hard-coded carelessly.
+
+        Peer review read this as a mislabelling: `lower_bound` above substitutes
+        `relaxation_bound` whenever the plan's own provenance is `"solver_branch_and_bound"`, so
+        the constant looked like it could contradict the number. It cannot, and a test pins why.
+        The substitution is the whole point -- an LP relaxation bound IS provable by weak duality,
+        while the plan's `lower_bound` under that provenance is the MIP solver's asserted dual
+        bound, which `core.py` describes as cross-checked but not proved. This property
+        deliberately reports the weaker, self-verifiable number, so `weak_duality` describes
+        exactly what was selected. The solver's attestation is not lost: `cost_optimality` carries
+        it through as `PROVEN_SOLVER_ATTESTED`.
+
+        Changing this to report the plan's provenance was tried and
+        `test_solver_attested_optimum_keeps_only_the_certified_interval_bound` refuted it.
+        """
+
         if self.lower_bound is None or self.proof_search is None:
             return ""
         return "weak_duality"
@@ -329,8 +353,17 @@ def diagnostic_result_fields(
         "exact_cuts_active": exact.cuts_active,
     }
 
-def anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
-    """Serialize every v2+ endpoint from the same Anytime-DSOS result."""
+def anytime_result_fields(
+    result: AnytimeResult, *, query_budget_s: float, budget_is_frozen: bool
+) -> dict[str, object]:
+    """Serialize every v2+ endpoint from the same Anytime-DSOS result.
+
+    The budget is a REQUIRED argument, not a module global read behind the caller's back. The
+    guard in `_validate_run_request` accepts an explicitly supplied budget, so the value it checked
+    and the value this row recorded could differ the moment a caller used that parameter -- a
+    rehearsal stamped `budget_is_frozen=1`. Keyword-only and without a default so the driver has to
+    hand over the budget it actually validated. Peer review raised it.
+    """
 
     def optional(value: Optional[float]) -> object:
         return "" if value is None else value
@@ -346,8 +379,8 @@ def anytime_result_fields(result: AnytimeResult) -> dict[str, object]:
         "anytime_upper_seconds": optional(result.upper_seconds),
         "anytime_lower_seconds": optional(result.lower_seconds),
         "anytime_error": result.error,
-        "query_budget_s": QUERY_METHOD_TIMEOUT_S,
-        "budget_is_frozen": int(BUDGET_IS_FROZEN),
+        "query_budget_s": query_budget_s,
+        "budget_is_frozen": int(budget_is_frozen),
         "bound_provenance": result.bound_provenance,
         "plan_validity": result.plan_validity,
         "cost_optimality": result.cost_optimality,

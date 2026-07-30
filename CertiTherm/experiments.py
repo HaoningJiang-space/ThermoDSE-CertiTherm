@@ -1480,7 +1480,15 @@ def _archive_query_evidence(
         "lp_relaxation_bound": exact.relaxation_bound if exact else "",
         "optimality_gap": exact.optimality_gap if exact else "",
         # v1 does not silently acquire the later Anytime method.
-        **(_anytime_result_fields(anytime) if anytime is not None else {}),
+        **(
+            _anytime_result_fields(
+                anytime,
+                query_budget_s=QUERY_METHOD_TIMEOUT_S,
+                budget_is_frozen=_BUDGET_IS_FROZEN,
+            )
+            if anytime is not None
+            else {}
+        ),
         **_diagnostic_result_fields(exact),
         "fixed_status": fixed.status if fixed else "UNRESOLVED",
         "fixed_cost": fixed.cost if fixed else "",

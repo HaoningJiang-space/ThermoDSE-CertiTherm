@@ -103,3 +103,57 @@ def test_the_driver_still_exposes_the_names_its_callers_import() -> None:
     assert experiments.CertifiedContract is result_schema.CertifiedContract
     assert experiments.RESULT_SCHEMA_VERSION == result_schema.RESULT_SCHEMA_VERSION
     assert experiments._ANYTIME_RESULT_FIELDS is result_schema.ANYTIME_RESULT_FIELDS
+
+
+def test_a_non_finite_certified_cost_is_refused() -> None:
+    """`NaN < 0` is False, so nonnegativity alone admitted NaN and infinity.
+
+    The derived gap and ratio would then serialise NaN while `interval_violation` stayed empty --
+    a row that looks non-violating while carrying no meaningful certified upper bound. Same hole
+    as the one closed in `load_capture_metrics`; peer review found this one.
+    """
+
+    assert result_schema.CertifiedContract("exact", ("a",), 3.0).cost == 3.0
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="must be finite"):
+            result_schema.CertifiedContract("exact", ("a",), bad)
+    with pytest.raises(ValueError, match="nonnegative"):
+        result_schema.CertifiedContract("exact", ("a",), -1.0)
+
+
+def test_the_serialiser_records_the_budget_it_is_given_not_a_module_global() -> None:
+    """The validated budget and the recorded budget must be the same number.
+
+    `_validate_run_request` accepts an explicitly supplied budget, so a serialiser reading the
+    import-time environment could stamp `budget_is_frozen=1` on a run that used something else.
+    Keyword-only and without a default, so the driver has to hand over what it validated.
+    """
+
+    from types import SimpleNamespace
+
+    anytime = result_schema.AnytimeResult(
+        contract=result_schema.CertifiedContract("exact", ("a",), 3.0),
+        proof_search=SimpleNamespace(
+            status="OPTIMAL",
+            lower_bound=3.0,
+            relaxation_bound=3.0,
+            bound_provenance="weak_duality",
+            cost_optimality="PROVEN_SELF_VERIFIABLE",
+        ),
+        upper_seconds=1.0,
+        lower_seconds=1.0,
+    )
+    rehearsal = result_schema.anytime_result_fields(
+        anytime, query_budget_s=300.0, budget_is_frozen=False
+    )
+    assert rehearsal["query_budget_s"] == 300.0
+    assert rehearsal["budget_is_frozen"] == 0, (
+        "a shortened budget must not be stamped as frozen evidence"
+    )
+    frozen = result_schema.anytime_result_fields(
+        anytime, query_budget_s=1800.0, budget_is_frozen=True
+    )
+    assert frozen["budget_is_frozen"] == 1
+
+    with pytest.raises(TypeError):
+        result_schema.anytime_result_fields(anytime)  # type: ignore[call-arg]
