@@ -21,66 +21,57 @@ This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
 EDA stage is sufficient to justify the resulting architecture choice.
 
-### Certified thermal-robustness radii, and what they cost in yield
+### The chiplet-count decision is not identifiable from the objective
 
-The current headline result. Thermal-aware chiplet DSE minimises EDYP = latency x energy / yield
-subject to a peak-temperature constraint, and that constraint is a pass/fail test on the NOMINAL
-power map — nothing in the objective charges for spending the thermal margin. Two computable radii
-say how much power-model error the decision survives:
+The current headline. Full statement, with scope and the two withdrawn predecessors, in
+`docs/DECISION_SUFFICIENT_INSTRUMENTATION.md`.
 
-- **`tau*`** — uniform total-power under-prediction, closed form, no solver;
-- **`S*`** — redistribution at a fixed total, `min_j Delta_j / H_j`: a nominal reject slack divided
-  by a redistribution sensitivity, so it is not a re-parameterisation of the peak.
+**A refinement-monotone yield aggregate cannot price chiplet count.** If the yield term of a DSE
+objective is an area-weighted arithmetic mean `sum_i (a_i/A) Y(a_i + c)` of a strictly decreasing
+per-die yield, then splitting any die replaces one value by two strictly larger ones carrying the
+same total weight, so the aggregate rises under *every* refinement at *every* parameter value. Such a
+term can only ever argue for cutting further. This is a property of the aggregation, not of one tool,
+and it is the thing to check in any thermal-aware chiplet DSE reporting a scalar yield. It is
+executed against the implementation in `CertiTherm/tests/test_yield_composition.py`, together with
+the contrast that makes it informative: the all-dies-good product falls under the same refinement,
+and a bonded aggregate falls geometrically in the count.
 
-On the transformer workload the EDYP-optimal architecture tolerates a **9.0%** total-power
-under-prediction where the design it outranks tolerates **63.6%**. Declaring a 10% power-model
-accuracy — inside what an architecture-stage model is normally credited with — makes the selected
-design not robustly feasible: the robust choice becomes a different architecture at **+32.1% EDYP**,
-**4.00 K** less worst-case peak temperature, and a **higher yield** (0.953 against 0.927). On
-resnet50 there is no disagreement up to 30%; the effect is workload-dependent.
+Measured on freshly generated architecture points, with the die geometry now recorded in every
+capture so all compositions are exact even for unequal dies — and with a fatal self-check that the
+recomputed mean reproduces the evaluator's own number. On a `4x4` grid with `resnet50`, cutting
+`1 -> 4` moves the reported yield by **+9.9 %** and the all-dies-good product by **+0.32 %**. Carried
+into the objective the preferred cut differs, and the decision sits on a **phase boundary in a real
+manufacturing parameter**: the `n=2` versus `n=4` choice ties at a bonding yield of
+**0.987 – 1.0025** against the 0.99 an organic-substrate cost model registers. A one-percent change
+in an assumed bonding yield flips the chiplet count.
 
-Yield and temperature are coupled through die area — the registered model
-`Y(A) = (1 + A D0/alpha)^(-alpha)` falls with area while power density and peak temperature fall as
-area grows — and EDYP multiplies them. See `docs/THERMAL_ROBUSTNESS_RADII.md`, including what the
-result does NOT say: the radii rank identically to the nominal peak on all 18 dev instances, so
-"DSE selects on the wrong statistic" is not supported by this registry.
+**The thermal robustness radii do not depend on any of that.** `tau*` (uniform total-power
+under-prediction) and the redistribution radii come from the power map and the linear HotSpot
+operator alone — no yield model, no cost model, no latency. Across the swept decision groups the
+robustness-preferred cut is the finest one, unanimously, under no manufacturing assumption at all.
 
-### Blind-direction certificates
+### What observation the decision actually needs, and under which uncertainty set
 
-The strongest current result comes from a structural family of cuts rather
-than from accumulating generic ones. Every registered action is a 0/1
-indicator over a group of blocks, so two blocks whose coefficient COLUMNS
-agree in every multi-block action are indistinguishable along
-`delta = t (e_b - e_c)`: no module, chiplet or regional report can see that
-power move, while it does move the peak temperature. Such a collision is
-separable only by a single-block action on b or on c.
+Three uncertainty sets are in play and **containment transfers asymmetrically**. From a SUBSET of the
+true set, existence and lower bounds travel up: a REJECT map exists, a coarse-blind pair exists, the
+cost is at least `c`. From a SUPERSET, universal safety and upper bounds travel down: no REJECT map
+exists, no measurement is needed. Getting that backwards withdrew two earlier headlines from this
+project — a certified bound of 1440 quoted at "5 % relocation" that was computed on the superset, and
+a "no measurement needed" read off the inscribed subset. Both are recorded rather than deleted.
 
-Two consequences make this different in kind from cut accumulation. Hitting
-all such cuts inside one cell of the common refinement is a VERTEX COVER,
-whose minimum weight is computed exactly rather than approached
-logarithmically; and cells partition the blocks, so their minima ADD.
+Under bulk relocation `|p - q|_1 <= 2 b Q`, the first tier needs only reachability, which has a
+**closed form** — no solver, no approximation, no transfer argument:
 
-Measured across the full 18-instance dev registry, certified lower bounds run
-**864 to 1320** against a previously reported 22.8–88.3 on the headline
-instance.
+| candidate | workload | exact `beta*` |
+| --- | --- | --- |
+| arch_a / arch_b / arch_c | resnet50 | 4.133 % / 2.144 % / 4.035 % |
+| arch_a / arch_b / arch_c | transformer | 1.540 % / **0.548 %** / 1.497 % |
 
-**Read that as conditional on the uncertainty set, not as a physical
-requirement.** Under per-block activity-bounded redistribution the reject
-floor is unreachable and the same certified requirement is **zero**. Both
-numbers are correct for their own set, and the pair is the result: the
-observation requirement is a property of the design AND the power-model
-uncertainty assumed, which is why the radii above come first.
-`docs/BLIND_DIRECTION_BOUND.md` has the numbers, the search bug that changed
-them by 95%, and the negative results — the cover is necessary but NOT
-sufficient, and a fix that would have removed 98% of the remaining obstacles
-was rejected as fail-open.
-
-**Read the Scope section of that document before quoting any number.** The
-registered uncertainty set admits every nonnegative redistribution preserving
-the workload total; `measurements.activity_bounded_power_space` narrows it to
-a defensible activity range, and how the bound behaves under that narrowing is
-what decides whether the result is a property of the design or of the
-abstraction.
+Below `beta*`, certifying the thermal-feasibility decision needs **no power measurement at all**.
+Under independent per-block deviation the bracket is two-sided: nothing needed below
+`0.196 – 3.376 %`, and post-route per-block extraction provably required at `5 %` (`10 %` for one
+instance), with the interval between reported `UNRESOLVED` rather than as a coarse-sufficient window
+— that middle tier is defined but was never established on this registry.
 
 ## Reproduce from a fresh clone
 
@@ -202,10 +193,13 @@ channels are never asked to identify an unobservable simulator label.
 - `docs/MEASUREMENT_LIBRARY.md` — obtainable EDA channels and costs;
 - `docs/THERMAL_ERROR_CONTRACT.md` — direct-replay error gate;
 - `docs/HELDOUT_PROTOCOL_V3.md` — current frozen 4×3×3 evaluation;
-- `docs/BLIND_DIRECTION_BOUND.md` — the blind-direction bound, its trajectory,
-  and its negative results;
+- `docs/DECISION_SUFFICIENT_INSTRUMENTATION.md` — the current statement: the
+  refinement-monotonicity proposition, the composition phase boundary, the
+  containment-transfer rule, and what is established per uncertainty model;
 - `docs/THERMAL_ROBUSTNESS_RADII.md` — `tau*`, `S*`, the yield coupling, and
-  the selection change they produce.
+  the corrections that renamed the two radii apart;
+- `docs/BLIND_DIRECTION_BOUND.md` — the blind-direction bound, its trajectory,
+  and the two withdrawals of its headline.
 
 ## Evidence status
 
