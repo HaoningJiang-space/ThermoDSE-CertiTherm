@@ -403,6 +403,16 @@ def capture_thermodse_power(
         raise RuntimeError("frozen workload capture requires exactly one aligned power sample")
     floorplan = sim / "floorplan" / "output_3D.flp"
     capture.parent.mkdir(parents=True, exist_ok=True)
+    # The DIE GEOMETRY, not just the composed scalar. `die_yield` is one particular composition of
+    # the per-die yields -- an area-weighted arithmetic MEAN (`ThermoDSE/core/chiplet_eva.py:164`)
+    # -- and a consumer handed only that number cannot recover any other. Recording the two edge
+    # lists makes every composition derivable after the fact: the mean the evaluator reports, the
+    # all-dies-good product, and a known-good-die expected cost. It is the same rule that replaced a
+    # peak/runner-up/tie manifest with the raw per-block temperatures: store the observation, not the
+    # interpretation, and let the consumer recompute.
+    #
+    # `nop_area` is per-die by construction (`chiplet_eva.py:63-77` scales the link area by that
+    # die's tile count), so it belongs with the edge lists rather than being divided out later.
     np.savez_compressed(
         capture,
         block_ids=np.asarray(lines[0]),
@@ -411,6 +421,9 @@ def capture_thermodse_power(
         latency_ms=np.asarray(latency),
         energy_mj=np.asarray(energy),
         die_yield=np.asarray(die_yield),
+        die_h_list_m=np.asarray(evaluator.die_h_list, dtype=float),
+        die_w_list_m=np.asarray(evaluator.die_w_list, dtype=float),
+        nop_area_m2=np.asarray(float(evaluator.nop_area)),
     )
     cache_receipts.write_receipt(capture, signature, sha256_file=sha256_file)
     return capture

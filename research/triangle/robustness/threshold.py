@@ -30,20 +30,33 @@ extraction or can stop at the reports an architecture-stage flow already produce
 before REJECT maps do. The gap between them is the range of power-model accuracy over which cheap
 instrumentation is provably enough, and it is what a designer actually wants to know.
 
+## The asymmetry that makes only ONE of the two breakpoints a proof
+
+`b_reach` is decided by an exact maximisation and is a genuine breakpoint. `b_blind` is NOT
+symmetric, and an earlier version of this docstring claimed a bracket it cannot support:
+
+* an EXACTLY VALIDATED blind witness at radius `b` proves the true breakpoint is AT MOST `b`;
+* a failure to find one proves NOTHING. The collision search may have returned a point on the LP's
+  feasibility boundary that exact recomputation rejects -- the same failure that produced 425
+  numerically unresolved survivors in `docs/BLIND_DIRECTION_BOUND.md` -- or it may have timed out.
+
+So there is no lower bound on `b_blind` here, and the honest structure is FOUR states, not three:
+the fourth is `UNRESOLVED`, which the repository's fail-closed contract requires and which the
+earlier version silently folded into "coarse suffices". A step whose search is unresolved must not
+advance the not-blind endpoint, because doing so would widen the interval over which cheap
+instrumentation is claimed sufficient -- and that is the fail-OPEN direction. It now refuses.
+
 ## What makes a blindness witness count
 
-A collision LP returns a point, and a point near the feasibility boundary is not a proof -- the
-same failure that produced 425 numerically unresolved survivors in `docs/BLIND_DIRECTION_BOUND.md`.
-So a witness is counted only when its cut, recomputed exactly from the returned delta, contains NO
-coarse action: that is what "the coarse library reads them identically" means, and it is checked
-rather than assumed. A witness that fails the check is recorded as unresolved and the bisection
-treats the step as NOT blind, which can only push `b_blind` UP -- the conservative direction, since
-a larger `b_blind` claims a wider range over which coarse reports suffice...
+A witness counts only when its cut, recomputed from the returned delta, contains NO coarse action:
+that is what "the coarse library reads them identically" means, and it is checked rather than
+assumed. `exhaustive` is on, so every collision the search returns is examined -- checking only the
+first would report "not blind" whenever the first happened to be a boundary artifact, which is what
+the first run of this probe did on five of six instances.
 
-...which is the DANGEROUS direction, not the safe one. So it is reported both ways: `b_blind` is the
-smallest radius at which blindness was ESTABLISHED, and `b_blind_unresolved` is the smallest radius
-at which the LP proposed a blind pair that could not be exactly confirmed. The true breakpoint lies
-in between, and a designer must use the lower one.
+A pair that no action in the library separates is NOT discarded. It is stronger evidence than
+blindness, not weaker: it means the registered library cannot certify the decision at any price, so
+it is recorded as `unsynthesizable` and reported separately.
 
 NON-CLAIM diagnostic. Reads committed artifacts; writes one JSON.
 
@@ -109,38 +122,47 @@ def reject_reachable(rows: np.ndarray, floors: np.ndarray, placed: np.ndarray, b
 def coarse_blind(polytope, family, actions, coarse, single_block, budget_s):
     """Does a SAFE/REJECT pair exist that every coarse action reads identically?
 
-    Returns (established, proposed). `established` requires the exactly recomputed cut to be
-    disjoint from the coarse library; `proposed` counts what the LP returned before that check.
+    Returns one of `"blind"`, `"unsynthesizable"`, `"separable"` or `"unresolved"`.
+
+    `"separable"` -- the ONLY verdict that lets the bisection advance its not-blind endpoint --
+    requires the search to have completed AND every returned collision to be separated by some
+    coarse action under exact recomputation. Anything else is `"unresolved"`, because a search that
+    died, timed out, or returned only boundary artifacts has established nothing about whether a
+    blind pair exists.
     """
 
     try:
         with budget_scope(budget_s):
             witnesses = _collision_search(
                 polytope, family, actions, coarse, MARGIN_K,
-                FEASIBILITY_TOLERANCE, None, False,
+                FEASIBILITY_TOLERANCE, None, True,
             )
     except UnresolvedComputation:
-        return None, None
+        return "unresolved"
     if not witnesses:
-        return False, False
+        return "separable"
+    boundary_artifacts = 0
     for witness in witnesses:
         delta = np.asarray(witness.safe_power_w) - np.asarray(witness.unsafe_power_w)
         # The cut recomputed from the delta itself, not the one the LP reported. An action is in
-        # the cut when it reads the direction above its own tolerance; if any COARSE action does,
-        # the pair is separable by coarse reports and is not evidence of blindness.
-        if any(
-            abs(float(np.asarray(actions[i].vector) @ delta)) > actions[i].tolerance
-            for i in coarse
-        ):
+        # the cut when it reads the direction above its own tolerance.
+        reads = {
+            index: abs(float(np.asarray(actions[index].vector) @ delta))
+            > actions[index].tolerance
+            for index in list(coarse) + list(single_block)
+        }
+        if any(reads[index] for index in coarse):
+            # A SELECTED action reads this delta, so the returned point violates a constraint the
+            # collision LP imposed: it is a feasibility-boundary artifact, not a separable pair.
+            # Counting it as evidence that coarse reports suffice is exactly the fail-open error.
+            boundary_artifacts += 1
             continue
-        # ... and the pair must be separable by SOMETHING, or it is a degenerate zero delta.
-        if not any(
-            abs(float(np.asarray(actions[i].vector) @ delta)) > actions[i].tolerance
-            for i in single_block
-        ):
-            continue
-        return True, True
-    return False, True
+        if not any(reads[index] for index in single_block):
+            # No action in the library separates the pair at all. Stronger than blindness: the
+            # decision cannot be certified from this library at any price.
+            return "unsynthesizable"
+        return "blind"
+    return "unresolved" if boundary_artifacts else "separable"
 
 
 def main() -> None:
@@ -186,8 +208,15 @@ def main() -> None:
             vector = np.asarray(action.vector)
             (single_block if int(np.count_nonzero(vector)) == 1 else coarse).append(index)
 
-        # b_reach: the smallest radius at which any admissible map is REJECT.
-        if not reject_reachable(rows, floors, placed, 1.0):
+        # e_reach: the smallest radius at which any admissible map is REJECT.
+        #
+        # The nominal map itself is the b = 0 member, so `reject_reachable(..., 0.0)` answers
+        # whether the DESIGN is nominally infeasible. Bisecting without that test would return a
+        # small positive value after a finite number of halvings and fabricate a safe interval
+        # below it -- peer review found this in both this probe and `architecture_sweep.radii`.
+        if reject_reachable(rows, floors, placed, 0.0):
+            reach = 0.0
+        elif not reject_reachable(rows, floors, placed, 1.0):
             reach = float("inf")
         else:
             lo, hi = 0.0, 1.0
@@ -199,42 +228,73 @@ def main() -> None:
                     lo = mid
             reach = hi
 
-        # b_blind: the smallest radius at which a coarse-blind SAFE/REJECT pair is ESTABLISHED.
-        # Bisected only above b_reach, since blindness is impossible below it.
+        # e_blind: the smallest radius at which a coarse-blind SAFE/REJECT pair is ESTABLISHED.
+        # Only established witnesses move it, and only a `separable` verdict may advance the
+        # not-blind endpoint. An `unresolved` step stops the bisection instead of being read as
+        # "coarse suffices here" -- that reading is the fail-open direction.
         blind = float("inf")
-        blind_proposed = float("inf")
+        unsynthesizable_at = float("inf")
         ladder = []
-        if np.isfinite(reach):
-            lo, hi = reach, 1.0
-            established_at_top, proposed_at_top = coarse_blind(
-                relocation_bounded_power_space(placed, relocated_fraction=hi),
+        unresolved_steps = 0
+
+        def probe(radius):
+            verdict = coarse_blind(
+                relocation_bounded_power_space(placed, relocated_fraction=radius),
                 family, actions, coarse, single_block, COLLISION_BUDGET_S,
             )
-            ladder.append({"beta": hi, "established": established_at_top,
-                           "proposed": proposed_at_top})
-            if established_at_top:
-                blind = hi
+            ladder.append({"radius": radius, "verdict": verdict})
+            return verdict
+
+        if reach > 0.0 and np.isfinite(reach):
+            top = probe(1.0)
+            if top == "unsynthesizable":
+                unsynthesizable_at = 1.0
+            if top in ("blind", "unsynthesizable"):
+                blind = 1.0
+                lo, hi = reach, 1.0
                 for _ in range(BISECTION_STEPS):
                     mid = 0.5 * (lo + hi)
-                    established, proposed = coarse_blind(
-                        relocation_bounded_power_space(placed, relocated_fraction=mid),
-                        family, actions, coarse, single_block, COLLISION_BUDGET_S,
-                    )
-                    ladder.append({"beta": mid, "established": established, "proposed": proposed})
-                    if established:
-                        hi = mid
-                        blind = mid
-                    else:
+                    verdict = probe(mid)
+                    if verdict in ("blind", "unsynthesizable"):
+                        hi = blind = mid
+                        if verdict == "unsynthesizable":
+                            unsynthesizable_at = min(unsynthesizable_at, mid)
+                    elif verdict == "separable":
                         lo = mid
-                    if proposed and blind_proposed > mid:
-                        blind_proposed = mid
+                    else:
+                        unresolved_steps += 1
+                        break
+            elif top == "unresolved":
+                unresolved_steps += 1
+
+        # The tier a designer reads off, with UNRESOLVED as a first-class state.
+        if reach == 0.0:
+            tier = "NOMINALLY_INFEASIBLE"
+        elif not np.isfinite(reach):
+            tier = "NO_MEASUREMENT_NEEDED_AT_ANY_RADIUS"
+        elif np.isfinite(blind):
+            tier = "PER_BLOCK_REQUIRED_ABOVE_E_BLIND"
+        elif unresolved_steps:
+            tier = "UNRESOLVED"
+        else:
+            tier = "COARSE_SUFFICIENT_THROUGH_RADIUS_1"
 
         row = {
             "candidate": candidate, "package": package, "workload": workload,
             "blocks": len(blocks), "coarse_actions": len(coarse),
             "single_block_actions": len(single_block),
-            "beta_reach": reach, "beta_blind": blind,
-            "beta_blind_first_proposed": blind_proposed,
+            # Named for the geometry it is actually measured on. `relocation_bounded_power_space`
+            # returns the BOX implied by the transfer budget, not the L1 body: an L-infinity ball of
+            # half-width `e * total` intersected with the total-power plane. The exact L1 radius is
+            # a DIFFERENT number (`research/triangle/robustness/geometries.py:radius_l1`) and the
+            # two must not be reported under one name -- they were, and the box value is the smaller
+            # of the two on every instance measured.
+            "geometry": "linf_ball_radius_times_total_intersect_total_plane",
+            "epsilon_reach": reach,
+            "epsilon_blind": blind,
+            "epsilon_unsynthesizable": unsynthesizable_at,
+            "tier": tier,
+            "unresolved_steps": unresolved_steps,
             "coarse_sufficient_window": (
                 blind - reach if np.isfinite(blind) and np.isfinite(reach) else None
             ),
@@ -243,12 +303,11 @@ def main() -> None:
         }
         results.append(row)
         print(
-            "%-8s %-9s %-12s  b_reach %7.3f%%   b_blind %s   window %s   (%.0fs)" % (
-                candidate, package, workload, reach * 100,
-                ("%7.3f%%" % (blind * 100)) if np.isfinite(blind) else "     none",
-                ("%7.3f%%" % ((blind - reach) * 100))
-                if np.isfinite(blind) and np.isfinite(reach) else "     n/a",
-                row["elapsed_s"],
+            "%-8s %-9s %-12s  e_reach %8s   e_blind %8s   %-34s (%.0fs)" % (
+                candidate, package, workload,
+                "%7.3f%%" % (reach * 100) if np.isfinite(reach) else "none",
+                "%7.3f%%" % (blind * 100) if np.isfinite(blind) else "none",
+                tier, row["elapsed_s"],
             ),
             flush=True,
         )

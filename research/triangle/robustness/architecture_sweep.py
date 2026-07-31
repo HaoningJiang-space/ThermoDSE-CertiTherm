@@ -64,18 +64,40 @@ FRONTIER = [
     for (tx, ty, cx, cy) in ((5, 4, 1, 1), (5, 4, 2, 2), (6, 4, 2, 2),
                              (6, 4, 3, 2), (8, 4, 2, 2), (8, 4, 4, 2))
 ]
-GRIDS = {"cut": GRID, "frontier": FRONTIER}
+# The matched-cut design peer review asked for: same tile grid, same spacing, same workload, and
+# ONLY the cut varies, through 1 -> 2 -> 4 equal dies. Every grid has even edges so the cut divides
+# evenly and all dies are identical -- which is what makes the per-die yield product exactly
+# recoverable rather than approximated from the reported mean.
+MATCHED = [
+    (tx, ty, cx, cy)
+    for (tx, ty) in ((4, 4), (6, 4), (8, 4), (4, 6), (6, 6), (8, 6))
+    for (cx, cy) in ((1, 1), (2, 1), (2, 2))
+]
+GRIDS = {"cut": GRID, "frontier": FRONTIER, "matched": MATCHED}
 D0, ALPHA = 0.08, 10          # ThermoDSE/core/gen_hw_setting.py, 14 nm
 
 
 def radii(family, placed):
-    """tau* (uniform under-prediction) and beta* (relocated fraction), both against the floor."""
+    """tau* (uniform under-prediction) and the BOX redistribution radius, both against the floor.
+
+    The second value is NOT the L1 relocated-fraction radius. It is measured on the box implied by
+    a transfer budget -- an L-infinity ball of half-width `e * total` intersected with the
+    total-power plane -- which is a strict RELAXATION of the L1 body and therefore reaches a floor
+    at a SMALLER radius. The exact L1 radius is computed by
+    `research/triangle/robustness/geometries.py:radius_l1` and is the larger of the two on every
+    instance measured (e.g. arch_a/default/resnet50: 2.637% box against 4.1% L1). Reporting both
+    under the name "beta*" was an error; this one is `epsilon_star`.
+    """
     rows, floors = reject_cell_rows(family, MARGIN_K)
     points = family.response_k_per_w.shape[1]
     rise = np.array([float(family.response_k_per_w[m // points, m % points] @ placed)
                      for m in range(rows.shape[0])])
     floors = np.asarray(floors, dtype=float)
     tau = float(np.min(np.where(rise > 0, (floors - rise) / np.where(rise > 0, rise, 1), np.inf)))
+    # A negative tau* means the NOMINAL map already reaches a floor. Reporting it as a signed
+    # "radius" invites a reader to treat -5% as a small radius rather than as infeasible.
+    if tau < 0.0:
+        tau = 0.0
     # beta*: the smallest relocated fraction whose implied box reaches a floor. Using the box makes
     # this a RELAXATION of the true L1 body, so the radius reported is a lower bound on the true
     # one -- the conservative direction for a robustness claim.
@@ -99,6 +121,11 @@ def radii(family, placed):
             if float(r @ p) >= floors[j]:
                 return True
         return False
+    # A nominally REJECT design has radius ZERO. Bisecting without this test returns a small
+    # positive value after sixteen halvings and fabricates a safe interval below it -- peer review
+    # found the same hole in `threshold.py`.
+    if reaches(0.0):
+        return tau, 0.0
     if not reaches(hi):
         return tau, float("inf")
     for _ in range(16):
@@ -151,10 +178,10 @@ def main() -> None:
             results.append({"arch": arch["architecture_id"], "tiles": [tx, ty], "cut": [cx, cy],
                             "interval_m": float(interval),
                             "dies": cx * cy, "workload": wl, "blocks": len(cap_blocks),
-                            "peak_k": peak, "tau_star": tau, "beta_star": beta,
+                            "peak_k": peak, "tau_star": tau, "epsilon_star": beta,
                             "yield": y, "edyp": edyp})
             print("%-12s %dx%d cut %dx%d gap %-6s dies %d  %-12s peak %7.2f  tau* %7.1f%%"
-                  "  beta* %6.2f%%  Y %.4f  EDYP %8.3f  (%.0fs)" % (
+                  "  eps* %6.2f%%  Y %.4f  EDYP %8.3f  (%.0fs)" % (
                       arch["architecture_id"], tx, ty, cx, cy, interval, cx * cy, wl, peak,
                       tau * 100, beta * 100, y, edyp, time.monotonic() - started), flush=True)
     (output / "sweep.json").write_text(json.dumps(results, indent=1))
