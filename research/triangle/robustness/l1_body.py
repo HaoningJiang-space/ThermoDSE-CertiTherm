@@ -28,13 +28,32 @@ vector -- or lazy constraint generation of the subset rows inside the collision 
 changes to the certified path and NEITHER is done here. The upper tiers are open under the exact
 body, and are reported as open.
 
-## What is NOT open
+## What is NOT open, and the two DIFFERENT radii it needs
 
-The FIRST tier needs only reachability: if no admissible map is REJECT then every admissible map is
-SAFE, the empty plan certifies, and no measurement is required at all. Reachability is a MAXIMISATION
-of one linear form over the body, and that is solved exactly by the lifted LP below -- no polytope
-object, no certified-path surgery. So the "no measurement needed" breakpoint is exact under the true
-L1 relocation body, and does not inherit the inscribed box's conservatism.
+The first tier needs only reachability, which is a MAXIMISATION of one linear form over the body and
+is solved exactly below -- no polytope object, no certified-path surgery. So its breakpoint is exact
+under the true L1 relocation body and does not inherit the inscribed box's conservatism.
+
+But there are TWO breakpoints, because SAFE is not the complement of REJECT. The registered rows
+(`CertiTherm/thermal_constraints.py`) are
+
+    SAFE     r . p <= limit - margin - error - ambient
+    REJECT   r . p >= limit + margin - error - ambient
+
+so a map landing in the `2 * margin` band between them is NEITHER, and "no REJECT map exists" does
+NOT imply "every admissible map is SAFE". Peer review raised exactly this and it is true of this
+implementation. The two radii answer two different questions and must not be conflated:
+
+    beta*_reject   smallest budget at which some admissible map is REJECT.
+                   Below it there is no SAFE/REJECT pair to tell apart, so the minimum-cost
+                   OBSERVATION is zero -- an identifiability statement.
+    beta*_safe     smallest budget at which some admissible map fails a SAFE row.
+                   Below it every admissible map is certified SAFE -- a FEASIBILITY statement,
+                   and the one a designer means by "this design is robustly feasible".
+
+`beta*_safe <= beta*_reject` always, since the SAFE right-hand side is lower by `2 * margin`. Both
+come from the same closed form with different floors, so reporting only one was a choice and not a
+limitation; reporting `beta*_reject` while claiming feasibility was the error.
 
 The distinction is not conservatism, it is a REVERSED IMPLICATION, and getting it wrong is the
 error this file exists to make impossible. Containment transfers asymmetrically:
@@ -176,6 +195,23 @@ def radius_l1_closed_form(rows, floors, placed) -> float:
         # `moved` is the transferred amount t; the registered parameter is t / total.
         best = min(best, moved / total)
     return best
+
+
+def radii_l1(thermal_rows, reject_floors, safe_rhs, placed):
+    """Both breakpoints at once: identifiability (`beta*_reject`) and feasibility (`beta*_safe`).
+
+    Same closed form, different right-hand sides. Returned together so a caller cannot quote one
+    while meaning the other -- which is the mistake this pair exists to prevent.
+    """
+
+    reject = radius_l1_closed_form(thermal_rows, reject_floors, placed)
+    safe = radius_l1_closed_form(thermal_rows, safe_rhs, placed)
+    if safe > reject + 1e-12:
+        raise RuntimeError(
+            f"the SAFE radius {safe} exceeds the REJECT radius {reject}, which the 2*margin gap "
+            "between the two right-hand sides makes impossible; the rows or floors are mismatched"
+        )
+    return {"beta_star_safe": safe, "beta_star_reject": reject}
 
 
 def radius_l1(rows, floors, placed, hi: float = 1.0) -> float:

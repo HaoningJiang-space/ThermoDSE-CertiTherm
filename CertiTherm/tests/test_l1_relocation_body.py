@@ -29,6 +29,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "research" / "triangle" / "robustness"))
 
 from l1_body import (  # noqa: E402
+    radii_l1,
     radius_l1,
     radius_l1_closed_form,
     reject_reachable_l1,
@@ -203,3 +204,35 @@ def test_the_closed_form_returns_infinity_when_no_transfer_reaches_a_floor() -> 
     row = np.array([1.0, 0.4, 0.2, 0.1])
     unreachable = _closed_form_max(row, _Q, 1.0) + 1.0
     assert radius_l1_closed_form([row], [unreachable], _Q) == float("inf")
+
+
+def test_the_safe_radius_never_exceeds_the_reject_radius() -> None:
+    """SAFE is not the complement of REJECT, and conflating the two overstates feasibility.
+
+    The registered rows put SAFE at `limit - margin - error - ambient` and REJECT at
+    `limit + margin - error - ambient`, so a map in the `2*margin` band is neither. A design can
+    therefore stop being certifiably SAFE strictly before any map becomes REJECT, and quoting the
+    REJECT radius as a feasibility radius claims robustness the rows do not support.
+    """
+
+    row = np.array([1.0, 0.4, 0.2, 0.1])
+    nominal = float(row @ _Q)
+    margin = 0.05
+    reject_floor = nominal + 0.5 + margin
+    safe_rhs = nominal + 0.5 - margin
+
+    both = radii_l1([row], [reject_floor], [safe_rhs], _Q)
+    assert both["beta_star_safe"] <= both["beta_star_reject"]
+    assert both["beta_star_safe"] < both["beta_star_reject"], (
+        "the two radii came out equal, so the fixture no longer has a band between the rows and "
+        "the property it exists to protect is untested"
+    )
+
+
+def test_mismatched_rows_are_refused_rather_than_reported_as_a_wider_safe_radius() -> None:
+    """A SAFE radius above the REJECT radius is impossible; it means the inputs were swapped."""
+
+    row = np.array([1.0, 0.4, 0.2, 0.1])
+    nominal = float(row @ _Q)
+    with pytest.raises(RuntimeError):
+        radii_l1([row], [nominal + 0.2], [nominal + 0.8], _Q)   # rhs swapped on purpose

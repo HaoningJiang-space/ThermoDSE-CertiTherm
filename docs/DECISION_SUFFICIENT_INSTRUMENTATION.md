@@ -172,14 +172,33 @@ The lifted LP remains the oracle. The two implementations are deliberately unlik
 sorted greedy, the other solves a linear program — and a randomised test requires them to agree,
 because a second implementation that merely reproduced the first's bug would agree too.
 
-| candidate | workload | exact `beta*` | reading |
+**Two breakpoints, not one, because SAFE is not the complement of REJECT.** The registered rows are
+`r·p <= limit − margin − error − ambient` for SAFE and `r·p >= limit + margin − error − ambient` for
+REJECT, so a map landing in the `2·margin` band between them is **neither**. "No REJECT map exists"
+therefore does not imply "every admissible map is SAFE", and an earlier version of this section said
+it did. Peer review raised it; it is true of this implementation. The two radii answer two different
+questions:
+
+| candidate | workload | `beta*_safe` | `beta*_reject` |
 | --- | --- | --- | --- |
-| arch_a | resnet50 | 4.133 % | no measurement needed below 4.133 % relocation |
-| arch_b | resnet50 | 2.144 % | |
-| arch_c | resnet50 | 4.035 % | |
-| arch_a | transformer | 1.540 % | |
-| arch_b | transformer | **0.548 %** | the tightest design in the registry |
-| arch_c | transformer | 1.497 % | |
+| arch_a | resnet50 | 4.090 % | 4.133 % |
+| arch_b | resnet50 | 2.117 % | 2.144 % |
+| arch_c | resnet50 | 3.994 % | 4.035 % |
+| arch_a | transformer | 1.519 % | 1.540 % |
+| arch_b | transformer | **0.493 %** | 0.548 % |
+| arch_c | transformer | 1.477 % | 1.497 % |
+
+* **below `beta*_safe`** — every admissible map satisfies every SAFE row. The design is **robustly
+  feasible** and no measurement is needed, because there is nothing left to decide. This is the
+  statement a designer means.
+* **between `beta*_safe` and `beta*_reject`** — no admissible map is REJECT, so there is no
+  SAFE/REJECT pair to tell apart and the minimum-cost **observation** is still zero; but some
+  admissible map sits in the indifference band, so feasibility is *not* certified. An
+  identifiability statement, not a feasibility one.
+* **above `beta*_reject`** — a REJECT map exists and the observation question becomes non-trivial.
+
+`beta*_safe <= beta*_reject` by construction and is checked at every call; the gap is narrow here
+(0.02–0.06 percentage points) only because the registered margin is 0.05 K.
 
 **The containment holds on the real instances, not only on the unit fixture.** The deviation box is a
 superset of the L1 body, so it must reach a reject floor no later — measured, 2.637 ≤ 4.133,
