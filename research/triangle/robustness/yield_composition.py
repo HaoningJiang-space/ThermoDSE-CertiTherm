@@ -41,6 +41,45 @@ None is declared uniquely correct -- that would need fabrication, test, assembly
 assumptions this project does not have. The point is that the CUT DECISION is not invariant across
 them, so it cannot be certified from the objective value alone.
 
+## The general condition, which is what makes this more than one tool's defect
+
+**Proposition (refinement-monotone aggregates cannot price chiplet count).** Let a design be cut
+into dies of areas `a_1..a_n`, let `Y` be any strictly decreasing function of die area, and let the
+yield term of the objective be the area-weighted mean `G = sum_i (a_i / A) Y(a_i + c)` with per-die
+overhead `c >= 0`. Split one die of area `a` into `a'` and `a''` with `a' + a'' = a`. Then
+
+    (a'/A) Y(a'+c) + (a''/A) Y(a''+c)  >  (a/A) Y(a+c)
+
+because `Y(a'+c) > Y(a+c)` and `Y(a''+c) > Y(a+c)` while the weights still sum to `a/A`. So **G
+strictly increases under every refinement, at every parameter value**. An objective dividing by `G`
+therefore has no interior optimum in the cut dimension arising from the yield term: whatever trade
+appears must come from the other factors, and the yield term can only ever argue for cutting further.
+
+The condition is a property of the AGGREGATION, not of this evaluator, and it is what a reader should
+check in any thermal-aware chiplet DSE that reports a scalar "yield". An aggregate can price count
+risk only if it is NOT refinement-monotone. Both standard alternatives fail refinement-monotonicity
+in the useful direction: `prod_i Y_i` decreases under refinement whenever total silicon does not
+shrink, and any aggregate carrying `bonding^n` decreases geometrically in the count.
+
+`test_yield_refinement_monotonicity` in the test suite executes the proposition rather than asserting
+it in prose.
+
+## The phase boundary, so this is decision analysis and not a disagreement of proxies
+
+Reporting that two objectives prefer two designs invites the reply that different objectives are
+supposed to differ. The sharper statement fixes ONE model and varies ONE manufacturing-policy
+parameter until the decision flips. With the KGD proxy
+
+    EDYP_kgd(n) = ED(n) * S(n) / y_b^n,        S(n) = sum_i (a_i + c) / Y(a_i + c)
+
+two cuts `m < n` tie at
+
+    y_b* = ( ED(n) S(n) / ED(m) S(m) ) ^ (1 / (n - m))
+
+which is closed form. Below `y_b*` the coarser cut wins, above it the finer one. Reported against the
+0.99 organic-substrate bonding yield Chiplet Actuary registers, so a reader can see whether the
+boundary sits inside the plausible range or far outside it.
+
 ## The self-check that makes the rest trustworthy
 
 Every point recomputes `Y_mean` from the recorded die geometry and compares it against the
@@ -197,6 +236,25 @@ def main() -> None:
     for key, members in sorted(groups.items(), key=lambda kv: str(kv[0])):
         if len(members) < 2:
             continue
+        # The bonding yield at which each coarser/finer pair ties under the KGD proxy. `edyp_kgd`
+        # already carries `1 / bonding^n`, so multiply it back out before solving.
+        boundaries = []
+        ordered = sorted(members, key=lambda r: r["dies"])
+        for coarse_row, fine_row in zip(ordered, ordered[1:]):
+            m, n = coarse_row["dies"], fine_row["dies"]
+            if n <= m:
+                continue
+            unbonded_coarse = coarse_row["edyp_kgd"] * BONDING_YIELD ** m
+            unbonded_fine = fine_row["edyp_kgd"] * BONDING_YIELD ** n
+            if unbonded_coarse <= 0 or not math.isfinite(unbonded_fine / unbonded_coarse):
+                continue
+            critical = (unbonded_fine / unbonded_coarse) ** (1.0 / (n - m))
+            boundaries.append({
+                "dies_coarse": m, "dies_fine": n,
+                "critical_bonding_yield": critical,
+                "finer_wins_at_registered_bonding": BONDING_YIELD > critical,
+                "critical_inside_plausible_range": 0.95 <= critical <= 1.0,
+            })
         picks = {
             name: min(members, key=lambda r: r[field])
             for name, field in (("mean", "edyp_mean"), ("product", "edyp_product"),
@@ -213,14 +271,18 @@ def main() -> None:
             "compositions_disagree": len({p["dies"] for p in picks.values()}) > 1,
             "robust_choice_matches_mean": picks["mean"]["dies"] == robust["dies"],
             "all_equal_dies": all(m["equal_dies"] for m in members),
+            "bonding_phase_boundaries": boundaries,
         })
         print(
-            "%-9s gap %-7s %-12s  mean->n=%-2d product->n=%-2d kgd->n=%-2d   most robust n=%-2d  %s"
+            "%-9s gap %-7s %-12s  mean->n=%-2d prod->n=%-2d prod+bond->n=%-2d kgd->n=%-2d  "
+            "robust n=%-2d  %-8s  y_b* %s"
             % (
                 "%dx%d" % key[0], key[1], key[2],
-                picks["mean"]["dies"], picks["product"]["dies"], picks["kgd"]["dies"],
-                robust["dies"],
+                picks["mean"]["dies"], picks["product"]["dies"],
+                picks["product_bonded"]["dies"], picks["kgd"]["dies"], robust["dies"],
                 "DISAGREE" if len({p["dies"] for p in picks.values()}) > 1 else "agree",
+                ",".join("%d/%d:%.4f" % (b["dies_coarse"], b["dies_fine"],
+                                         b["critical_bonding_yield"]) for b in boundaries),
             ),
             flush=True,
         )
