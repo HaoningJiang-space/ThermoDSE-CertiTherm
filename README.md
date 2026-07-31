@@ -47,30 +47,32 @@ Carried into the objective the two order the cut *oppositely*: the product prefe
 in 10 of 10 groups, the evaluator's mean prefers a cut design in 8 of 10. **10 of 10 groups change
 their preferred chiplet count with the composition rule.**
 
-**Nor is it settled by a complete cost model.** Peer review objected that the composition comparison
+**Nor is it settled by a published cost model.** Peer review objected that the composition comparison
 rested on a silicon-area proxy omitting wafer utilisation, bumps, substrate cost and test, so the
 proxy was replaced by a clean-room transcription of the organic-substrate recurring-cost path of a
 published chiplet cost model (Chiplet Actuary, DAC 2022; provenance in `vendor/chiplet-actuary.md`,
-nothing vendored). Under the complete flow the cost-optimal cut is **monolithic in 9 of 10 groups**,
+nothing vendored), checked **term by term against the upstream program's own frozen output**. Under the transcribed recurring-cost model the cost-optimal cut is **monolithic in 9 of 10 groups**,
 the opposite of what the proxy said — and sweeping one manufacturing factor at a time across a
-defensible range flips the winner in **11 of 20 cut pairs**. The substrate term drives it; the C4
-bump cost changes nothing anywhere, and bonding yield produces no crossover at all for the
-one-versus-two pair. Sweeping all six factors *jointly*, 4 000 draws per group, **no cut owns the
+defensible range flips the winner in **11 of 20 cut pairs**. Substrate-cost assumptions are the most
+influential in the tested grid; the C4 bump cost changes nothing anywhere, and for the
+one-versus-two pair the exact root sits at `y_b* = 1.026 – 1.113`, outside the attainable range, so
+the monolithic cut wins at every physical bonding yield. Sweeping all six factors *jointly*, 4 000 draws per group, **no cut owns the
 parameter box in any of the 10 groups**: the monolithic option holds 68–94 % of it and the four-die
 option 4–30 %, with the finer cut's share growing monotonically with compute area — the die-area
 threshold the published model reports, reproduced from the opposite direction.
 
 Four modelling choices spanning the plausible range — the evaluator's arithmetic mean, the
 all-dies-good product, a silicon-area proxy, and a published end-to-end cost flow — **do not agree
-on the chiplet count**.
+on the chiplet count**. Four modelling choices is a sample, not a spanning set.
 
 **The thermal robustness radii do not depend on any of that.** `tau*` (uniform total-power
 under-prediction) and the relocation radius come from the power map and the linear HotSpot operator
 alone — no yield model, no cost model, no latency. The radius rises monotonically with the die count
 in **10 of 10** groups and selects the finest cut unanimously, under no manufacturing assumption.
 It agrees with the evaluator's own choice in 8 of 10 and with the complete-cost choice in only 1 of
-10, so the two axes genuinely disagree — and only one of them gives the same answer whichever
-manufacturing assumptions a reader brings. The ordering is also not one thermal operator's artefact:
+10, so the two axes genuinely disagree — and only one of them is invariant to the
+manufacturing-cost assumptions — which is not the same as being determined by physics: the radius
+carries a HotSpot-only linear family and a stress-test uncertainty set of its own. The ordering is also not one thermal operator's artefact:
 all three registered operators (`block`, `grid64-avg`, `grid128-avg`) induce it in **10 of 10**
 groups. That is within-family agreement rather than independent validation, and an independent
 simulator is recorded as blocked rather than skipped — 3D-ICE cannot represent a package whose die,

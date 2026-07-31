@@ -116,10 +116,10 @@ do not — so the crossover is **scanned**, and each factor is swept one at a ti
 
 Minimising `energy x delay x recurring cost per working system` over the same 30 points:
 
-| | proxy (superseded) | complete cost flow |
+| | proxy (superseded) | transcribed OS recurring cost |
 | --- | --- | --- |
 | cost-optimal cut | `n = 2` or `n = 4` | **`n = 1` in 9 of 10 groups** |
-| `n=1` vs `n=2` | crossover at 0.8848–0.9736 | **no crossover at all** — monolithic wins across the entire 0.80–1.00 bonding-yield grid in 10 of 10 |
+| `n=1` vs `n=2` | crossover at 0.8848–0.9736 | `y_b*` = **1.026 – 1.113, outside `(0,1]`** — the monolithic cut wins at every attainable bonding yield, 10 of 10 |
 | `n=2` vs `n=4` | 0.9764–0.9997, registered value inside | 0.954–0.986, registered value **above** all of them |
 | agrees with the robustness choice | 8 of 10 | **1 of 10** |
 
@@ -140,11 +140,21 @@ bonding yield changes:
 | wafer cost | \$2 000 – \$9 000 | 6 of 20 |
 | C4 bump cost factor | 0.001 – 0.02 | **0 of 20** |
 
-**11 of 20 cut pairs change their winner under at least one single-factor sweep.** The decision is
-governed by the substrate term — `re_cost_factor` and `area_scale` multiply the same substrate cost,
-so their 11 and 7 are two views of one sensitivity rather than two independent ones — and not by
-bonding yield, which produces no crossover at all for the `n=1`/`n=2` pair, nor by the bump cost,
-which changes nothing anywhere.
+**11 of 20 cut pairs change their winner under at least one single-factor setting in this grid.**
+Substrate-cost assumptions are the most influential factors *in the tested grid*: varying the
+substrate rate flips 11 of 20 and varying the substrate area multiplier flips 7 of 20 — and those
+two are largely the same economic term, since the substrate cost is proportional to their product,
+so they are two parameterisations rather than two independent findings. The C4 bump cost flips
+nothing anywhere.
+
+Three qualifications the numbers do not carry on their own. A one-at-a-time sweep is enough to
+**falsify** invariance — one plausible setting that flips a winner proves the decision is not robust
+to that factor — but not to characterise joint uncertainty, which is why the joint sweep below is
+reported too. The ranges are an **elicitation choice, not a citation**: each spans the upstream
+parameter file's own variation across process nodes and package types, widened to the nearest round
+values; a reader with foundry data should substitute it. And "not bonding yield" would be wrong —
+the `n=2`/`n=4` crossovers are *themselves* bonding-yield effects; what bonding yield does not do is
+change the `n=1`/`n=2` decision anywhere in `(0,1]`.
 
 ### Jointly, not one at a time
 
@@ -172,15 +182,21 @@ that both regions are non-empty.
 
 That is the corrected and sharper form of the claim this document opened with. It is not that one
 aggregation is wrong; it is that **the most characteristic chiplet decision is determined by which
-manufacturing-cost parameters one assumes, across every composition tried** — the evaluator's
-arithmetic mean, the all-dies-good product, a silicon-area proxy, and a published end-to-end cost
-flow, which between them span the plausible modelling choices and do not agree.
+manufacturing-cost parameters one assumes, across every composition tried here** — the evaluator's
+arithmetic mean, the all-dies-good product, a silicon-area proxy, and a transcribed OS
+recurring-cost model. Four modelling choices is a sample, not a spanning set, and they do not agree.
 
-**And the relocation radius is invariant to all of it.** It rises monotonically with the die count
-in 10 of 10 groups and selects `n = 4` unanimously, computed from the power map and the linear
+**And the relocation radius is invariant to all of the above.** It rises monotonically with the die
+count in 10 of 10 groups and selects `n = 4` unanimously, computed from the power map and the linear
 thermal operator with no yield model, no cost model and no latency. It coincides with the
-complete-cost choice in only 1 of 10 groups, so the two axes genuinely disagree — and only one of
-them gives the same answer whichever manufacturing assumptions a reader brings.
+recurring-cost choice in only 1 of 10 groups, so the two axes genuinely disagree.
+
+The precise property is **manufacturing-cost invariance**, not "determined by physics". The radius
+carries its own modelling commitments — a HotSpot-only linear family, a steady-state single power
+map, and an uncertainty set that is a stress test rather than a validated power-error model — and
+those are listed in the scope section. What it does not carry is any dependence on the yield
+composition, the cost parameters or the volume, which is exactly the dependence that decides the
+chiplet count above.
 
 ### The ordering is not one thermal operator's artefact either
 

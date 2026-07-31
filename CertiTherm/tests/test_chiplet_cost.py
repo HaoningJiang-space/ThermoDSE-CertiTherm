@@ -11,6 +11,7 @@ turns on them.
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 from pathlib import Path
@@ -23,9 +24,14 @@ from chiplet_cost import (  # noqa: E402
     CRITICAL_LEVEL,
     DEFECT_DENSITY_PER_CM2,
     EDGE_LOSS_MM,
+    OS_AREA_SCALE,
     OS_BONDING_YIELD,
+    OS_BUMP_COST_FACTOR,
+    OS_RE_COST_FACTOR,
     SCRIBE_LANE_MM,
+    WAFER_COST_USD,
     WAFER_DIAMETER_MM,
+    base_cost,
     die_yield,
     dies_per_wafer,
     recurring_cost,
@@ -156,3 +162,73 @@ def test_a_die_too_large_for_the_wafer_is_refused_not_priced() -> None:
     assert dies_per_wafer(70000.0) <= 0.0, "the fixture no longer exceeds the wafer"
     with pytest.raises(ValueError):
         recurring_cost([70000.0])
+
+
+# --- Differential conformance against the upstream program -------------------------------------
+#
+# Everything above checks the transcription against itself: it repeats the equations and asserts
+# qualitative properties. Peer review named that as the gap -- internal consistency is not
+# transcription fidelity -- and named the cheapest closure: run the upstream tool on fixed cases,
+# freeze its complete term-by-term output, and assert agreement. That fixture is
+# `fixtures/chiplet_actuary_os_conformance.json`, generated once at the pinned commit, so the
+# upstream repository is NOT a dependency of this suite.
+
+_FIXTURE = json.loads(
+    (Path(__file__).resolve().parent / "fixtures" / "chiplet_actuary_os_conformance.json")
+    .read_text()
+)
+
+
+def test_the_frozen_fixture_describes_the_parameters_this_module_registers() -> None:
+    """A fixture generated under different constants would make every comparison below vacuous."""
+
+    p = _FIXTURE["parameters"]
+    assert p["wafer_diameter_mm"] == WAFER_DIAMETER_MM
+    assert p["scribe_lane_mm"] == SCRIBE_LANE_MM
+    assert p["edge_loss_mm"] == EDGE_LOSS_MM
+    assert p["critical_level"] == CRITICAL_LEVEL
+    assert p["defect_density_per_cm2"] == DEFECT_DENSITY_PER_CM2
+    assert p["wafer_cost_usd"] == WAFER_COST_USD
+    assert p["os_area_scale_factor"] == OS_AREA_SCALE
+    assert p["os_re_cost_factor"] == OS_RE_COST_FACTOR
+    assert p["os_bump_cost_factor"] == OS_BUMP_COST_FACTOR
+    assert p["os_bonding_yield"] == OS_BONDING_YIELD
+    assert len(_FIXTURE["cases"]) >= 5, "too few cases to distinguish a wrong count-dependent term"
+    assert {c["chips"] for c in _FIXTURE["cases"]} >= {1, 2, 4}, (
+        "the fixture must span one, two and four dies or a count-dependent error could hide"
+    )
+
+
+@pytest.mark.parametrize("case", _FIXTURE["cases"], ids=lambda c: "n%d_a%g" % (c["chips"], c["die_area_mm2"]))
+def test_every_term_matches_the_upstream_program(case) -> None:
+    """Term by term, not just the total: a total can agree while two terms compensate."""
+
+    areas = [case["die_area_mm2"]] * case["chips"]
+    mine = recurring_cost(areas)
+
+    assert dies_per_wafer(case["die_area_mm2"]) == pytest.approx(case["N_die_total"], rel=1e-12)
+    assert die_yield(case["die_area_mm2"]) == pytest.approx(case["die_yield"], rel=1e-12)
+    for key in (
+        "cost_raw_chips", "cost_defect_chips", "cost_raw_package",
+        "cost_defect_package", "cost_wasted_chips", "recurring_total",
+    ):
+        assert mine[key] == pytest.approx(case[key], rel=1e-9), (
+            f"{key} disagrees with the upstream program on {case['chips']} x "
+            f"{case['die_area_mm2']} mm^2: {mine[key]} against {case[key]}"
+        )
+
+
+@pytest.mark.parametrize("case", _FIXTURE["cases"], ids=lambda c: "n%d_a%g" % (c["chips"], c["die_area_mm2"]))
+def test_the_upstream_total_also_factorises_as_base_over_bonding_to_the_chip_count(case) -> None:
+    """The algebraic identity the closed-form crossover rests on, checked on upstream's own numbers.
+
+    An earlier version of this study asserted that the total does NOT factorise and that the tie
+    therefore had to be scanned. It does factorise, and checking it against upstream's output rather
+    than against this file's own arithmetic is what makes the correction trustworthy.
+    """
+
+    base = case["cost_raw_chips"] + case["cost_defect_chips"] + case["cost_raw_package"]
+    assert case["recurring_total"] == pytest.approx(
+        base / OS_BONDING_YIELD ** case["chips"], rel=1e-9
+    )
+    assert base_cost([case["die_area_mm2"]] * case["chips"]) == pytest.approx(base, rel=1e-9)
