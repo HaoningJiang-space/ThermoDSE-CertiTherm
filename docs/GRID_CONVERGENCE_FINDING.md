@@ -84,8 +84,29 @@ A **grid-convergence gate** beside the linearity gate: refuse a `gridN` operator
 `0.01 K` band. That converts the finding above from a post-hoc discovery into a precondition, and it
 would have refused the `6x2` operators before they produced an ordering.
 
-It is **not implemented here**. `experiments.py` is frozen under `method-freeze-radii-v1`, and adding
-a gate is a method change requiring a new freeze ID — the same rule that sent this round to a new
-split rather than reusing `method-freeze-v1`. It is the first item for the next round, and the
-ordering claim cannot be retested until it exists, because until then the family cannot be trusted
-to order anything on a geometry outside the development aspect-ratio range.
+**The gate is implemented** in `CertiTherm/grid_convergence_gate.py`, pinned by ten tests, and
+deliberately in its CHEAP form. Rebuilding a full `grid2N` impulse-response operator costs one
+HotSpot solve per block per model; what the contract actually needs is not a second operator but
+evidence that the temperature FIELD is resolved, and that needs one extra replay per calibration
+vector — five solves per grid model instead of one per block.
+
+    coarse = replay_power(..., "gridN-avg",  ..., power)
+    fine   = replay_power(..., "grid2N-avg", ..., power)
+    drift  = max|coarse - fine|                    PASS if <= GRID_DRIFT_LIMIT_K
+
+The bound is registered separately from `MODEL_ERROR_LIMIT_K` and a test requires them to differ:
+one bounds discretisation and decides whether an operator may be built, the other bounds
+linearisation and is folded into every SAFE/REJECT row. Registering them as one number would make a
+change to either silently move the other, and the measured case is why — 0.0027 K of linearity error
+alongside kelvins of discretisation drift.
+
+Two limits are stated in the module rather than left to a reader. A PASS is a Richardson-style
+agreement between two successive refinements on five power maps, not a proof of convergence. And
+`block` has no refinement parameter, so it is reported as `ungated` rather than passed — it was the
+outlier in one of the four groups measured and nothing here would catch it.
+
+**It is not wired into `experiments.py`**, which is frozen under `method-freeze-radii-v1`. Adopting
+it is a method change requiring a new freeze ID and a fresh development run — the same rule that
+sent this round to a new split rather than reusing `method-freeze-v1`. The ordering claim cannot be
+retested until it is adopted, because until then the family cannot be trusted to order anything on a
+geometry outside the development aspect-ratio range.

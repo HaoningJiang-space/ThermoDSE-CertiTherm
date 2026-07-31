@@ -1,0 +1,131 @@
+"""The gate must refuse the operator that the frozen contract admitted, and admit the ones it should.
+
+`docs/GRID_CONVERGENCE_FINDING.md` measured a `grid128-avg` operator that passed the 0.01 K linearity
+contract with a worst error of 0.0027 K while disagreeing with a 4x finer grid by 17 % in the
+relocation radius it induced. These tests pin that the new gate catches that case, using a replay
+stub rather than HotSpot so they run anywhere -- which is also why `grid_drift` takes the replay as
+an argument instead of calling the binary itself.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from CertiTherm.grid_convergence_gate import (
+    GRID_DRIFT_LIMIT_K,
+    gate,
+    grid_drift,
+    refined_model_id,
+)
+
+_VECTORS = [
+    ("placed", np.array([1.0, 2.0, 3.0])),
+    ("bounded-uniform", np.array([2.0, 2.0, 2.0])),
+]
+
+
+def _replay(fields):
+    """A stub returning a declared per-block field for each model id."""
+
+    def inner(model_id, power):
+        del power
+        return np.asarray(fields[model_id], dtype=float)
+
+    return inner
+
+
+def test_the_refinement_of_a_grid_id_doubles_its_size() -> None:
+    assert refined_model_id("grid64-avg") == "grid128-avg"
+    assert refined_model_id("grid128-avg") == "grid256-avg"
+    assert refined_model_id("grid256") == "grid512"
+
+
+def test_a_model_without_a_refinement_parameter_is_refused_not_silently_passed() -> None:
+    """`block` has no grid size. Returning it unchanged would gate it vacuously."""
+
+    for model_id in ("block", "grid-avg", "gridN-avg", "grid0-avg"):
+        with pytest.raises(ValueError):
+            refined_model_id(model_id)
+
+
+def test_an_operator_that_agrees_with_its_refinement_passes() -> None:
+    fields = {
+        "grid128-avg": [300.0, 310.0, 320.0],
+        "grid256-avg": [300.01, 310.02, 320.0],
+    }
+    result = grid_drift(_replay(fields), "grid128-avg", _VECTORS)
+    assert result["worst_drift_k"] == pytest.approx(0.02)
+    assert result["refined_model_id"] == "grid256-avg"
+    assert len(result["per_vector"]) == len(_VECTORS)
+
+
+def test_the_measured_under_resolved_operator_is_REFUSED() -> None:
+    """The case the frozen contract admitted: linear, and 17 % away from a finer grid.
+
+    A block at 320 K under `grid128` and 316 K under `grid256` is a 4 K disagreement -- far beyond
+    what a 0.01 K LINEARITY budget would ever see, because that budget never compares resolutions.
+    """
+
+    fields = {
+        "grid128-avg": [300.0, 310.0, 320.0],
+        "grid256-avg": [300.0, 310.0, 316.0],
+    }
+    verdict = gate(_replay(fields), ["grid128-avg"], _VECTORS)
+    assert verdict["status"] == "REFUSED"
+    assert verdict["refusals"] and "grid128-avg" in verdict["refusals"][0]
+    assert verdict["measured"][0]["worst_drift_k"] == pytest.approx(4.0)
+
+
+def test_a_model_without_a_refinement_parameter_is_reported_as_ungated_not_as_passing() -> None:
+    """A caller reading only `status` must not conclude that `block` was checked."""
+
+    fields = {"grid64-avg": [300.0], "grid128-avg": [300.0]}
+    verdict = gate(_replay(fields), ["block", "grid64-avg"], [("placed", np.array([1.0]))])
+    assert verdict["status"] == "PASS"
+    assert verdict["ungated"] == ["block"]
+    assert [m["model_id"] for m in verdict["measured"]] == ["grid64-avg"]
+
+
+def test_an_empty_vector_list_is_refused_rather_than_scoring_zero_drift() -> None:
+    """With no vectors the loop never runs and every operator would pass at drift zero."""
+
+    with pytest.raises(ValueError):
+        grid_drift(_replay({}), "grid64-avg", [])
+
+
+def test_a_non_finite_field_is_refused_rather_than_passing_the_bound() -> None:
+    """`nan > limit` is False, so the value would pass the check AND be recorded as the drift."""
+
+    fields = {"grid64-avg": [300.0, float("nan")], "grid128-avg": [300.0, 300.0]}
+    with pytest.raises(ValueError):
+        grid_drift(_replay(fields), "grid64-avg", [("placed", np.array([1.0, 1.0]))])
+
+
+def test_a_block_count_mismatch_is_refused() -> None:
+    """Two resolutions must be compared over the same blocks or the difference is meaningless."""
+
+    fields = {"grid64-avg": [300.0, 310.0], "grid128-avg": [300.0]}
+    with pytest.raises(ValueError):
+        grid_drift(_replay(fields), "grid64-avg", [("placed", np.array([1.0, 1.0]))])
+
+
+def test_a_non_positive_or_non_finite_limit_is_refused() -> None:
+    fields = {"grid64-avg": [300.0], "grid128-avg": [300.0]}
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            gate(_replay(fields), ["grid64-avg"], [("placed", np.array([1.0]))], limit_k=bad)
+
+
+def test_the_drift_limit_is_separate_from_the_linearisation_budget() -> None:
+    """One bounds discretisation and gates the build; the other bounds linearity and enters the LP.
+
+    Registering them as one number would make a change to either silently move the other, and the
+    measured case is exactly why they differ: 0.0027 K of linearity error alongside kelvins of
+    discretisation drift.
+    """
+
+    from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K
+
+    assert GRID_DRIFT_LIMIT_K != MODEL_ERROR_LIMIT_K
+    assert GRID_DRIFT_LIMIT_K > MODEL_ERROR_LIMIT_K
