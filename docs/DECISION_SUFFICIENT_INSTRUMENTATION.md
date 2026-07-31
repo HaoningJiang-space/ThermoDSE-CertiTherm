@@ -79,11 +79,14 @@ die decisively, the KGD silicon proxy prefers `n = 2`.
 **The phase boundary, so this is decision analysis rather than a disagreement of proxies.** Fixing
 one model and varying one manufacturing-policy parameter, two cuts `m < n` tie under the KGD proxy at
 
-    y_b* = ( E·D(n) · S(n) / E·D(m) · S(m) ) ^ (1 / (n - m)),    S(n) = sum_i (a_i + c) / Y(a_i + c)
+    y_b* = ( [E·D(n) · S(n)] / [E·D(m) · S(m)] ) ^ (1 / (n - m)),   S(n) = sum_i (a_i + c) / Y(a_i + c)
 
-in closed form. `yield_composition.py` reports `y_b*` for every adjacent pair against the 0.99
-organic-substrate bonding yield the cost model registers, so a reader can see whether the boundary
-sits inside the plausible range or far outside it.
+in closed form; the bracketing is written out because the grouping of the ratio is easy to misread.
+`yield_composition.py` reports `y_b*` for every adjacent pair against the 0.99 organic-substrate
+bonding yield the cost model registers. **A value above 1 is not a boundary**: since every physical
+bonding yield satisfies `0 < y_b <= 1`, `y_b* > 1` means the coarser cut wins at every attainable
+value and there is no crossover to report. Those rows are labelled `no physical crossover` rather
+than quoted as boundaries — `4x4`/`resnet50`'s 1.0025 is one of them.
 
 **What this is not.** `kgd_silicon` is an explicitly defined silicon-area proxy, not that paper's
 cost: it omits wafer utilisation, scribe loss, bumps, interposer and substrate cost, test and NRE.
@@ -230,12 +233,19 @@ All six instances, probed on the declared ladder `{0.5, 1, 2, 5, 10, 25} %`:
 
 Read as a decision procedure, and note that only two of the three tiers are established:
 
-    b < e_reach     NO measurement at all. Every admissible map is SAFE, the empty plan certifies,
-                    and this direction is a proof rather than a measurement. ESTABLISHED, exactly,
-                    for every instance.
-    b >= 5 % (10 %) POST-ROUTE PER-BLOCK extraction is required. A SAFE/REJECT pair exists that the
-                    entire coarse library reads identically, so no plan built from it certifies at
-                    any price. ESTABLISHED by an exactly recomputed witness.
+    b < e_reach     No admissible map is provably REJECT, so there is no SAFE/REJECT pair to tell
+                    apart and an observation-free decision rule exists. ESTABLISHED exactly.
+                    NOTE this is the identifiability statement, not feasibility: `e_reach` is
+                    measured against the REJECT floor, and the 2*margin band means "not REJECT" is
+                    weaker than "robustly SAFE". The feasibility radius is the SAFE-row one, and for
+                    this geometry it is not reported here.
+    b >= 5 % (10 %) SOME OBSERVATION OUTSIDE the declared coarse library is necessary; post-route
+                    per-block extraction is a known SUFFICIENT fallback. A SAFE/REJECT pair exists
+                    that the entire coarse library reads identically, so no plan built from that
+                    library certifies at any price -- which does not prove per-block extraction is
+                    the only remedy. An intermediate granularity, a different placement, or an
+                    adaptive scheme outside the registered library could also separate it.
+                    ESTABLISHED by an exactly recomputed witness.
     in between      UNRESOLVED.
 
 **The middle tier is defined but was never established.** A "coarse reports suffice" verdict requires

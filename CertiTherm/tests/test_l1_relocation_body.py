@@ -236,3 +236,26 @@ def test_mismatched_rows_are_refused_rather_than_reported_as_a_wider_safe_radius
     nominal = float(row @ _Q)
     with pytest.raises(RuntimeError):
         radii_l1([row], [nominal + 0.2], [nominal + 0.8], _Q)   # rhs swapped on purpose
+
+
+def test_mismatched_row_and_floor_counts_are_refused_not_silently_truncated() -> None:
+    """`zip` truncates, and a truncated scan reports a LARGER radius than the instance supports.
+
+    Worse, the zero-budget path compares by broadcasting while the positive-budget path zips, so a
+    mismatched pair could use two different reject-cell sets inside one call.
+    """
+
+    rows = np.array([[1.0, 0.4, 0.2, 0.1], [0.9, 0.5, 0.3, 0.2]])
+    with pytest.raises(ValueError):
+        radius_l1_closed_form(rows, [10.0], _Q)
+    with pytest.raises(ValueError):
+        reject_reachable_l1(rows, [10.0], _Q, 0.1)
+    with pytest.raises(ValueError):
+        radius_l1_closed_form(rows[:, :3], [10.0, 10.0], _Q)
+
+
+def test_an_empty_reject_family_is_refused_rather_than_reported_as_infinitely_robust() -> None:
+    """With no cells the loop never runs and `inf` would assert robustness never computed."""
+
+    with pytest.raises(ValueError):
+        radius_l1_closed_form(np.empty((0, 4)), np.empty(0), _Q)

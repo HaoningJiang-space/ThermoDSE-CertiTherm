@@ -90,6 +90,43 @@ from scipy.optimize import linprog
 BISECTION_STEPS = 20
 
 
+def _validated(rows, floors, placed):
+    """Shapes and finiteness, before anything reads them.
+
+    `zip(rows, floors)` truncates silently when the two disagree, so a mismatched pair would have
+    scanned a PREFIX of the reject cells and reported a larger radius than the instance supports --
+    and the zero-budget path, which compares with NumPy broadcasting rather than `zip`, would have
+    used a DIFFERENT set of cells from the positive-budget path in the same call. Peer review found
+    both. Neither has any symptom other than the wrong answer, so the check is unconditional.
+    """
+
+    q = np.asarray(placed, dtype=float)
+    row_array = np.atleast_2d(np.asarray(rows, dtype=float))
+    floor_array = np.atleast_1d(np.asarray(floors, dtype=float))
+    if q.ndim != 1 or q.size == 0:
+        raise ValueError("the placed power map must be a non-empty one-dimensional vector")
+    if row_array.ndim != 2 or row_array.shape[1] != q.size:
+        raise ValueError(
+            f"reject rows must be (cells, blocks) matching the power map: got {row_array.shape} "
+            f"against {q.size} blocks"
+        )
+    if floor_array.ndim != 1 or floor_array.size != row_array.shape[0]:
+        raise ValueError(
+            f"one floor per reject cell is required: got {floor_array.size} floors for "
+            f"{row_array.shape[0]} rows"
+        )
+    if row_array.shape[0] == 0:
+        raise ValueError(
+            "no reject cells were supplied; an empty family has no reachability question and "
+            "returning a radius for it would assert robustness that was never computed"
+        )
+    if not (np.all(np.isfinite(row_array)) and np.all(np.isfinite(floor_array))):
+        raise ValueError("reject rows and floors must all be finite to decide reachability")
+    if not (np.all(np.isfinite(q)) and np.all(q >= 0.0)):
+        raise ValueError("the placed power map must be finite and nonnegative")
+    return row_array, floor_array, q
+
+
 def reject_reachable_l1(rows, floors, placed, relocated_fraction) -> bool:
     """Is any map within the exact L1 relocation budget REJECT?
 
@@ -98,17 +135,10 @@ def reject_reachable_l1(rows, floors, placed, relocated_fraction) -> bool:
     cell; the first cell that reaches its floor answers the question.
     """
 
-    q = np.asarray(placed, dtype=float)
-    row_array = np.asarray(rows, dtype=float)
-    floor_array = np.asarray(floors, dtype=float)
-    # Checked BEFORE any comparison, and separately. `x >= nan` is False, so a non-finite floor
-    # would be silently read as "this cell is not reachable" and the radius reported LARGER than
-    # was established -- the fail-open direction for a robustness radius. The repository has found
-    # five separate instances of a guard written as one inequality failing exactly this way.
-    if not (np.all(np.isfinite(row_array)) and np.all(np.isfinite(floor_array))):
-        raise ValueError("reject rows and floors must all be finite to decide reachability")
-    if not (np.all(np.isfinite(q)) and np.all(q >= 0.0)):
-        raise ValueError("the placed power map must be finite and nonnegative")
+    # Finiteness is checked BEFORE any comparison and separately, because `x >= nan` is False: a
+    # non-finite floor would read as "this cell is not reachable" and the radius would be reported
+    # LARGER than was established, which is the fail-open direction for a robustness radius.
+    row_array, floor_array, q = _validated(rows, floors, placed)
     if not np.isfinite(relocated_fraction):
         raise ValueError(f"relocated_fraction must be finite, got {relocated_fraction}")
     n = q.size
@@ -141,14 +171,18 @@ def reject_reachable_l1(rows, floors, placed, relocated_fraction) -> bool:
 def radius_l1_closed_form(rows, floors, placed) -> float:
     """The exact relocation radius with no solver at all, by inverting the transfer greedy.
 
-    Nothing bounds `p` from above inside this body, so all received power goes to the single
-    largest-coefficient block, and donations are taken from the smallest coefficients first, each
-    capped by that block's own power. The gain is therefore
+    No INDEPENDENT per-block upper bound applies inside this body -- conservation and nonnegativity
+    already imply `p_i <= Q`, so "nothing bounds `p` from above" would be literally false -- and that
+    is enough for all received power to go to the single largest-coefficient block. Donations are
+    taken from the smallest coefficients first, each capped by that block's own power. The gain is
+    therefore
 
         gain(t) = sum over donors in ascending r of min(q_i, remaining) * (r_max - r_i)
 
-    which is increasing, concave and piecewise linear in the transferred amount `t`, so the smallest
-    `t` reaching a floor is read off directly instead of bisected. That makes the radius `O(cells *
+    which is NONDECREASING, concave and piecewise linear in the transferred amount `t` -- flat once
+    the useful donors are exhausted, and flat throughout for a constant row -- so the smallest `t`
+    reaching a floor is read off directly instead of bisected. "Exact" here means analytically exact
+    up to floating-point evaluation, not exact arithmetic. That makes the radius `O(cells *
     n log n)` and exact, where the lifted LP is `O(cells * bisection)` solves of `2n` variables --
     the difference between seconds and hours on a 273-block instance, which is why the sweep grew a
     closed form rather than a faster bisection.
@@ -158,13 +192,7 @@ def radius_l1_closed_form(rows, floors, placed) -> float:
     faster one silently winning.
     """
 
-    q = np.asarray(placed, dtype=float)
-    row_array = np.asarray(rows, dtype=float)
-    floor_array = np.asarray(floors, dtype=float)
-    if not (np.all(np.isfinite(row_array)) and np.all(np.isfinite(floor_array))):
-        raise ValueError("reject rows and floors must all be finite to decide reachability")
-    if not (np.all(np.isfinite(q)) and np.all(q >= 0.0)):
-        raise ValueError("the placed power map must be finite and nonnegative")
+    row_array, floor_array, q = _validated(rows, floors, placed)
     total = float(q.sum())
     if total <= 0.0:
         raise ValueError("the placed power map must have a positive total")

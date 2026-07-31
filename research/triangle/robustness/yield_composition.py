@@ -249,9 +249,14 @@ def main() -> None:
             if unbonded_coarse <= 0 or not math.isfinite(unbonded_fine / unbonded_coarse):
                 continue
             critical = (unbonded_fine / unbonded_coarse) ** (1.0 / (n - m))
+            # A critical value above 1 is NOT a phase boundary: every physical bonding yield
+            # satisfies 0 < y_b <= 1, so the coarser cut wins at every attainable value and there is
+            # no crossover. Quoting it beside genuine boundaries would invite a reader to compare
+            # 1.0025 with 0.99 as if a 1% change could cross it.
             boundaries.append({
                 "dies_coarse": m, "dies_fine": n,
                 "critical_bonding_yield": critical,
+                "physical_crossover": critical <= 1.0,
                 "finer_wins_at_registered_bonding": BONDING_YIELD > critical,
                 "critical_inside_plausible_range": 0.95 <= critical <= 1.0,
             })
@@ -281,8 +286,14 @@ def main() -> None:
                 picks["mean"]["dies"], picks["product"]["dies"],
                 picks["product_bonded"]["dies"], picks["kgd"]["dies"], robust["dies"],
                 "DISAGREE" if len({p["dies"] for p in picks.values()}) > 1 else "agree",
-                ",".join("%d/%d:%.4f" % (b["dies_coarse"], b["dies_fine"],
-                                         b["critical_bonding_yield"]) for b in boundaries),
+                ",".join(
+                    "%d/%d:%s" % (
+                        b["dies_coarse"], b["dies_fine"],
+                        "%.4f" % b["critical_bonding_yield"] if b["physical_crossover"]
+                        else "none(>1)",
+                    )
+                    for b in boundaries
+                ),
             ),
             flush=True,
         )
