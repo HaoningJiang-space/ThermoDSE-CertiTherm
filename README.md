@@ -21,6 +21,30 @@ This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
 EDA stage is sufficient to justify the resulting architecture choice.
 
+### Certified thermal-robustness radii, and what they cost in yield
+
+The current headline result. Thermal-aware chiplet DSE minimises EDYP = latency x energy / yield
+subject to a peak-temperature constraint, and that constraint is a pass/fail test on the NOMINAL
+power map — nothing in the objective charges for spending the thermal margin. Two computable radii
+say how much power-model error the decision survives:
+
+- **`tau*`** — uniform total-power under-prediction, closed form, no solver;
+- **`S*`** — redistribution at a fixed total, `min_j Delta_j / H_j`: a nominal reject slack divided
+  by a redistribution sensitivity, so it is not a re-parameterisation of the peak.
+
+On the transformer workload the EDYP-optimal architecture tolerates a **9.0%** total-power
+under-prediction where the design it outranks tolerates **63.6%**. Declaring a 10% power-model
+accuracy — inside what an architecture-stage model is normally credited with — makes the selected
+design not robustly feasible: the robust choice becomes a different architecture at **+32.1% EDYP**,
+**4.00 K** less worst-case peak temperature, and a **higher yield** (0.953 against 0.927). On
+resnet50 there is no disagreement up to 30%; the effect is workload-dependent.
+
+Yield and temperature are coupled through die area — the registered model
+`Y(A) = (1 + A D0/alpha)^(-alpha)` falls with area while power density and peak temperature fall as
+area grows — and EDYP multiplies them. See `docs/THERMAL_ROBUSTNESS_RADII.md`, including what the
+result does NOT say: the radii rank identically to the nominal peak on all 18 dev instances, so
+"DSE selects on the wrong statistic" is not supported by this registry.
+
 ### Blind-direction certificates
 
 The strongest current result comes from a structural family of cuts rather
@@ -36,13 +60,20 @@ all such cuts inside one cell of the common refinement is a VERTEX COVER,
 whose minimum weight is computed exactly rather than approached
 logarithmically; and cells partition the blocks, so their minima ADD.
 
-Measured across the full 18-instance dev registry (3 architectures x 3
-packages x 2 workloads), certified lower bounds run **864 to 1320**, against
-a previously reported 22.8–88.3 on the headline instance. See
-`docs/BLIND_DIRECTION_BOUND.md` for the numbers, the search bug that changed
-them, and the negative results — the cover is necessary but NOT sufficient,
-and a fix that would have removed 98% of the remaining obstacles was rejected
-as fail-open.
+Measured across the full 18-instance dev registry, certified lower bounds run
+**864 to 1320** against a previously reported 22.8–88.3 on the headline
+instance.
+
+**Read that as conditional on the uncertainty set, not as a physical
+requirement.** Under per-block activity-bounded redistribution the reject
+floor is unreachable and the same certified requirement is **zero**. Both
+numbers are correct for their own set, and the pair is the result: the
+observation requirement is a property of the design AND the power-model
+uncertainty assumed, which is why the radii above come first.
+`docs/BLIND_DIRECTION_BOUND.md` has the numbers, the search bug that changed
+them by 95%, and the negative results — the cover is necessary but NOT
+sufficient, and a fix that would have removed 98% of the remaining obstacles
+was rejected as fail-open.
 
 **Read the Scope section of that document before quoting any number.** The
 registered uncertainty set admits every nonnegative redistribution preserving
@@ -172,7 +203,9 @@ channels are never asked to identify an unobservable simulator label.
 - `docs/THERMAL_ERROR_CONTRACT.md` — direct-replay error gate;
 - `docs/HELDOUT_PROTOCOL_V3.md` — current frozen 4×3×3 evaluation;
 - `docs/BLIND_DIRECTION_BOUND.md` — the blind-direction bound, its trajectory,
-  and its negative results.
+  and its negative results;
+- `docs/THERMAL_ROBUSTNESS_RADII.md` — `tau*`, `S*`, the yield coupling, and
+  the selection change they produce.
 
 ## Evidence status
 
