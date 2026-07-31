@@ -1,5 +1,13 @@
 # A certified lower bound from the directions coarse instrumentation cannot see
 
+> **The headline below is WITHDRAWN as a physical requirement.** Under per-block
+> activity-bounded redistribution the reject floor is unreachable through span 1.0, no collision
+> exists, and the certified observation requirement is ZERO rather than 1312. Both numbers are
+> correct for their own uncertainty set; see `docs/THERMAL_ROBUSTNESS_RADII.md`, which makes the
+> pair the result and the radii the primary quantity. Everything below remains valid CONDITIONAL on
+> the registered coarse set, which admits every nonnegative redistribution preserving the workload
+> total.
+
 RESULT 2026-07-30. Method in `CertiTherm/blind_direction_cuts.py`, pinned by
 `CertiTherm/tests/test_blind_direction_cuts.py` (17 tests). Driver:
 `research/triangle/indistinguishable_pair_bound_probe.py`. Tier-2 peer reviewed before
