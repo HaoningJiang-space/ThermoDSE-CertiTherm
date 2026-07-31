@@ -87,7 +87,7 @@ from .grid_convergence_gate import (
     GRID_DRIFT_LIMIT_K,
     GRID_DRIFT_SAFETY_FACTOR,
     budgeted_error_k,
-    refined_model_id,
+    reference_model_id,
 )
 from .split_protocol import (
     ANYTIME_SPLITS as _ANYTIME_SPLITS,
@@ -681,8 +681,11 @@ def _operator(
         # of linearity error beside a 17% disagreement with a 4x finer grid, which reversed the cut
         # ordering it induced (docs/GRID_CONVERGENCE_FINDING.md). `block` has no refinement
         # parameter and is recorded as ungated rather than passed.
+        # `block` is compared against the finest grid rather than skipped: leaving it ungated was
+        # a hole that decided a published radius, because it was the model binding the family
+        # minimum while carrying only the linearisation budget.
         try:
-            fine_id = refined_model_id(model_id)
+            fine_id = reference_model_id(model_id, family.model_ids)
         except ValueError:
             drift, drift_status = float("nan"), "UNGATED"
         else:

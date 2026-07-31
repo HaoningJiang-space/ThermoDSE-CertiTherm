@@ -35,9 +35,22 @@ check and not a proof, and the calibration vectors are five power maps rather th
 polytope. A REFUSAL, on the other hand, is decisive -- two resolutions of the same physics disagreed
 by more than the bound, so at least one of them is wrong.
 
-`block` has no refinement parameter and is therefore not gated here. That is a gap, not an
-exemption: `block` was the outlier in one of the four groups measured, and nothing in this module
-would catch it.
+## `block` is gated too, against the finest grid, because the gap was load-bearing
+
+`block` has no refinement parameter, so the first version left it ungated -- and that hole turned
+out to decide the answer. Measured on `6x2` cut 1x1 with the budget applied: the two charged grid
+operators give `beta* = 5.796 %` and `6.448 %` while `block`, carrying only the 0.01 K linearisation
+budget, gives **3.757 %** and sets the family minimum. Charging the models that were measured did not
+protect the family, because the model that binds it was the one that escaped.
+
+The repair uses a fact the first version missed: `block` and `gridN-avg` are two DISCRETISATIONS of
+the same physics that both produce per-block temperatures, so they are directly comparable. `block`
+is therefore gated against the FINEST grid in the family -- `reference_model_id` below -- and the
+comparison costs nothing extra, since that replay already exists for the grid gate.
+
+It is a weaker statement than the grid-to-grid one: `block` -> `grid256-avg` is not a refinement of
+`block`, so the Richardson argument for the safety factor does not apply to it and the drift is used
+as a plain lower bound on the disagreement. That is recorded rather than glossed.
 
 ## Budgeting beats refusing, at equal soundness
 
@@ -66,7 +79,7 @@ from __future__ import annotations
 import math
 import re
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -114,14 +127,37 @@ def budgeted_error_k(linearisation_error_k: float, drift_k: float) -> float:
 _GRID = re.compile(r"^grid(\d+)(-.+)?$")
 
 
+def reference_model_id(model_id: str, family_model_ids: Sequence[str]) -> str:
+    """What `model_id` must be compared against: its own 2x refinement, or the finest grid.
+
+    A `gridN` model is compared with `grid2N`, which is a genuine refinement and supports the
+    Richardson factor. A model with no refinement parameter -- `block` -- is compared with the
+    refinement of the finest grid in the family, because both produce per-block temperatures and are
+    therefore two discretisations of the same physics. Leaving it out was a hole that decided a
+    published radius; see the module docstring.
+    """
+
+    try:
+        return refined_model_id(model_id)
+    except ValueError:
+        grids = [m for m in family_model_ids if _GRID.match(m)]
+        if not grids:
+            raise ValueError(
+                f"{model_id!r} has no refinement parameter and the family contains no grid model "
+                "to compare it against, so its discretisation error cannot be measured at all"
+            )
+        finest = max(grids, key=lambda m: int(_GRID.match(m).group(1)))
+        return refined_model_id(finest)
+
+
 def refined_model_id(model_id: str) -> str:
     """`gridN-avg` -> `grid2N-avg`. Raises for anything without a refinement parameter."""
 
     match = _GRID.match(model_id)
     if match is None:
         raise ValueError(
-            f"{model_id!r} has no grid refinement parameter, so it cannot be convergence-gated; "
-            "`block` is the case this refers to and it is a known gap, not an exemption"
+            f"{model_id!r} has no grid refinement parameter; use `reference_model_id` to compare "
+            "it against the finest grid in its family instead"
         )
     size = int(match.group(1))
     if size <= 0:
@@ -133,6 +169,7 @@ def grid_drift(
     replay: Callable[[str, np.ndarray], np.ndarray],
     model_id: str,
     vectors: Sequence[tuple[str, np.ndarray]],
+    reference_id: Optional[str] = None,
 ) -> dict:
     """Worst per-block disagreement between `model_id` and its 2x refinement, over the vectors.
 
@@ -145,7 +182,7 @@ def grid_drift(
             "convergence cannot be judged from zero calibration vectors; an empty vector list "
             "would report a drift of zero and pass every operator"
         )
-    fine_id = refined_model_id(model_id)
+    fine_id = reference_id or refined_model_id(model_id)
     worst = 0.0
     worst_vector = None
     rows = []
@@ -195,11 +232,11 @@ def gate(
     measured, ungated, refusals = [], [], []
     for model_id in model_ids:
         try:
-            refined_model_id(model_id)
+            reference = reference_model_id(model_id, model_ids)
         except ValueError:
             ungated.append(model_id)
             continue
-        result = grid_drift(replay, model_id, vectors)
+        result = grid_drift(replay, model_id, vectors, reference_id=reference)
         measured.append(result)
         if result["worst_drift_k"] > limit_k:
             refusals.append(

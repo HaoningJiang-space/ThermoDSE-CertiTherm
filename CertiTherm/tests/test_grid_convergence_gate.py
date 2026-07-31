@@ -16,6 +16,7 @@ from CertiTherm.grid_convergence_gate import (
     GRID_DRIFT_LIMIT_K,
     gate,
     grid_drift,
+    reference_model_id,
     refined_model_id,
 )
 
@@ -168,3 +169,23 @@ def test_a_non_finite_or_negative_input_to_the_budget_is_refused() -> None:
             budgeted_error_k(0.01, bad)
         with pytest.raises(ValueError):
             budgeted_error_k(bad, 0.1)
+
+
+def test_block_is_compared_against_the_finest_grid_rather_than_left_ungated() -> None:
+    """The hole that decided a published radius.
+
+    Measured on `6x2` cut 1x1 with the budget applied: the two charged grid operators gave
+    `beta* = 5.796 %` and `6.448 %` while `block`, carrying only the 0.01 K linearisation budget,
+    gave 3.757 % and set the family minimum. Charging the measured models did not protect the family
+    because the binding one escaped.
+    """
+
+    family = ("block", "grid64-avg", "grid128-avg")
+    assert reference_model_id("block", family) == "grid256-avg"
+    assert reference_model_id("grid64-avg", family) == "grid128-avg"
+    assert reference_model_id("grid128-avg", family) == "grid256-avg"
+
+
+def test_a_family_with_no_grid_at_all_cannot_gate_block_and_says_so() -> None:
+    with pytest.raises(ValueError):
+        reference_model_id("block", ("block",))
