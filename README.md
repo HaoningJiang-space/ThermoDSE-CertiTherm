@@ -215,12 +215,29 @@ without invoking HotSpot; the primary architecture set remains unchanged.
 No held-out thermal or policy result is claimed until the still-unopened v3
 protocol completes from a fresh clone and is archived unchanged.
 
-The blind-direction bounds are DEVELOPMENT-split results. They are certified
-in the sense that every counted pair carries a witness repaired to exact
-rational polytope feasibility and re-proved with zero slack, and the cover
-search runs to proven optimality or refuses. They are not held-out, they use
-one thermal family from one linear HotSpot configuration, and the power maps
-come from a ThermoDSE evaluator with documented defects recorded in the parent
-workspace's CLAUDE.md. The certified upper bound they are compared against is
-a greedy cover over discovered cuts — a feasible plan found by one search, not
-a proven optimum.
+Everything above is a DEVELOPMENT-split result, on the registry plus freshly
+generated development points. The frozen held-out split was not opened;
+opening it to enlarge a sample is what the protocol exists to prevent. A
+design-space statement here is a finite-sample statement about the points
+generated, not about the parameterised space.
+
+Certified means each counted pair carries a witness repaired to exact rational
+polytope feasibility and re-proved with zero slack, and the cover search runs
+to proven optimality or refuses. It does not mean held-out. One thermal family
+from one linear HotSpot configuration; power maps from a ThermoDSE evaluator
+with documented defects (`e_tot` subtracts compute energy, NoP energy is
+smeared over the interposer, HotSpot leakage feedback is disabled), which
+affect the energy-delay factor under every yield composition equally and are
+not corrected here.
+
+Two headline numbers were withdrawn this round and both withdrawals are kept
+in the tree rather than deleted: a certified bound quoted under an uncertainty
+set it was not computed on, and a safety conclusion carried from a subset to
+the set containing it. The containment-transfer table above exists because of
+them, and three independent implementations of the relocation radius — a box
+greedy, a lifted LP, an inverted transfer greedy — are now required by test to
+agree in the order their containments force.
+
+The upper bound the blind-direction work compares against is a greedy cover
+over discovered cuts — a feasible plan found by one search, not a proven
+optimum.
