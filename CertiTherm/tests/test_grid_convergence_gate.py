@@ -78,14 +78,28 @@ def test_the_measured_under_resolved_operator_is_REFUSED() -> None:
     assert verdict["measured"][0]["worst_drift_k"] == pytest.approx(4.0)
 
 
-def test_a_model_without_a_refinement_parameter_is_reported_as_ungated_not_as_passing() -> None:
-    """A caller reading only `status` must not conclude that `block` was checked."""
+def test_block_is_MEASURED_now_and_ungated_survives_only_without_any_grid() -> None:
+    """This test previously asserted the hole. `block` used to land in `ungated`; it is now gated.
 
-    fields = {"grid64-avg": [300.0], "grid128-avg": [300.0]}
+    The old assertion was that a caller reading only `status` must not conclude `block` was checked.
+    That was right about the danger and wrong about the remedy -- the remedy is to check it. What
+    remains genuinely ungatable is a family with no grid model at all, and that case is kept.
+    """
+
+    fields = {"block": [300.0], "grid64-avg": [300.0], "grid128-avg": [300.0]}
     verdict = gate(_replay(fields), ["block", "grid64-avg"], [("placed", np.array([1.0]))])
     assert verdict["status"] == "PASS"
-    assert verdict["ungated"] == ["block"]
-    assert [m["model_id"] for m in verdict["measured"]] == ["grid64-avg"]
+    assert verdict["ungated"] == [], "block must no longer escape the gate"
+    assert sorted(m["model_id"] for m in verdict["measured"]) == ["block", "grid64-avg"]
+    # `block` is compared against the refinement of the finest grid in the family it was given.
+    assert next(m for m in verdict["measured"] if m["model_id"] == "block")[
+        "refined_model_id"
+    ] == "grid128-avg"
+
+    # The one genuinely unmeasurable case: nothing to compare against.
+    only_block = gate(_replay({"block": [300.0]}), ["block"], [("placed", np.array([1.0]))])
+    assert only_block["ungated"] == ["block"]
+    assert only_block["measured"] == []
 
 
 def test_an_empty_vector_list_is_refused_rather_than_scoring_zero_drift() -> None:
