@@ -64,29 +64,55 @@ area-weighted mean to reproduce the evaluator's own `die_yield`; it does, exactl
 refuses to report anything if it does not — because the product and KGD columns are built from the
 same edge lists and a geometry misread would corrupt them with no other symptom.
 
-`4x4` tile grid, `resnet50`, equal dies, cut `1 -> 2 -> 4`:
+**Design:** 6 tile grids x cuts `1 -> 2 -> 4`, both workloads, all other parameters fixed at registry
+values, every cut dividing its grid evenly so all dies are equal. 18 architectures generated; **3
+were refused** by the frozen 0.01 K linearisation-error contract (the `8x6` grids, worst replay
+outside the band), which is the fail-closed path working rather than a failure. **15 architectures x
+2 workloads = 30 points, 10 decision groups.**
 
-| dies | `Y` mean (evaluator) | `Y` product | KGD silicon m²/good system | `E·D` |
-| --- | --- | --- | --- | --- |
-| 1 | 0.882492 | 0.882492 | 1.7997e-04 | 4.4335 |
-| 2 | 0.940892 (**+6.6 %**) | 0.885277 (+0.32 %) | 1.6568e-04 (**−7.9 %**) | 4.7363 |
-| 4 | 0.970015 (**+9.9 %**) | 0.885348 (+0.32 %) | 1.6361e-04 (**−9.1 %**) | 4.9177 |
+| grid | workload | n | `Y` mean | `Y` product | EDYP mean | EDYP product | EDYP kgd (x1e3) | `beta*` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4x4 | resnet50 | 1 / 2 / 4 | 0.8825 / 0.9409 / 0.9700 | 0.8825 / 0.8853 / 0.8853 | 5.024 / 5.034 / 5.070 | 5.024 / 5.350 / 5.555 | 0.798 / **0.785** / 0.805 | 3.771 / 4.002 / **4.173** % |
+| 4x6 | resnet50 | 1 / 2 / 4 | 0.8275 / 0.9120 / 0.9546 | 0.8275 / 0.8318 / 0.8305 | 5.134 / 4.967 / 4.903 | 5.134 / 5.446 / 5.636 | 1.239 / **1.172** / 1.188 | 3.103 / 3.279 / **3.384** % |
+| 6x4 | resnet50 | 1 / 2 / 4 | 0.8274 / 0.9105 / 0.9546 | 0.8274 / 0.8290 / 0.8304 | 5.023 / 4.848 / 4.806 | 5.023 / 5.325 / 5.525 | 1.213 / 1.165 / **1.165** | 3.039 / 3.190 / **3.314** % |
+| 6x6 | resnet50 | 1 / 2 / 4 | 0.7509 / 0.8680 / 0.9316 | 0.7509 / 0.7534 / 0.7531 | 5.669 / 5.202 / 5.011 | 5.669 / 5.993 / 6.199 | 2.080 / 1.892 / **1.856** | 2.750 / 2.885 / **2.977** % |
+| 8x4 | resnet50 | 1 / 2 / 4 | 0.7762 / 0.8812 / 0.9394 | 0.7762 / 0.7765 / 0.7789 | 5.482 / 5.124 / 5.010 | 5.482 / 5.815 / 6.043 | 1.777 / 1.664 / **1.634** | 2.782 / 2.906 / **3.017** % |
+| 4x4 | transformer | 1 / 2 / 4 | 0.8825 / 0.9409 / 0.9700 | 0.8825 / 0.8853 / 0.8853 | 16.44 / 16.17 / 16.20 | 16.44 / 17.19 / 17.75 | 2.611 / **2.521** / 2.571 | 0.991 / 1.145 / **1.274** % |
+| 4x6 | transformer | 1 / 2 / 4 | 0.8275 / 0.9120 / 0.9546 | 0.8275 / 0.8318 / 0.8305 | 17.79 / 16.92 / 16.61 | 17.79 / 18.55 / 19.09 | 4.294 / **3.991** / 4.024 | 0.837 / 0.960 / **1.042** % |
+| 6x4 | transformer | 1 / 2 / 4 | 0.8274 / 0.9105 / 0.9546 | 0.8274 / 0.8290 / 0.8304 | 19.17 / 18.15 / 17.89 | 19.17 / 19.93 / 20.56 | 4.629 / 4.361 / **4.336** | 0.993 / 1.097 / **1.211** % |
+| 6x6 | transformer | 1 / 2 / 4 | 0.7509 / 0.8680 / 0.9316 | 0.7509 / 0.7534 / 0.7531 | 19.82 / 17.87 / 17.12 | 19.82 / 20.59 / 21.17 | 7.271 / 6.499 / **6.338** | 0.829 / 0.906 / **0.972** % |
+| 8x4 | transformer | 1 / 2 / 4 | 0.7762 / 0.8812 / 0.9394 | 0.7762 / 0.7765 / 0.7789 | 21.03 / 19.19 / 18.59 | 21.03 / 21.78 / 22.42 | 6.815 / 6.232 / **6.062** | 0.904 / 0.981 / **1.077** % |
 
-The reported yield gain from cutting is **+9.9 %**; under the all-dies-good product it is **+0.32 %**.
-Carried into the objective, the preferred cut differs: the product composition prefers the monolithic
-die decisively, the KGD silicon proxy prefers `n = 2`.
+Four things are visible in every one of the ten groups.
 
-**The phase boundary, so this is decision analysis rather than a disagreement of proxies.** Fixing
-one model and varying one manufacturing-policy parameter, two cuts `m < n` tie under the KGD proxy at
+* **`Y` mean rises monotonically with the die count** — the proposition, confirmed on all 30 points
+  rather than argued.
+* **`Y` product is flat, and sometimes falls** (0.8318 -> 0.8305 at `4x6`; 0.7534 -> 0.7531 at
+  `6x6`). The reported gain of up to **+18.6 percentage points** becomes at most **+0.4**.
+* **The two compositions order the cut oppositely.** `EDYP` product rises monotonically and prefers
+  the monolithic die in **10 of 10** groups; `EDYP` mean falls with the cut in 8 of 10 and prefers a
+  cut design. The known-good-die proxy is non-monotone and picks `n = 2` or `n = 4`.
+* **`beta*` rises monotonically with the die count in 10 of 10 groups**, selecting `n = 4`
+  unanimously and using no yield model, no cost model and no latency to do it.
 
-    y_b* = ( [E·D(n) · S(n)] / [E·D(m) · S(m)] ) ^ (1 / (n - m)),   S(n) = sum_i (a_i + c) / Y(a_i + c)
+**10 of 10 decision groups change their preferred chiplet count with the composition rule.**
 
-in closed form; the bracketing is written out because the grouping of the ratio is easy to misread.
-`yield_composition.py` reports `y_b*` for every adjacent pair against the 0.99 organic-substrate
-bonding yield the cost model registers. **A value above 1 is not a boundary**: since every physical
-bonding yield satisfies `0 < y_b <= 1`, `y_b* > 1` means the coarser cut wins at every attainable
-value and there is no crossover to report. Those rows are labelled `no physical crossover` rather
-than quoted as boundaries — `4x4`/`resnet50`'s 1.0025 is one of them.
+### The phase boundary brackets the registered value
+
+| pair | physical crossovers | `y_b*` range | registered `y_b = 0.99` |
+| --- | --- | --- | --- |
+| `n=1` vs `n=2` | 10 of 10 | 0.8848 – 0.9736 | above all of them: `n=2` always wins |
+| `n=2` vs `n=4` | 9 of 10 | **0.9764 – 0.9997** | **inside the range** |
+
+So at a realistic organic-substrate bonding yield the two-versus-four-chiplet choice is genuinely
+undetermined: some grids cross below 0.99 and some above, and moving the assumed bonding yield by
+about one percent moves the answer. The tenth pair has `y_b* = 1.0025 > 1`, which is **not** a
+boundary — every physical bonding yield is at most 1, so the coarser cut wins everywhere attainable,
+and it is labelled `no physical crossover` rather than quoted beside the others.
+
+**Where the compositions agree.** The robustness-preferred cut coincides with the evaluator's own
+choice in **8 of 10** groups. The claim is not that the objective is always wrong; it is that its
+answer is not determined by the physics, and the radius's is.
 
 **What this is not.** `kgd_silicon` is an explicitly defined silicon-area proxy, not that paper's
 cost: it omits wafer utilisation, scribe loss, bumps, interposer and substrate cost, test and NRE.
