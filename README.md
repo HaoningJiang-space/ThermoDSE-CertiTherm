@@ -36,19 +36,28 @@ executed against the implementation in `CertiTherm/tests/test_yield_composition.
 the contrast that makes it informative: the all-dies-good product falls under the same refinement,
 and a bonded aggregate falls geometrically in the count.
 
-Measured on freshly generated architecture points, with the die geometry now recorded in every
-capture so all compositions are exact even for unequal dies — and with a fatal self-check that the
-recomputed mean reproduces the evaluator's own number. On a `4x4` grid with `resnet50`, cutting
-`1 -> 4` moves the reported yield by **+9.9 %** and the all-dies-good product by **+0.32 %**. Carried
-into the objective the preferred cut differs, and the decision sits on a **phase boundary in a real
-manufacturing parameter**: the `n=2` versus `n=4` choice ties at a bonding yield of
-**0.987 – 1.0025** against the 0.99 an organic-substrate cost model registers. A one-percent change
-in an assumed bonding yield flips the chiplet count.
+Measured on **30 freshly generated points** — 6 tile grids x cuts `1/2/4` x 2 workloads, 15
+architectures surviving; 3 were refused by the frozen 0.01 K linearisation-error contract, which is
+the fail-closed path working. Die geometry is recorded in every capture so all compositions are
+exact, with a fatal self-check that the recomputed mean reproduces the evaluator's own number.
+
+In **10 of 10** decision groups the reported yield rises monotonically with the die count — up to
+**+18.6 percentage points** — while the all-dies-good product is flat or falling, at most **+0.4**.
+Carried into the objective the two order the cut *oppositely*: the product prefers the monolithic die
+in 10 of 10 groups, the evaluator's mean prefers a cut design in 8 of 10. **10 of 10 groups change
+their preferred chiplet count with the composition rule.**
+
+The decision also sits on a **phase boundary in a real manufacturing parameter**. The `n=2` versus
+`n=4` choice ties at a bonding yield in **0.9764 – 0.9997**, and the 0.99 an organic-substrate cost
+model registers falls *inside* that range — so at a realistic bonding yield some grids go one way and
+some the other, and a one-percent change in the assumption moves them.
 
 **The thermal robustness radii do not depend on any of that.** `tau*` (uniform total-power
-under-prediction) and the redistribution radii come from the power map and the linear HotSpot
-operator alone — no yield model, no cost model, no latency. Across the swept decision groups the
-robustness-preferred cut is the finest one, unanimously, under no manufacturing assumption at all.
+under-prediction) and the relocation radius come from the power map and the linear HotSpot operator
+alone — no yield model, no cost model, no latency. The radius rises monotonically with the die count
+in **10 of 10** groups and selects the finest cut unanimously, under no manufacturing assumption.
+It agrees with the evaluator's own choice in 8 of 10; the claim is not that the objective is always
+wrong, but that its answer is not determined by the physics while the radius's is.
 
 ### What observation the decision actually needs, and under which uncertainty set
 
@@ -62,12 +71,15 @@ a "no measurement needed" read off the inscribed subset. Both are recorded rathe
 Under bulk relocation `|p - q|_1 <= 2 b Q`, the first tier needs only reachability, which has a
 **closed form** — no solver, no approximation, no transfer argument:
 
-| candidate | workload | exact `beta*` |
-| --- | --- | --- |
-| arch_a / arch_b / arch_c | resnet50 | 4.133 % / 2.144 % / 4.035 % |
-| arch_a / arch_b / arch_c | transformer | 1.540 % / **0.548 %** / 1.497 % |
+| candidate | workload | `beta*_safe` (feasibility) | `beta*_reject` (identifiability) |
+| --- | --- | --- | --- |
+| arch_a / arch_b / arch_c | resnet50 | 4.090 / 2.117 / 3.994 % | 4.133 / 2.144 / 4.035 % |
+| arch_a / arch_b / arch_c | transformer | 1.519 / **0.493** / 1.477 % | 1.540 / 0.548 / 1.497 % |
 
-Below `beta*`, certifying the thermal-feasibility decision needs **no power measurement at all**.
+Two radii, not one, because **SAFE is not the complement of REJECT**: the registered rows leave a
+`2 x margin` band in which a map is neither. Below `beta*_safe` every admissible map is robustly
+SAFE; below `beta*_reject` no SAFE/REJECT pair exists to tell apart, so the minimum-cost observation
+is zero. Quoting the second while meaning the first was a real error here, caught in review.
 Under independent per-block deviation the bracket is two-sided: nothing needed below
 `0.196 – 3.376 %`, and post-route per-block extraction provably required at `5 %` (`10 %` for one
 instance), with the interval between reported `UNRESOLVED` rather than as a coarse-sufficient window
