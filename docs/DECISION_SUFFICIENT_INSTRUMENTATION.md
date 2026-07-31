@@ -158,18 +158,34 @@ Neither withdrawal costs the result, because the reachability breakpoint is comp
 
 ### Model A — bulk relocation (`|p − q|_1 <= 2 b Q`)
 
-The first tier needs only reachability, and reachability is a maximisation of one linear form, solved
-exactly by the lifted LP in `l1_body.py`. No approximation, no transfer argument, no surgery on the
-certified path.
+The first tier needs only reachability, and reachability is a maximisation of one linear form. No
+approximation, no transfer argument, no surgery on the certified path — and **no solver**: nothing
+bounds `p` from above inside this body, so all received power goes to the single largest-coefficient
+block while donations are taken cheapest-first capped by each block's own power, making the gain
+increasing, concave and piecewise linear in the transferred amount. The smallest amount reaching a
+floor is therefore read off directly.
+
+    beta* = min over reject cells of  t*(cell) / Q,
+    t*(cell) = smallest t with  sum over donors ascending in r of min(q_i, .) (r_max - r_i)  >=  floor - r.q
+
+The lifted LP remains the oracle. The two implementations are deliberately unlike — one inverts a
+sorted greedy, the other solves a linear program — and a randomised test requires them to agree,
+because a second implementation that merely reproduced the first's bug would agree too.
 
 | candidate | workload | exact `beta*` | reading |
 | --- | --- | --- | --- |
-| arch_a | resnet50 | 4.1 % | no measurement needed below 4.1 % relocation |
-| arch_b | resnet50 | 2.1 % | |
-| arch_c | resnet50 | 4.0 % | |
-| arch_a | transformer | 1.5 % | |
-| arch_b | transformer | **0.5 %** | the tightest design in the registry |
-| arch_c | transformer | 1.5 % | |
+| arch_a | resnet50 | 4.133 % | no measurement needed below 4.133 % relocation |
+| arch_b | resnet50 | 2.144 % | |
+| arch_c | resnet50 | 4.035 % | |
+| arch_a | transformer | 1.540 % | |
+| arch_b | transformer | **0.548 %** | the tightest design in the registry |
+| arch_c | transformer | 1.497 % | |
+
+**The containment holds on the real instances, not only on the unit fixture.** The deviation box is a
+superset of the L1 body, so it must reach a reject floor no later — measured, 2.637 ≤ 4.133,
+1.573 ≤ 2.144, 3.376 ≤ 4.035 and 0.778 ≤ 1.540. Three independent implementations (a box greedy, a
+lifted LP, an inverted transfer greedy) agree in the order their containments force, which is the
+check that would have caught the two withdrawn claims before they were written down.
 
 Above `beta*` the tier is **OPEN** under this model: deciding whether coarse reports suffice needs the
 collision oracle over the exact body, which means either the lifted program or lazy generation of the
