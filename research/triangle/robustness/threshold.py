@@ -76,7 +76,10 @@ NON-CLAIM diagnostic. Reads committed artifacts; writes one JSON.
 
 Usage (on moe-server, from the repo root):
     .venv/bin/python research/triangle/robustness/threshold.py <artifact-root> <out.json> \\
-        [candidate:package:workload,...]
+        [candidate:package:workload,...] [relocation|deviation] [radius,radius,...]
+
+With no radius list the blindness breakpoint is bisected; with one, exactly those radii are probed
+and the bracket is only as tight as the ladder given.
 """
 
 from __future__ import annotations
@@ -204,6 +207,11 @@ def main() -> None:
     if GEOMETRY not in SPACES:
         raise SystemExit(f"unknown geometry {GEOMETRY!r}; choose from {sorted(SPACES)}")
     build_space, radius_key = SPACES[GEOMETRY]
+    ladder_radii = (
+        sorted(float(v) for v in sys.argv[5].split(",")) if len(sys.argv) > 5 else ()
+    )
+    if any(r <= 0.0 or r > 1.0 for r in ladder_radii):
+        raise SystemExit("ladder radii must lie in (0, 1]")
     if len(sys.argv) > 3 and sys.argv[3] != "-":
         instances = [tuple(s.split(":")) for s in sys.argv[3].split(",")]
     else:
@@ -281,7 +289,24 @@ def main() -> None:
             ladder.append({"radius": radius, "verdict": verdict})
             return verdict
 
-        if reach > 0.0 and np.isfinite(reach):
+        if ladder_radii:
+            # A FIXED ladder instead of a bisection. With the collision search exhaustive, a
+            # fourteen-step bisection over six instances is a multi-hour budget for a curve whose
+            # interesting feature is a single step; probing declared radii bounds the cost and
+            # answers the question a designer actually asks ("at MY stated accuracy, which tier?").
+            # The bracket is then only as tight as the ladder, which is stated rather than implied.
+            for radius in ladder_radii:
+                if radius < reach:
+                    ladder.append({"radius": radius, "verdict": "no_reject_reachable"})
+                    continue
+                verdict = probe(radius)
+                if verdict in ("blind", "unsynthesizable"):
+                    blind = min(blind, radius)
+                    if verdict == "unsynthesizable":
+                        unsynthesizable_at = min(unsynthesizable_at, radius)
+                elif verdict == "unresolved":
+                    unresolved_steps += 1
+        elif reach > 0.0 and np.isfinite(reach):
             top = probe(1.0)
             if top == "unsynthesizable":
                 unsynthesizable_at = 1.0
