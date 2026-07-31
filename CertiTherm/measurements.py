@@ -143,6 +143,13 @@ def deviation_bounded_power_space(
     observation cost does NOT lower-bound the L1 problem's. A superset admits more SAFE/REJECT
     collisions and therefore demands at least as much observation. Peer review caught the claim; use
     `relocation_bounded_power_space` below when the conclusion must be about relocation.
+
+    **What this set IS the right tool for.** Being an OUTER approximation, it transfers the claims
+    the inscribed box cannot: if NO admissible map here is REJECT, then none is REJECT under L1
+    relocation either, so the empty plan certifies and no measurement is needed. Universal safety
+    and UPPER bounds travel down from a superset; existence and lower bounds travel up from a
+    subset. Use this one to prove a design safe and the inscribed one to prove instrumentation
+    necessary, and the true L1 answer is bracketed from both sides.
     """
 
     placed = np.asarray(placed_power_w, dtype=float)
@@ -176,22 +183,32 @@ def relocation_bounded_power_space(
     independent of how finely the design is decomposed into blocks, which a per-block relative box
     is not.
 
-    The exact L1 body needs the lifted program `p = q + u - v`, `u, v >= 0`, and so cannot be
-    written over `p` alone with finitely many rows. What CAN be, soundly, is its largest inscribed
-    box. With the total conserved, `sum(p - q) = 0`, so `|p - q|_1 = 2 * sum(positive part)` and a
-    box of half-width `h` admits at most `n * h`. Setting
+    The exact L1 body IS a polytope over `p` alone -- `s . (p - q) <= 2 b Q` for every sign vector
+    `s`, or equivalently `sum_{i in S} (p_i - q_i) <= b Q` for every subset `S` once the total is
+    conserved. What it is not is COMPACT: that is an exponential facet count, not an impossibility,
+    and an earlier version of this docstring said "cannot be written over p alone with finitely many
+    rows", which is false and contradicted this repository's own `l1_body.py`. A compact exact
+    encoding exists too, by lifting to `(p, t)` with `t_i >= |p_i - q_i|` and `sum t <= 2 b Q`.
 
-        h = 2 * relocated_fraction * sum(q) / n
+    What this function returns is a sound UNIFORM INSCRIBED box. With the total conserved,
+    `sum(p - q) = 0`, so the deviations split into equal positive and negative parts and a box of
+    half-width `h` admits `|p - q|_1 <= 2 * floor(n/2) * h`. Setting
 
-    puts the box INSIDE the L1 ball. That is the direction that makes a bound transfer: a subset
-    admits no more SAFE/REJECT collisions than the set containing it, so a certified LOWER bound on
-    the subset's minimum observation cost is also a valid lower bound for the L1 problem. The
-    superset box -- `deviation_bounded_power_space` above -- gives no such guarantee, and reading a
-    bound computed on it as an L1 statement was an error peer review found.
+        h = relocated_fraction * sum(q) / floor(n / 2)
 
-    The price is that this is a conservative inner approximation: it is tight only for a deviation
-    spread evenly across every block, and it cannot express moving the whole budget onto one block.
-    A caller who needs that must build the lifted program.
+    puts the box inside the L1 ball. It is the largest UNIFORM inscribed box; it is not the largest
+    inscribed box, since non-uniform half-widths summing to the same budget also fit, and with
+    `p >= 0` clamping and unequal `q_i` "largest" is not even well defined. Peer review corrected an
+    earlier claim of "largest".
+
+    **Which conclusions transfer, and in which direction.** A subset admits no more SAFE/REJECT
+    collisions than the set containing it, so from this box the following travel UP to the L1
+    problem: a collision EXISTS, a coarse-blind pair EXISTS, the minimum observation cost is AT
+    LEAST `c`. The following do NOT: no collision exists, coarse reports suffice, no measurement is
+    needed. Those are universal-safety claims and need the exact body or an OUTER approximation such
+    as `deviation_bounded_power_space`. An earlier draft used this box to argue "no measurement
+    needed under relocation", which is that error exactly -- and the concentrated relocations this
+    box drops are the ones most likely to make a hotspot.
     """
 
     placed = np.asarray(placed_power_w, dtype=float)
@@ -204,7 +221,7 @@ def relocation_bounded_power_space(
     total = float(np.sum(placed))
     if total <= 0:
         raise ValueError("placed power must have positive total")
-    budget = 2.0 * relocated_fraction * total / placed.size
+    budget = relocated_fraction * total / max(placed.size // 2, 1)
     return PowerPolytope(
         lower_w=np.maximum(placed - budget, 0.0),
         upper_w=placed + budget,

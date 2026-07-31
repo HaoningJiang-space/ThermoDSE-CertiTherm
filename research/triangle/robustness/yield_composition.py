@@ -30,7 +30,12 @@ reader see which conclusions survive all of them:
 
     mean     Y_mean                        what the frozen evaluator reports
     product  prod_ij Y(h_i w_j + A_nop)    all dies must be good, no known-good-die screening
-    kgd      sum_ij (h_i w_j + A_nop) / Y(...) / bonding^n   expected silicon per working system
+    kgd      sum_ij (h_i w_j + A_nop) / Y(...) / bonding^n   expected SILICON AREA per working
+                                                              system -- an explicitly defined proxy,
+                                                              NOT Chiplet Actuary's cost, which also
+                                                              carries wafer utilisation, scribe loss,
+                                                              bump, interposer, substrate, test and
+                                                              NRE terms this does not model
 
 None is declared uniquely correct -- that would need fabrication, test, assembly and redundancy
 assumptions this project does not have. The point is that the CUT DECISION is not invariant across
@@ -70,7 +75,10 @@ D0, ALPHA = 0.08, 10          # ThermoDSE/core/gen_hw_setting.py, 14 nm
 # Chiplet Actuary's organic-substrate bonding yield (`parameter.ini`, OS section). Used only in the
 # KGD column, and reported so a reader can see how much of that column it drives.
 BONDING_YIELD = 0.99
-MEAN_TOLERANCE = 5e-4
+# Tight enough to mean what the prose claims. At 5e-4 the check passes a disagreement in the fourth
+# decimal while the text said "reproduces to 6 dp"; measured agreement is exact to floating point, so
+# the tolerance is set where the claim is.
+MEAN_TOLERANCE = 5e-7
 
 
 def die_yield(area_m2: float) -> float:
@@ -88,12 +96,20 @@ def compositions(die_h_m, die_w_m, nop_area_m2):
         raise ValueError("die edge lists must be non-empty one-dimensional arrays")
     if not (np.all(np.isfinite(heights)) and np.all(np.isfinite(widths))):
         raise ValueError("die edge lists must be finite")
-    if np.any(heights <= 0) or np.any(widths <= 0) or not math.isfinite(nop_area_m2):
-        raise ValueError("die edges must be positive and the NoP area finite")
+    if np.any(heights <= 0) or np.any(widths <= 0):
+        raise ValueError("die edges must be positive")
+    if not math.isfinite(nop_area_m2) or nop_area_m2 < 0.0:
+        # Nonnegativity as well as finiteness: a negative NoP area shrinks every die below its own
+        # geometry and raises every yield, with no other symptom.
+        raise ValueError(f"the per-die NoP area must be finite and nonnegative, got {nop_area_m2}")
 
     areas = np.outer(heights, widths).reshape(-1)
     total = float(heights.sum()) * float(widths.sum())
     yields = np.array([die_yield(a + float(nop_area_m2)) for a in areas])
+    # Guarded before the log and the division. An underflowed yield would silently produce an
+    # infinite KGD cost and a zero product, either of which reads as a decisive preference.
+    if not np.all(np.isfinite(yields)) or np.any(yields <= 0.0):
+        raise ValueError("per-die yields must be finite and strictly positive to compose")
 
     mean = float((yields * areas / total).sum())
     # Sum of logs, not a running product: with tens of dies the direct product underflows long
@@ -107,6 +123,11 @@ def compositions(die_h_m, die_w_m, nop_area_m2):
         "die_areas_m2": [float(a) for a in areas],
         "yield_mean": mean,
         "yield_product": product,
+        # Bonding applied to the product too, so that comparing `product` against `kgd` isolates
+        # the SCREENING policy and nothing else. Peer review found the earlier comparison confounded:
+        # it changed screening, bonding, units and normalisation at once, and a reviewer could then
+        # say only that two different objectives picked two different designs.
+        "yield_product_with_bonding": float(product * bonding),
         "kgd_silicon_m2_per_good_system": kgd_silicon,
         "bonding_penalty": float(1.0 / bonding - 1.0),
     }
@@ -156,8 +177,10 @@ def main() -> None:
             "energy_delay": energy_delay,
             "yield_mean": derived["yield_mean"],
             "yield_product": derived["yield_product"],
+            "yield_product_with_bonding": derived["yield_product_with_bonding"],
             "edyp_mean": energy_delay / derived["yield_mean"],
             "edyp_product": energy_delay / derived["yield_product"],
+            "edyp_product_bonded": energy_delay / derived["yield_product_with_bonding"],
             "kgd_silicon_m2_per_good_system": derived["kgd_silicon_m2_per_good_system"],
             "edyp_kgd": energy_delay * derived["kgd_silicon_m2_per_good_system"],
             "bonding_penalty": derived["bonding_penalty"],

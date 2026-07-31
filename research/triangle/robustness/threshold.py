@@ -6,10 +6,19 @@ a step function of a single physically meaningful parameter, with two computable
 
 Let `U(b)` be the uncertainty set at radius `b`, selected by argv and RECORDED in every output row:
 
-    relocation  the largest box inscribed in `|p - q|_1 <= 2 b sum(q)` -- a SUBSET of the L1
-                transfer ball, so a bound proved on it is also a bound for the L1 problem
-    deviation   the L-infinity ball of half-width `b sum(q)` -- a SUPERSET of that ball, whose
-                bounds do NOT transfer to an L1 statement
+    relocation  a uniform box inscribed in `|p - q|_1 <= 2 b sum(q)` -- a SUBSET of the L1 ball
+    deviation   the L-infinity ball of half-width `b sum(q)` -- a SUPERSET of that ball
+
+Which tier may be quoted as an L1 statement depends on WHICH set it was measured on, and the two
+directions are opposite. From the INNER set, existence travels up: a REJECT map exists, a
+coarse-blind pair exists, the cost is AT LEAST c. From the OUTER set, universal safety travels down:
+no REJECT map exists, coarse suffices for every map, no measurement is needed. So
+`NO_MEASUREMENT_NEEDED_AT_ANY_RADIUS` is an L1 claim only when measured on `deviation`, and
+`PER_BLOCK_REQUIRED_ABOVE_E_BLIND` is an L1 claim only when measured on `relocation`. Reading the
+inner set's silence as safety is the certificate-direction error peer review found in an earlier
+draft, and it is the dangerous one: the concentrated relocations the inscribed box drops are exactly
+those that make a hotspot. `l1_body.py` sidesteps the choice for the reachability breakpoint, which
+it computes EXACTLY.
 
 Both are intersected with the total-power plane and the nonnegative orthant, and both are NESTED in
 `b`, so anything measured on them is monotone and two breakpoints separate three tiers:
@@ -77,6 +86,9 @@ NON-CLAIM diagnostic. Reads committed artifacts; writes one JSON.
 Usage (on moe-server, from the repo root):
     .venv/bin/python research/triangle/robustness/threshold.py <artifact-root> <out.json> \\
         [candidate:package:workload,...] [relocation|deviation] [radius,radius,...]
+
+Use `deviation` (outer) for a safety verdict and `relocation` (inner) for a necessity verdict; each
+output row records which was used so a tier can never be quoted under the wrong geometry.
 
 With no radius list the blindness breakpoint is bisected; with one, exactly those radii are probed
 and the bracket is only as tight as the ladder given.

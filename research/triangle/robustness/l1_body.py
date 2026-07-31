@@ -36,12 +36,25 @@ of one linear form over the body, and that is solved exactly by the lifted LP be
 object, no certified-path surgery. So the "no measurement needed" breakpoint is exact under the true
 L1 relocation body, and does not inherit the inscribed box's conservatism.
 
-The distinction is worth the paragraph because the two answers are far apart. On
-`arch_a`/`default`/`resnet50` the inscribed box cannot reach a reject floor even at `b = 1.0`, which
-would license "no measurement needed at any relocation budget"; the exact body reaches it at
-`b = 4.1%`. The box conclusion is SOUND -- a subset reaching no floor says nothing about the
-superset -- but it is sound in the useless direction, and quoting it as the relocation breakpoint
-would overstate the design's robustness by more than an order of magnitude.
+The distinction is not conservatism, it is a REVERSED IMPLICATION, and getting it wrong is the
+error this file exists to make impossible. Containment transfers asymmetrically:
+
+    on an INNER set (subset of L1)      on an OUTER set (superset of L1)
+    a REJECT map exists          -> L1  no REJECT map exists         -> L1
+    a coarse-blind pair exists   -> L1  coarse suffices for every map-> L1
+    cost is AT LEAST c           -> L1  cost is AT MOST c            -> L1
+
+So EXISTENCE and LOWER bounds travel up from an inner set, and UNIVERSAL safety and UPPER bounds
+travel down from an outer one. "No measurement is needed" is a universal-safety claim, so it needs
+the exact body or an OUTER approximation -- never the inscribed box. On
+`arch_a`/`default`/`resnet50` the inscribed box reaches no reject floor even at `b = 1.0` while the
+exact body reaches one at `b = 4.1%`: reading the first as "safe at any relocation budget" would
+have overstated the design's robustness by more than an order of magnitude, and it would have been
+unsound rather than merely loose. Peer review caught exactly that claim in an earlier draft.
+
+The concentrated relocations the inscribed box drops -- the whole budget onto one block -- are
+precisely the ones that make a hotspot, so the omission is adversarially selected against the
+conclusion it was being used to support.
 
 This file is the tracked home of `radius_l1`, which produced numbers already quoted in
 `docs/THERMAL_ROBUSTNESS_RADII.md` while living only in an untracked scratch directory on the
