@@ -110,6 +110,16 @@ about one percent moves the answer. The tenth pair has `y_b* = 1.0025 > 1`, whic
 boundary — every physical bonding yield is at most 1, so the coarser cut wins everywhere attainable,
 and it is labelled `no physical crossover` rather than quoted beside the others.
 
+**The bracket is fragile, and this belongs beside the number rather than in a limitations section.**
+`y_b*` is derived inside the silicon-area proxy `S(n) = sum_i (a_i + c) / Y(a_i + c)`, which omits
+wafer utilisation and scribe loss, bump and interposer and substrate cost, test, and NRE — all of
+them count-dependent. Any one of them can move a crossover by more than the 0.0136 that separates
+0.9764 from 0.99. So what is established is that **a crossover exists in the physically attainable
+range and lands near the registered value**, not that 0.99 falls on one particular side of it. The
+conclusion that survives is the weaker and still useful one: the two-versus-four-chiplet choice is
+not determined by this objective at realistic bonding yields. Recomputing `y_b*` under a complete
+cost flow, and sweeping the omitted terms, is the experiment that would settle which side.
+
 **Where the compositions agree.** The robustness-preferred cut coincides with the evaluator's own
 choice in **8 of 10** groups. The claim is not that the objective is always wrong; it is that its
 answer is not determined by the physics, and the radius's is.
