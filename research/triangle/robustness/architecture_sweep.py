@@ -77,7 +77,18 @@ MATCHED = [
     for (tx, ty) in ((4, 4), (6, 4), (8, 4), (4, 6), (6, 6), (8, 6))
     for (cx, cy) in ((1, 1), (2, 1), (2, 2))
 ]
-GRIDS = {"cut": GRID, "frontier": FRONTIER, "matched": MATCHED}
+# The PREREGISTERED held-out design, declared in `docs/HELDOUT_PROTOCOL_RADII.md` before any of
+# these points was generated. Six tile grids none of which appears in `MATCHED`, crossed with the
+# same three cuts; the first four bring new aspect ratios and the last two bring a spacing that was
+# never varied in development. Every cut divides its grid evenly, so all dies are equal.
+HELDOUT_RADII = [
+    (tx, ty, cx, cy, interval)
+    for (tx, ty, interval) in ((2, 8, "0.0017"), (8, 2, "0.0017"),
+                               (2, 6, "0.0017"), (6, 2, "0.0017"),
+                               (4, 4, "0.0040"), (6, 4, "0.0040"))
+    for (cx, cy) in ((1, 1), (2, 1), (2, 2))
+]
+GRIDS = {"cut": GRID, "frontier": FRONTIER, "matched": MATCHED, "heldout_radii": HELDOUT_RADII}
 D0, ALPHA = 0.08, 10          # ThermoDSE/core/gen_hw_setting.py, 14 nm
 
 
