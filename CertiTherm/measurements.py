@@ -49,6 +49,81 @@ def coarse_power_space(
     )
 
 
+def activity_bounded_power_space(
+    blocks: Sequence[str],
+    placed_power_w: np.ndarray,
+    *,
+    activity_span: float,
+    constrain_class_totals: bool = True,
+) -> PowerPolytope:
+    """A physically defensible uncertainty set: bounded per-block activity, capped class totals.
+
+    `coarse_power_space` admits EVERY nonnegative redistribution that preserves the workload total,
+    and `content_upper_bounds` gives each block its whole content class's power as an individual
+    cap without constraining the class aggregate at all. Peer review named that as the single
+    strongest attack on this work: a certificate derived from it may describe adversarial power maps
+    no workload can produce, so "these blocks require post-route extraction" could be an artifact of
+    the abstraction rather than a property of the design.
+
+    This narrows it on two independent axes, both of which correspond to something a designer knows:
+
+    * **Activity span.** Each block stays within `placed * (1 +- span)`. A block's power varies with
+      utilisation, not arbitrarily, and `span` is that variation. It bounds how much power a blind
+      direction can actually move, which is the quantity the whole construction depends on.
+    * **Class totals.** Each content class's aggregate stays within its own placed total times the
+      same span. This blocks redistribution ACROSS classes while leaving redistribution WITHIN a
+      class untouched -- which is the honest thing for it to do, since a class is exactly what a
+      module-level power report measures.
+
+    The workload total is kept as an equality: it is the one quantity the capture actually observes.
+
+    A larger `activity_span` is a weaker claim, never an unsound one: it enlarges the set, so any
+    bound proved under it holds under every tighter set too. That is what makes a sweep over `span`
+    a robustness curve rather than a tuning knob.
+    """
+
+    placed = np.asarray(placed_power_w, dtype=float)
+    if placed.ndim != 1 or not np.all(np.isfinite(placed)) or np.any(placed < 0):
+        raise ValueError("placed power must be a finite nonnegative vector")
+    if placed.shape != (len(blocks),):
+        raise ValueError("block and placed-power dimensions differ")
+    if not np.isfinite(activity_span) or activity_span <= 0:
+        raise ValueError(f"activity_span must be finite and positive, got {activity_span}")
+    total = float(np.sum(placed))
+    if total <= 0:
+        raise ValueError("placed power must have positive total")
+
+    lower = np.maximum(placed * (1.0 - activity_span), 0.0)
+    # Capped at the registered content bound so this set is a genuine SUBSET of the one the method
+    # was frozen with. Without the cap a block whose placed power is close to its class total gets
+    # `placed * (1 + span)` ABOVE that total, the two sets cross, and a bound proved here would not
+    # be comparable with the registered one. A test caught exactly that at span 0.3.
+    upper = np.minimum(placed * (1.0 + activity_span), content_upper_bounds(blocks, placed))
+    if float(np.sum(lower)) > total or float(np.sum(upper)) < total:
+        raise ValueError(
+            "the activity box excludes the observed total, so the set would be empty; "
+            f"span={activity_span} admits [{float(np.sum(lower)):.3f}, {float(np.sum(upper)):.3f}] "
+            f"against a total of {total:.3f}"
+        )
+
+    rows: list[np.ndarray] = []
+    rhs: list[float] = []
+    if constrain_class_totals:
+        labels = np.asarray(_module_labels(blocks))
+        for label in sorted(set(labels.tolist())):
+            member = (labels == label).astype(float)
+            rows.append(member)
+            rhs.append(float(np.sum(placed[labels == label])) * (1.0 + activity_span))
+    return PowerPolytope(
+        lower_w=lower,
+        upper_w=upper,
+        a_eq=np.ones((1, placed.size)),
+        b_eq=np.array([total]),
+        a_ub=np.asarray(rows) if rows else np.empty((0, placed.size)),
+        b_ub=np.asarray(rhs) if rhs else np.empty(0),
+    )
+
+
 def _groups(labels: Sequence[str]) -> list[tuple[str, np.ndarray]]:
     grouped: dict[str, list[int]] = {}
     for index, label in enumerate(labels):

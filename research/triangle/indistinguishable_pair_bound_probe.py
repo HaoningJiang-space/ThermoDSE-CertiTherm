@@ -62,7 +62,10 @@ from CertiTherm.blind_direction_cuts import (
 )
 from CertiTherm.experiments import _measurement_costs, _power_space, _rows, ROOT
 from CertiTherm.hotspot import load_family
-from CertiTherm.measurements import build_measurement_library
+from CertiTherm.measurements import (
+    activity_bounded_power_space,
+    build_measurement_library,
+)
 from CertiTherm.solver_budget import budget_scope
 from CertiTherm.synthesis import synthesize_minimum_observation
 
@@ -79,10 +82,15 @@ def main() -> None:
     seeds_out = Path(sys.argv[8]) if len(sys.argv) > 8 and sys.argv[8] != "-" else None
     synthesis_budget_s = float(sys.argv[9]) if len(sys.argv) > 9 else 0.0
     gaps_path = Path(sys.argv[10]) if len(sys.argv) > 10 and sys.argv[10] != "-" else None
+    activity_span = float(sys.argv[11]) if len(sys.argv) > 11 else 0.0
 
-    polytope, blocks, _placed, floorplan_text = _power_space(
+    polytope, blocks, placed, floorplan_text = _power_space(
         artifacts / "captures" / f"{workload}--{candidate}.npz"
     )
+    if activity_span > 0:
+        polytope = activity_bounded_power_space(
+            blocks, placed, activity_span=activity_span
+        )
     family, operator_blocks = load_family(
         artifacts / "operators" / f"{candidate}--{package}.npz"
     )
