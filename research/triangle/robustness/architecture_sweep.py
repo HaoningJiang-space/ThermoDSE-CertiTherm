@@ -45,7 +45,7 @@ from CertiTherm.experiments import (
 )
 from CertiTherm.hotspot import load_family
 from CertiTherm.thermal_constraints import reject_cell_rows
-from l1_body import radius_l1
+from l1_body import radius_l1_closed_form
 
 
 MARGIN_K = 0.05
@@ -178,7 +178,7 @@ def main() -> None:
             # of magnitude on some instances and only this one may be quoted as "fraction of total
             # power relocated"; `epsilon_star` is a per-block deviation radius.
             reject_rows, reject_floors = reject_cell_rows(family, MARGIN_K)
-            beta = radius_l1(reject_rows, reject_floors, placed_w)
+            beta = radius_l1_closed_form(reject_rows, reject_floors, placed_w)
             with np.load(captures[wl], allow_pickle=False) as data:
                 edyp = (float(data["latency_ms"]) * float(data["energy_mj"])
                         / float(data["die_yield"]))

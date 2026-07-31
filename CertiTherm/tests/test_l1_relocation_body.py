@@ -5,7 +5,7 @@ nest:
 
     deviation box  |p_i - q_i| <= b Q          CONTAINS the L1 body   -> reaches a floor SOONEST
     L1 body        |p - q|_1   <= 2 b Q        the physical statement
-    inscribed box  |p_i - q_i| <= 2 b Q / n    CONTAINED in it        -> reaches a floor LATEST
+    inscribed box  |p_i - q_i| <= b Q/floor(n/2) CONTAINED in it      -> reaches a floor LATEST
 
 so `radius_deviation <= radius_L1 <= radius_inscribed`. That ordering is the whole reason the three
 were separated, and the measured values on `arch_a`/`default`/`resnet50` obey it by a wide margin
@@ -28,7 +28,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "research" / "triangle" / "robustness"))
 
-from l1_body import radius_l1, reject_reachable_l1  # noqa: E402
+from l1_body import (  # noqa: E402
+    radius_l1,
+    radius_l1_closed_form,
+    reject_reachable_l1,
+)
 
 from CertiTherm.measurements import (  # noqa: E402
     deviation_bounded_power_space,
@@ -158,3 +162,44 @@ def test_a_solver_failure_is_raised_rather_than_read_as_unreachable() -> None:
     with pytest.raises(Exception):
         # A non-finite floor makes the comparison meaningless; the guard must not return False.
         reject_reachable_l1([np.array([1.0, 0.4, 0.2, 0.1])], [float("nan")], _Q, 0.1)
+
+
+def test_the_closed_form_radius_agrees_with_the_lp_oracle() -> None:
+    """The accelerator must not be its own oracle: it is checked against the lifted LP.
+
+    A second implementation can reproduce the first's bug and still agree, so the two here are
+    deliberately unlike -- one inverts a sorted greedy, the other solves a lifted linear program --
+    and the LP stays the definition.
+    """
+
+    rng = np.random.default_rng(7)
+    for trial in range(12):
+        n = int(rng.integers(3, 9))
+        q = np.round(rng.uniform(0.2, 5.0, n), 3)
+        rows = np.round(rng.uniform(0.05, 2.0, (2, n)), 3)
+        nominal = rows @ q
+        floors = nominal + rng.uniform(0.05, 1.5, 2)
+
+        fast = radius_l1_closed_form(rows, floors, q)
+        slow = radius_l1(rows, floors, q)
+        if not np.isfinite(fast) and not np.isfinite(slow):
+            continue
+        assert abs(fast - slow) < 2e-5, (
+            f"trial {trial}: closed form {fast} disagrees with the LP bisection {slow}"
+        )
+        # And the closed form must actually be a radius: just above it reachable, just below not.
+        assert reject_reachable_l1(rows, floors, q, fast + 1e-6)
+        assert not reject_reachable_l1(rows, floors, q, max(fast - 1e-4, 0.0))
+
+
+def test_the_closed_form_returns_zero_for_a_nominally_rejecting_design() -> None:
+    row = np.ones(4)
+    assert radius_l1_closed_form([row], [float(row @ _Q) - 1.0], _Q) == 0.0
+
+
+def test_the_closed_form_returns_infinity_when_no_transfer_reaches_a_floor() -> None:
+    """Donor power is finite, so a high enough floor is out of reach at ANY budget."""
+
+    row = np.array([1.0, 0.4, 0.2, 0.1])
+    unreachable = _closed_form_max(row, _Q, 1.0) + 1.0
+    assert radius_l1_closed_form([row], [unreachable], _Q) == float("inf")

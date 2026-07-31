@@ -119,6 +119,65 @@ def reject_reachable_l1(rows, floors, placed, relocated_fraction) -> bool:
     return False
 
 
+def radius_l1_closed_form(rows, floors, placed) -> float:
+    """The exact relocation radius with no solver at all, by inverting the transfer greedy.
+
+    Nothing bounds `p` from above inside this body, so all received power goes to the single
+    largest-coefficient block, and donations are taken from the smallest coefficients first, each
+    capped by that block's own power. The gain is therefore
+
+        gain(t) = sum over donors in ascending r of min(q_i, remaining) * (r_max - r_i)
+
+    which is increasing, concave and piecewise linear in the transferred amount `t`, so the smallest
+    `t` reaching a floor is read off directly instead of bisected. That makes the radius `O(cells *
+    n log n)` and exact, where the lifted LP is `O(cells * bisection)` solves of `2n` variables --
+    the difference between seconds and hours on a 273-block instance, which is why the sweep grew a
+    closed form rather than a faster bisection.
+
+    `test_l1_relocation_body.py` checks this against `reject_reachable_l1`, so the LP remains the
+    oracle and this remains the accelerator; if they ever disagree the tests fail rather than the
+    faster one silently winning.
+    """
+
+    q = np.asarray(placed, dtype=float)
+    row_array = np.asarray(rows, dtype=float)
+    floor_array = np.asarray(floors, dtype=float)
+    if not (np.all(np.isfinite(row_array)) and np.all(np.isfinite(floor_array))):
+        raise ValueError("reject rows and floors must all be finite to decide reachability")
+    if not (np.all(np.isfinite(q)) and np.all(q >= 0.0)):
+        raise ValueError("the placed power map must be finite and nonnegative")
+    total = float(q.sum())
+    if total <= 0.0:
+        raise ValueError("the placed power map must have a positive total")
+
+    best = float("inf")
+    for row, floor in zip(row_array, floor_array):
+        needed = float(floor) - float(row @ q)
+        if needed <= 0.0:
+            return 0.0                      # the nominal map already reaches this floor
+        receiver = int(np.argmax(row))
+        gains = float(row[receiver]) - row  # per unit donated, by block
+        order = np.argsort(row)             # cheapest donors first
+        moved = 0.0
+        gained = 0.0
+        for index in order:
+            index = int(index)
+            if index == receiver or gains[index] <= 0.0:
+                continue
+            capacity = float(q[index])
+            if gained + capacity * gains[index] >= needed:
+                moved += (needed - gained) / gains[index]
+                gained = needed
+                break
+            moved += capacity
+            gained += capacity * gains[index]
+        if gained < needed:
+            continue                        # this floor is out of reach at any budget
+        # `moved` is the transferred amount t; the registered parameter is t / total.
+        best = min(best, moved / total)
+    return best
+
+
 def radius_l1(rows, floors, placed, hi: float = 1.0) -> float:
     """The smallest relocated fraction at which some admissible map is REJECT.
 
