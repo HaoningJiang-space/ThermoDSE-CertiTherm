@@ -129,8 +129,16 @@ def build_measurement_library(
             [(block, np.asarray([index])) for index, block in enumerate(blocks)],
         ),
     )
+    # Deduplication keeps the CHEAPEST equivalent action, not the first one encountered. Two
+    # groups with the same support -- or with complementary supports, which read the same
+    # difference under the polytope's fixed total -- are the same observation, so registering both
+    # and keeping whichever came first would charge a caller for the more expensive one. It happens
+    # to be safe for the monotone 1/2/4/8 ladder this project registers, since the classes are
+    # visited cheapest-first, but the signature accepts any cost mapping and peer review was right
+    # that nothing enforced the order. This does.
+    ordered = sorted(registries, key=lambda entry: float(costs[entry[0]]))
     actions, seen = [], {(), tuple(range(n))}
-    for action_class, groups in registries:
+    for action_class, groups in ordered:
         for label, indices in groups:
             key = tuple(indices.tolist())
             key_set = set(key)

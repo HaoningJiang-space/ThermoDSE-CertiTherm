@@ -84,6 +84,12 @@ class BlindPairWitness:
     reject_point: int
     cut_action_indices: Tuple[int, ...]
     cut_action_ids: Tuple[str, ...]
+    forced_block: Optional[int] = None
+    """Set when the cut names only ONE of the two blocks, which makes it a unit constraint.
+
+    Every certifying selection must then instrument that block outright -- strictly stronger than
+    the edge a two-sided cut gives, and it must be recorded rather than discarded.
+    """
 
 
 def blind_direction_cells(
@@ -399,16 +405,27 @@ def certify_blind_pair(
             cut = separator_set(safe_w, unsafe_w, actions, Fraction(0))
         except (CertificateError, CertificateUnresolved):
             continue
+        if not cut:
+            # No action separates this pair at all. That is neither an edge nor a forced vertex --
+            # it is the UNSYNTHESIZABLE case, and recording it as either would invent a constraint.
+            # It arises when the step falls at or below every action's tolerance.
+            continue
         if not set(cut) <= admissible:
             raise CertificateError(
                 f"a blind-direction witness for blocks {left} and {right} separated an action "
                 "observing neither of them alone; the cell partition and the action library "
                 "disagree"
             )
-        if not (set(cut) & left_actions) or not (set(cut) & right_actions):
-            # One side's own instruments do not read the step, so instrumenting the other side
-            # alone already separates this witness and the edge would constrain nothing.
-            continue
+        # A cut naming only one side is a UNIT constraint, not an edge. Since `cut` is a subset of
+        # the two blocks' own actions, an empty intersection with one side means the cut lies
+        # entirely in the other, so every certifying selection must instrument THAT block outright.
+        # An earlier comment here had it backwards -- it said instrumenting the opposite side would
+        # already separate the witness, which is exactly wrong -- and dropped the constraint. Peer
+        # review caught it. Keeping it can only raise the bound, because a forced vertex constrains
+        # every cover that contains it.
+        touches_left = bool(set(cut) & left_actions)
+        touches_right = bool(set(cut) & right_actions)
+        forced = None if (touches_left and touches_right) else (right if touches_right else left)
         return BlindPairWitness(
             left_block=left,
             right_block=right,
@@ -418,6 +435,7 @@ def certify_blind_pair(
             reject_point=point,
             cut_action_indices=tuple(sorted(cut)),
             cut_action_ids=tuple(actions[i].action_id for i in sorted(cut)),
+            forced_block=forced,
         )
     return None
 
@@ -426,6 +444,7 @@ def blind_direction_lower_bound(
     cells: Sequence[Sequence[int]],
     confusable_edges: Mapping[int, Sequence[Tuple[int, int]]],
     block_cost: Mapping[int, Fraction],
+    forced_blocks: Optional[Mapping[int, Sequence[int]]] = None,
 ) -> Tuple[Fraction, Tuple[dict, ...]]:
     """Sum each cell's proven minimum-weight cover -- valid because the cells are disjoint.
 
@@ -440,6 +459,7 @@ def blind_direction_lower_bound(
     cell it is filed under.
     """
 
+    forced_blocks = {} if forced_blocks is None else forced_blocks
     seen: set = set()
     for cell in cells:
         members = set(cell)
@@ -461,13 +481,25 @@ def blind_direction_lower_bound(
                 f"cell {cell_index} was given {len(stray)} edge(s) whose blocks it does not "
                 "contain; the per-cell minima would no longer be additive"
             )
-        cover_weight, cover = minimum_weight_vertex_cover(cell, edges, block_cost)
+        forced = tuple(sorted(set(forced_blocks.get(cell_index, ()))))
+        stray_forced = [b for b in forced if b not in members]
+        if stray_forced:
+            raise ValueError(
+                f"cell {cell_index} was given forced blocks it does not contain: {stray_forced}"
+            )
+        # A forced block is in every cover by definition, so it is paid for up front and the edges
+        # it already covers are removed before the search. Both halves matter: charging without
+        # removing would double-count, removing without charging would understate.
+        total += sum((block_cost[b] for b in forced), Fraction(0))
+        remaining = [(u, v) for u, v in edges if u not in set(forced) and v not in set(forced)]
+        cover_weight, cover = minimum_weight_vertex_cover(cell, remaining, block_cost)
         total += cover_weight
         detail.append({
             "cell_index": cell_index,
             "cell_size": len(cell),
             "confusable_edges": len(edges),
+            "forced_blocks": len(forced),
             "min_weight_vertex_cover": float(cover_weight),
-            "cover_size": len(cover),
+            "cover_size": len(cover) + len(forced),
         })
     return total, tuple(detail)

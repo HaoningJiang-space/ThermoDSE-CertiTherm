@@ -454,3 +454,44 @@ def test_seeding_starts_separation_from_the_seeded_selection() -> None:
     assert bare.lower_bound is None or one.lower_bound >= bare.lower_bound, (
         "seeding must not produce a weaker first-iteration bound than not seeding"
     )
+
+
+def test_a_one_sided_cut_is_a_forced_vertex_not_a_discarded_edge() -> None:
+    """The constraint an earlier version threw away, and it is the STRONGER one.
+
+    A cut is a subset of the two blocks' own single-block actions. If it meets only one side, the
+    constraint reads "instrument THAT block" -- a unit constraint every certifying selection must
+    satisfy outright -- not "instrument one of the two". An earlier comment claimed the opposite,
+    that instrumenting the other side would already separate the witness, and dropped it. Peer
+    review caught the reversal.
+    """
+
+    cost = {0: Fraction(8), 1: Fraction(8), 2: Fraction(8)}
+    cells = ((0, 1, 2),)
+
+    plain, _ = blind_direction_lower_bound(cells, {0: [(0, 1)]}, cost)
+    assert plain == 8, "one edge needs one endpoint"
+
+    with_forced, detail = blind_direction_lower_bound(
+        cells, {0: [(0, 1)]}, cost, forced_blocks={0: [2]}
+    )
+    assert with_forced == 16, (
+        "a forced block is in every cover, so it is paid on top of the edge it does not touch"
+    )
+    assert detail[0]["forced_blocks"] == 1 and detail[0]["cover_size"] == 2
+
+    # A forced block that already covers the edge must be charged ONCE, not twice.
+    overlapping, _ = blind_direction_lower_bound(
+        cells, {0: [(0, 1)]}, cost, forced_blocks={0: [0]}
+    )
+    assert overlapping == 8, (
+        "charging the forced block and then re-covering the edge it already covers double-counts"
+    )
+
+
+def test_a_forced_block_outside_its_cell_is_refused() -> None:
+    """Same additivity hazard as a misfiled edge: it would charge another cell's block."""
+
+    cost = {b: Fraction(8) for b in range(4)}
+    with pytest.raises(ValueError, match="forced blocks it does not contain"):
+        blind_direction_lower_bound(((0, 1), (2, 3)), {0: [(0, 1)]}, cost, forced_blocks={0: [3]})
