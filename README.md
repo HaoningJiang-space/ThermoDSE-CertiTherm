@@ -67,7 +67,11 @@ alone — no yield model, no cost model, no latency. The radius rises monotonica
 in **10 of 10** groups and selects the finest cut unanimously, under no manufacturing assumption.
 It agrees with the evaluator's own choice in 8 of 10 and with the complete-cost choice in only 1 of
 10, so the two axes genuinely disagree — and only one of them gives the same answer whichever
-manufacturing assumptions a reader brings.
+manufacturing assumptions a reader brings. The ordering is also not one thermal operator's artefact:
+all three registered operators (`block`, `grid64-avg`, `grid128-avg`) induce it in **10 of 10**
+groups. That is within-family agreement rather than independent validation, and an independent
+simulator is recorded as blocked rather than skipped — 3D-ICE cannot represent a package whose die,
+spreader and sink have three distinct footprints.
 
 ### What observation the decision actually needs, and under which uncertainty set
 

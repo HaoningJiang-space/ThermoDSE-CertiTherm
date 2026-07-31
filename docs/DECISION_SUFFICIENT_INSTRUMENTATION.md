@@ -156,6 +156,29 @@ thermal operator with no yield model, no cost model and no latency. It coincides
 complete-cost choice in only 1 of 10 groups, so the two axes genuinely disagree — and only one of
 them gives the same answer whichever manufacturing assumptions a reader brings.
 
+### The ordering is not one thermal operator's artefact either
+
+Every radius above is a minimum over the registered family, which is the fail-closed aggregation but
+also hides whether the operators agree. Scored separately (`per_model_radii.py`):
+
+| operator | induces the family ordering |
+| --- | --- |
+| `block` | 10 of 10 groups |
+| `grid64-avg` | 10 of 10 groups |
+| `grid128-avg` | 10 of 10 groups |
+
+**0 of 10 decision groups have an operator that orders the cuts differently from the family minimum**
+— the ordering is `1 < 2 < 4` under all three, everywhere. The radii themselves differ, as a block
+model and a 128-cell grid must; the *order*, which is what a decision consumes, does not.
+
+This is **within-family agreement, not independent validation**, and the difference is stated rather
+than glossed: all three are HotSpot on the same floorplan, package and boundary conditions, so a
+systematic error in that stack moves all three together. An independent simulator is recorded as
+**blocked, not skipped** — the sibling 3D-ICE adapter cannot represent this package, whose die,
+spreader and sink have three distinct footprints while that tool's passive layers share one global
+chip footprint; truncating them to the die footprint adds about 2.57 K of series copper against a
+0.095 K margin, which is 27x the quantity being decided.
+
 **Where the compositions agree.** The robustness-preferred cut coincides with the evaluator's own
 choice in **8 of 10** groups. The claim is not that the objective is always wrong; it is that its
 answer is not determined by the physics, and the radius's is.
