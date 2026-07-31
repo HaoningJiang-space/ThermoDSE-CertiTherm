@@ -198,26 +198,39 @@ A superset of Model A, so its safety verdicts also hold under relocation, and a 
 model in its own right: each block's power is independently mispredicted by at most a fraction of the
 chip total. Here the full three-tier structure is measured.
 
-| candidate | workload | `e_reach` | `e_blind` | tier structure |
+All six instances, probed on the declared ladder `{0.5, 1, 2, 5, 10, 25} %`:
+
+| candidate | workload | `e_reach` (proof) | per-block established at | gap left UNRESOLVED |
 | --- | --- | --- | --- | --- |
-| arch_a | resnet50 | 2.637 % | 5.0 % | nothing / coarse / per-block |
-| arch_b | resnet50 | 1.573 % | 5.0 % | nothing / coarse / per-block |
-| arch_c | resnet50 | 3.376 % | 10.0 % | nothing / coarse / per-block |
-| arch_a | transformer | 0.778 % | 5.0 % | nothing / coarse / per-block |
+| arch_a | resnet50 | 2.637 % | 5 % | 2.637 – 5 % |
+| arch_b | resnet50 | 1.573 % | 5 % | 1.573 – 5 % (2 % unresolved) |
+| arch_c | resnet50 | 3.376 % | 10 % | 3.376 – 10 % (5 % unresolved) |
+| arch_a | transformer | 0.778 % | 5 % | 0.778 – 5 % (1 %, 2 % unresolved) |
+| arch_b | transformer | **0.196 %** | 5 % | 0.196 – 5 % (0.5, 1, 2 % unresolved) |
+| arch_c | transformer | 1.198 % | 5 % | 1.198 – 5 % (2 % unresolved) |
 
-Read as a decision procedure:
+Read as a decision procedure, and note that only two of the three tiers are established:
 
-    b < e_reach              no measurement at all — every admissible map is SAFE, the empty plan
-                             certifies, and this direction is a proof rather than a measurement
-    e_reach <= b < e_blind   the module/chiplet/region reports an architecture-stage flow already
-                             produces are sufficient
-    b >= e_blind             post-route per-block extraction is required; a SAFE/REJECT pair exists
-                             that the entire coarse library reads identically, so no plan built from
-                             it certifies at any price
+    b < e_reach     NO measurement at all. Every admissible map is SAFE, the empty plan certifies,
+                    and this direction is a proof rather than a measurement. ESTABLISHED, exactly,
+                    for every instance.
+    b >= 5 % (10 %) POST-ROUTE PER-BLOCK extraction is required. A SAFE/REJECT pair exists that the
+                    entire coarse library reads identically, so no plan built from it certifies at
+                    any price. ESTABLISHED by an exactly recomputed witness.
+    in between      UNRESOLVED.
+
+**The middle tier is defined but was never established.** A "coarse reports suffice" verdict requires
+the collision search to complete AND every returned collision to be separated by a coarse action
+under exact recomputation. That verdict (`separable`) does not appear once in the six ladders: every
+probe above `e_reach` came back either `blind` or `unresolved`. So this registry supports a two-sided
+BRACKET on where per-block extraction becomes necessary — not needed below `e_reach`, needed at 5 %
+— and reports the interval between as unresolved rather than as a coarse-sufficient window. An
+earlier draft of this section wrote the middle tier as measured; it is not.
 
 This also explains an earlier isolated observation. A certified requirement of 0 at `b = 2 %` and
-1440 at `b = 5 %` on `arch_a`/`default`/`resnet50` looked like a discontinuity; it is simply the two
-breakpoints, `e_reach = 2.637 %` and `e_blind = 5.0 %`, straddled by those two probes.
+1440 at `b = 5 %` on `arch_a`/`default`/`resnet50` looked like a discontinuity; it is simply the
+bracket, `e_reach = 2.637 %` below and an established blind pair at 5 % above, straddled by those two
+probes.
 
 **`UNRESOLVED` is a first-class verdict.** A collision search that times out, dies, or returns only
 feasibility-boundary artifacts establishes nothing, and must not advance the "coarse suffices"
@@ -243,5 +256,6 @@ four now refuse.
 * **Cheapest refutation.** Sections 1 and 2 fall if the recomputed area-weighted mean stops
   reproducing the evaluator's `die_yield` (the probe refuses in that case), or if a refinement is
   exhibited that lowers the mean. Section 5 falls if a REJECT map is exhibited below a reported
-  `beta*` under the exact L1 budget, or if a coarse-blind pair below `e_blind` survives exact
-  recomputation of its cut.
+  `beta*` under the exact L1 budget, or if a coarse-blind pair below the established
+  per-block radius survives exact recomputation of its cut. Section 5's middle tier is refuted the
+  moment a `separable` verdict is produced anywhere, which would turn the bracket into a window.
