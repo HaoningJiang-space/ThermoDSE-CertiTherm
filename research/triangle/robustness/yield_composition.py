@@ -258,7 +258,7 @@ def main() -> None:
         picks = {
             name: min(members, key=lambda r: r[field])
             for name, field in (("mean", "edyp_mean"), ("product", "edyp_product"),
-                                ("kgd", "edyp_kgd"))
+                                ("product_bonded", "edyp_product_bonded"), ("kgd", "edyp_kgd"))
         }
         robust = max(
             members,
