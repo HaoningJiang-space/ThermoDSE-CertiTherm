@@ -28,10 +28,17 @@ EDA stage is sufficient to justify the resulting architecture choice.
 > from the development regime**: measured drift 0.153–1.409 K against a frozen linearisation budget
 > of 0.01 K and a SAFE/REJECT decision band of 0.10 K. The linearisation error is 0.0004–0.0017 K
 > throughout — the frozen contract is exact, and it bounds the wrong error, because both sides of
-> its comparison share the grid. Every radius, tier and certified observation bound in this
-> repository therefore keeps its value and loses its error bar. The composition and cost results,
-> which never touch the thermal operator, are unaffected. Full measurement and the claim-by-claim
-> split: `docs/DISCRETISATION_ERROR_EXCEEDS_THE_DECISION_BAND.md`.
+> its comparison share the grid.
+>
+> **The repair is to charge the error, not to refuse the operator.** Folding the measured drift into
+> `error_k` — which `thermal_constraints` already subtracts from both the SAFE and the REJECT sides —
+> yields a sound, weaker certificate instead of none. With every operator charged, all four
+> architectures certify, and **every radius this project has reported is overstated: by ~1.3x on the
+> compact development geometry and up to 4.8x on elongated geometry** (`6x2` n=1: `tau*` 149.3 % ->
+> 31.2 %, `beta*` 3.76 % -> 1.46 %). Those corrected numbers have not yet been propagated through the
+> tree. The composition and cost results, which never touch the thermal operator, are unaffected.
+> Full measurement, the Richardson assumption behind the safety factor, and the `block`-escapes-the-
+> budget error found on the way: `docs/DISCRETISATION_ERROR_EXCEEDS_THE_DECISION_BAND.md`.
 
 ### The chiplet-count decision is not identifiable from the objective
 

@@ -86,15 +86,71 @@ quantity being decided.
   the operators, not evidence the bound is right; a defensible bound needs an argument from the
   decision it protects, which is the next round's first task.
 
+## The repair: charge the error, do not refuse the operator
+
+Refusing was the first design and it rejected everything, which is fail-closed and useless — no
+certificate at all, and it treats a large error as the defect when the defect is an **unbudgeted**
+one. `thermal_constraints` already subtracts `error_k` from both the SAFE and the REJECT right-hand
+sides, so folding the drift in makes SAFE harder to reach and REJECT easier, fail-closed on both, and
+yields a sound weaker certificate. `CertiTherm/grid_convergence_gate.py:budgeted_error_k`:
+
+    error_k = MODEL_ERROR_LIMIT_K + GRID_DRIFT_SAFETY_FACTOR * drift,   factor = 2.0
+
+`drift = |T_N − T_2N|` is not the operator's error: `|T_N − T_inf| <= drift + |T_2N − T_inf|`, and the
+second term is unmeasured without a `4N`. Assuming at least first-order convergence bounds it by the
+first, which is where the factor of two comes from. **It is an assumption**, registered as a named
+constant rather than multiplied in silently.
+
+### The first attempt was routed around, and the number said so
+
+Charging only the two grid operators left the headline unchanged, because `block` — no refinement
+parameter, therefore ungated, therefore still carrying 0.01 K — is the model that **binds** the
+family minimum:
+
+| model | `error_k` | its own `beta*` |
+| --- | --- | --- |
+| `block` | 0.01 K | **3.757 %** ← sets the family minimum |
+| `grid64-avg` | 2.829 K | 6.448 % |
+| `grid128-avg` | 1.528 K | 5.796 % |
+
+Reporting "the radii survive budgeting" at that point would have been true and meaningless. `block`
+and `gridN-avg` are two discretisations of the same physics that both emit per-block temperatures, so
+`block` is now gated against the refinement of the finest grid at no extra cost. Its charge rests on
+a weaker argument than the grid ones — `block -> grid256-avg` is not a *refinement* of `block`, so the
+Richardson factor does not apply and the drift is a plain lower bound on the disagreement.
+
+### What survives, with every operator charged
+
+All four architectures certify. `resnet50`:
+
+| design | `tau*` unbudgeted -> budgeted | `beta*` unbudgeted -> budgeted | retained |
+| --- | --- | --- | --- |
+| `6x2` n=1 | 149.3 % -> **31.2 %** | 3.76 % -> **1.46 %** | 21 % / 39 % |
+| `6x2` n=4 | 166.9 % -> **35.8 %** | 7.05 % -> **2.77 %** | 21 % / 39 % |
+| `4x4` n=1 | 156.1 % -> **105.7 %** | 3.77 % -> **2.81 %** | 68 % / 75 % |
+| `4x4` n=4 | 172.5 % -> **118.6 %** | 4.17 % -> **3.14 %** | 69 % / 75 % |
+
+**Every radius previously reported by this project was overstated** — by about 1.3x on the compact
+development geometry and up to 4.8x on the elongated geometry the held-out split introduced. The
+retention tracks how badly each operator was resolved, which is the sanity check that the budget is
+doing what it should rather than subtracting a constant.
+
+A 31 % total-power under-prediction and a 1.46 % relocation budget are still real margins. The
+method produces sound certificates with both known error sources priced; it produces smaller numbers.
+
+**This is not a revival of the ordering claim.** Both grids happen to come out monotone under the
+full budget (`6x2`: 1.46 < 2.77; `4x4`: 2.81 < 3.14), but that is four architectures, one workload,
+two cuts, on a burned split. It is an observation, and the preregistered kill condition stands.
+
 ## Consequences
 
-1. **No tag, and the reason is no longer about experimental breadth.** The instrument is not
-   validated. A DAC reviewer finding this would be right to reject, which is exactly the class of
-   objection this project set out to eliminate before submission rather than after.
-2. **The frozen `0.01 K` error contract needs a companion, not a replacement.** Linearisation and
-   discretisation are different errors and only one was ever budgeted. The gate is the companion;
-   whether its bound belongs in the SAFE/REJECT rows the way the linearisation band does is an open
-   design question, not a decided one.
+1. **No tag.** The instrument now has a budgeted error where it had an unmeasured one, which is a
+   repair rather than a result — and its immediate consequence is that every thermal number already
+   in the tree is overstated by 1.3x to 4.8x and has not yet been recomputed.
+2. **The frozen `0.01 K` error contract has a companion now.** Linearisation and discretisation are
+   different errors and only one was ever budgeted; both are. Whether the drift term belongs in the
+   SAFE/REJECT rows exactly as the linearisation band does, or deserves a different treatment, is
+   answered pragmatically here and not settled in principle.
 3. **The registered family may need finer operators, anisotropic grids, or both.** The convergence
    study's hypothesis — a square grid over a non-square floorplan under-resolves the short axis — is
    consistent with `6x2` drifting 5x more than `4x4`, and the model-id vocabulary (`gridN-avg`, one
