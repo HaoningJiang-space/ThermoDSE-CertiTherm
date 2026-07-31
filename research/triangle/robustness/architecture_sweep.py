@@ -88,7 +88,12 @@ HELDOUT_RADII = [
                                (4, 4, "0.0040"), (6, 4, "0.0040"))
     for (cx, cy) in ((1, 1), (2, 1), (2, 2))
 ]
-GRIDS = {"cut": GRID, "frontier": FRONTIER, "matched": MATCHED, "heldout_radii": HELDOUT_RADII}
+# The smallest set that can tell whether the grid-convergence gate does what it was built for:
+# `6x2` is where a 4x finer grid reversed the cut ordering, and `4x4` is a compact control from the
+# development regime that must still pass or the gate is simply too tight to use.
+GATECHECK = [(tx, ty, cx, cy) for (tx, ty) in ((6, 2), (4, 4)) for (cx, cy) in ((1, 1), (2, 2))]
+GRIDS = {"cut": GRID, "frontier": FRONTIER, "matched": MATCHED,
+         "heldout_radii": HELDOUT_RADII, "gatecheck": GATECHECK}
 D0, ALPHA = 0.08, 10          # ThermoDSE/core/gen_hw_setting.py, 14 nm
 
 
