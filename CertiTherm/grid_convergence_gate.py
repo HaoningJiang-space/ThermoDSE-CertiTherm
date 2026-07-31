@@ -39,6 +39,20 @@ by more than the bound, so at least one of them is wrong.
 exemption: `block` was the outlier in one of the four groups measured, and nothing in this module
 would catch it.
 
+## Budgeting beats refusing, at equal soundness
+
+The first version of this module refused an operator whose drift exceeded the bound, and running it
+refused **every** operator including the compact development controls
+(`docs/DISCRETISATION_ERROR_EXCEEDS_THE_DECISION_BAND.md`). That is fail-closed but useless: it
+produces no certificate at all, and it treats a large error as the defect when the actual defect is
+an UNBUDGETED one.
+
+`budgeted_error_k` is the repair. `thermal_constraints` already subtracts `error_k` from both the
+SAFE and the REJECT right-hand sides, so folding the discretisation term in makes SAFE harder to
+reach and REJECT easier -- fail-closed on both -- and yields a sound, weaker certificate instead of
+none. The price shows up where it should: as a smaller robustness radius on an under-resolved
+operator. Refusal is then reserved for a band so wide the decision is vacuous.
+
 ## Status
 
 **Not wired into `experiments.py`.** That module is frozen under `method-freeze-radii-v1`, whose
@@ -49,6 +63,7 @@ implementation and its tests; adopting it is the first item of the next round.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
@@ -60,6 +75,41 @@ import numpy as np
 # does not enter the certificate at all -- it decides whether an operator may be built. Registering
 # them as one number would make a change to either silently move the other.
 GRID_DRIFT_LIMIT_K = 0.05
+
+# `drift = |T_N - T_2N|` is NOT a bound on the operator's error `|T_N - T_inf|`. By the triangle
+# inequality the true error is at most `drift + |T_2N - T_inf|`, and the second term is unmeasured
+# here because there is no `4N`. Under the standard assumption that the scheme is at least
+# first-order convergent and the refinement monotone, `|T_2N - T_inf| <= drift`, giving
+# `|T_N - T_inf| <= 2 * drift`. That factor is the Richardson-style safety margin below.
+#
+# It is an ASSUMPTION, not a proof: a scheme that is not converging at all, or one whose error
+# changes sign between refinements, breaks it. It is registered as a named constant rather than
+# multiplied in silently so that a reader can see exactly what is being assumed and change it.
+GRID_DRIFT_SAFETY_FACTOR = 2.0
+
+
+def budgeted_error_k(linearisation_error_k: float, drift_k: float) -> float:
+    """The model-error bound that covers BOTH error sources, for one operator.
+
+    The frozen `MODEL_ERROR_LIMIT_K` budgets linearisation and nothing else, which is the defect
+    this module exists to repair: an unbudgeted error is the problem, not a large one. Folding the
+    discretisation term in here makes the certificate SOUND and weaker, rather than absent -- and
+    `thermal_constraints` already subtracts `error_k` from BOTH the SAFE and the REJECT right-hand
+    sides, so a larger budget makes SAFE harder to reach and REJECT easier, which is the fail-closed
+    direction on both.
+
+    Refusing the operator outright and budgeting it are both fail-closed. Budgeting is strictly more
+    useful at equal soundness, so refusal is reserved for a band so wide the decision is vacuous --
+    which the caller decides, since only it knows the ambient and the limit.
+    """
+
+    if not math.isfinite(linearisation_error_k) or linearisation_error_k < 0.0:
+        raise ValueError(
+            f"the linearisation budget must be finite and nonnegative, got {linearisation_error_k}"
+        )
+    if not math.isfinite(drift_k) or drift_k < 0.0:
+        raise ValueError(f"the measured drift must be finite and nonnegative, got {drift_k}")
+    return linearisation_error_k + GRID_DRIFT_SAFETY_FACTOR * drift_k
 
 _GRID = re.compile(r"^grid(\d+)(-.+)?$")
 

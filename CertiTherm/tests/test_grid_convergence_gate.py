@@ -129,3 +129,42 @@ def test_the_drift_limit_is_separate_from_the_linearisation_budget() -> None:
 
     assert GRID_DRIFT_LIMIT_K != MODEL_ERROR_LIMIT_K
     assert GRID_DRIFT_LIMIT_K > MODEL_ERROR_LIMIT_K
+
+
+def test_the_budget_covers_both_error_sources_with_the_richardson_factor() -> None:
+    """`drift` is not the operator's error; it is the gap between two refinements.
+
+    `|T_N - T_inf| <= |T_N - T_2N| + |T_2N - T_inf|`, and the second term is unmeasured. Assuming
+    at least first-order convergence bounds it by the first, hence the factor of two. The assumption
+    is registered as a constant so a reader can see it and change it.
+    """
+
+    from CertiTherm.grid_convergence_gate import GRID_DRIFT_SAFETY_FACTOR, budgeted_error_k
+
+    assert GRID_DRIFT_SAFETY_FACTOR >= 1.0, (
+        "a factor below one would budget LESS than the measured gap between two refinements, "
+        "which is unsound in the direction that matters"
+    )
+    assert budgeted_error_k(0.01, 0.250) == pytest.approx(0.01 + 2.0 * 0.250)
+    assert budgeted_error_k(0.01, 0.0) == pytest.approx(0.01), (
+        "a converged operator must cost exactly the linearisation budget and nothing more"
+    )
+
+
+def test_the_budget_is_monotone_in_the_drift_so_a_coarser_grid_is_never_cheaper() -> None:
+    from CertiTherm.grid_convergence_gate import budgeted_error_k
+
+    budgets = [budgeted_error_k(0.01, d) for d in (0.0, 0.05, 0.25, 1.41)]
+    assert all(a < b for a, b in zip(budgets, budgets[1:]))
+
+
+def test_a_non_finite_or_negative_input_to_the_budget_is_refused() -> None:
+    """An unmeasurable error cannot be budgeted, and must not silently become zero."""
+
+    from CertiTherm.grid_convergence_gate import budgeted_error_k
+
+    for bad in (float("nan"), float("inf"), -0.1):
+        with pytest.raises(ValueError):
+            budgeted_error_k(0.01, bad)
+        with pytest.raises(ValueError):
+            budgeted_error_k(bad, 0.1)

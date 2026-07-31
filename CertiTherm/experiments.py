@@ -83,7 +83,12 @@ from .thermodse_bridge import (
     write_hotspot_config as _configure,
 )
 from .frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
-from .grid_convergence_gate import GRID_DRIFT_LIMIT_K, refined_model_id
+from .grid_convergence_gate import (
+    GRID_DRIFT_LIMIT_K,
+    GRID_DRIFT_SAFETY_FACTOR,
+    budgeted_error_k,
+    refined_model_id,
+)
 from .split_protocol import (
     ANYTIME_SPLITS as _ANYTIME_SPLITS,
     BURNED_SPLITS as _BURNED_SPLITS,
@@ -374,6 +379,7 @@ def _operator_cache_signature(
         "thermal_limit_k": THERMAL_LIMIT_K,
         "error_limit_k": MODEL_ERROR_LIMIT_K,
         "grid_drift_limit_k": GRID_DRIFT_LIMIT_K,
+        "grid_drift_safety_factor": GRID_DRIFT_SAFETY_FACTOR,
         "calibration_vectors": CALIBRATION_VECTOR_IDS,
         "gpu_enabled": gpu_enabled,
     }
@@ -723,11 +729,6 @@ def _operator(
         for row in calibration
         if row["bound_status"] == "REJECT"
     ]
-    drifted = [
-        (row["capture"], row["vector_id"], row["model_id"], row["grid_drift_k"])
-        for row in calibration
-        if row["grid_status"] == "REJECT"
-    ]
     _write_tsv(calibration_path, calibration)
     if rejected:
         worst = max(rejected, key=lambda item: item[-1])
@@ -736,16 +737,45 @@ def _operator(
             f"{len(rejected)} replay(s); worst={worst[0]}/{worst[1]}/"
             f"{worst[2]}:{worst[3]:.6g} K"
         )
-    if drifted:
-        # Reported AFTER the linearity refusal so an operator failing both is named by the older
-        # contract first, which keeps existing refusal messages stable.
-        worst = max(
-            drifted, key=lambda item: item[-1] if math.isfinite(item[-1]) else float("inf")
-        )
+    # Discretisation drift is CHARGED, not refused. Refusing was the first design and running it
+    # rejected every operator including the compact development controls, which is fail-closed and
+    # useless: it yields no certificate and treats a large error as the defect when the defect is an
+    # UNBUDGETED one. `thermal_constraints` subtracts `error_k` from both the SAFE and the REJECT
+    # right-hand sides, so folding the drift in makes SAFE harder and REJECT easier -- fail-closed on
+    # both -- and the price of a coarse grid appears as a smaller robustness radius rather than as a
+    # missing answer. See docs/DISCRETISATION_ERROR_EXCEEDS_THE_DECISION_BAND.md.
+    worst_drift = {model_id: 0.0 for model_id in family.model_ids}
+    for row in calibration:
+        drift = row["grid_drift_k"]
+        if row["grid_status"] == "UNGATED":
+            continue
+        if not math.isfinite(drift):
+            raise RuntimeError(
+                f"the grid-convergence replay for {row['capture']}/{row['vector_id']}/"
+                f"{row['model_id']} returned a non-finite drift; an unmeasurable error cannot be "
+                "budgeted and must not be treated as zero"
+            )
+        worst_drift[row["model_id"]] = max(worst_drift[row["model_id"]], drift)
+    budgeted = np.array(
+        [
+            budgeted_error_k(MODEL_ERROR_LIMIT_K, worst_drift[model_id])
+            for model_id in family.model_ids
+        ]
+    )
+    # An operator whose budget swallows the whole headroom decides nothing, and a certificate that
+    # cannot separate SAFE from REJECT is worse than an absent one because it still looks like an
+    # answer. That is the only case refusal is kept for.
+    headroom = THERMAL_LIMIT_K - float(np.max(family.ambient_k))
+    vacuous = [
+        (str(model_id), float(bound))
+        for model_id, bound in zip(family.model_ids, budgeted)
+        if bound >= headroom
+    ]
+    if vacuous:
         raise RuntimeError(
-            f"grid-convergence gate rejected {len(drifted)} replay(s) against the 2x refinement; "
-            f"worst={worst[0]}/{worst[1]}/{worst[2]}:{worst[3]:.6g} K above "
-            f"{GRID_DRIFT_LIMIT_K} K"
+            "the grid-convergence budget is at least the whole headroom to the thermal limit for "
+            f"{len(vacuous)} model(s); worst={vacuous[0][0]}:{vacuous[0][1]:.6g} K against "
+            f"{headroom:.6g} K, so no SAFE/REJECT separation exists to certify"
         )
     family = type(family)(
         family.model_ids,
@@ -753,7 +783,7 @@ def _operator(
         family.ambient_k,
         family.limit_k,
         family.provenance_sha256,
-        np.full(len(family.model_ids), MODEL_ERROR_LIMIT_K),
+        budgeted,
     )
     save_family(target, family, blocks)
     _write_cache_receipt(
