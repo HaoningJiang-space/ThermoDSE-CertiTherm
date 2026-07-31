@@ -120,10 +120,19 @@ def test_a_negative_or_non_finite_nop_area_is_refused() -> None:
 
 
 def test_a_die_large_enough_to_underflow_its_yield_is_refused_not_composed() -> None:
-    """Without the guard the log and the division produce -inf and inf with no other symptom."""
+    """Without the guard the log and the division produce -inf and inf with no other symptom.
 
+    The threshold is checked rather than guessed: the first fixture written here used a 1e6 m edge,
+    whose yield is 9.3e-140 -- finite, positive, and correctly NOT refused. A test that fires on an
+    input the guard is right to accept would have been reporting the guard broken.
+    """
+
+    assert die_yield(1e12) > 0.0, "the accepted side of the boundary must stay accepted"
+    compositions(np.array([1e6]), np.array([1e6]), 0.0)
+
+    assert die_yield(1e32) == 0.0, "the fixture no longer underflows, so it tests nothing"
     with pytest.raises(ValueError):
-        compositions(np.array([1e6]), np.array([1e6]), 0.0)
+        compositions(np.array([1e16]), np.array([1e16]), 0.0)
 
 
 def test_degenerate_edge_lists_are_refused() -> None:
