@@ -229,7 +229,8 @@ def main() -> None:
                     )
                     moved.append({
                         "factor": name, "value": value,
-                        "critical_bonding_yield": swept["critical_bonding_yield"],
+                        "critical_bonding_yield_exact": swept["critical_bonding_yield_exact"],
+                        "inside_physical_range": swept["inside_physical_range"],
                         "finer_wins_at_registered_bonding": fine_better,
                     })
             winners = {entry["finer_wins_at_registered_bonding"] for entry in moved}
