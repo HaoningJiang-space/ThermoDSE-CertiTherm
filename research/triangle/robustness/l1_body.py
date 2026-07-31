@@ -67,16 +67,28 @@ def reject_reachable_l1(rows, floors, placed, relocated_fraction) -> bool:
     """
 
     q = np.asarray(placed, dtype=float)
+    row_array = np.asarray(rows, dtype=float)
+    floor_array = np.asarray(floors, dtype=float)
+    # Checked BEFORE any comparison, and separately. `x >= nan` is False, so a non-finite floor
+    # would be silently read as "this cell is not reachable" and the radius reported LARGER than
+    # was established -- the fail-open direction for a robustness radius. The repository has found
+    # five separate instances of a guard written as one inequality failing exactly this way.
+    if not (np.all(np.isfinite(row_array)) and np.all(np.isfinite(floor_array))):
+        raise ValueError("reject rows and floors must all be finite to decide reachability")
+    if not (np.all(np.isfinite(q)) and np.all(q >= 0.0)):
+        raise ValueError("the placed power map must be finite and nonnegative")
+    if not np.isfinite(relocated_fraction):
+        raise ValueError(f"relocated_fraction must be finite, got {relocated_fraction}")
     n = q.size
     total = float(q.sum())
     if relocated_fraction <= 0.0:
-        return bool(np.any(np.asarray(rows, dtype=float) @ q >= np.asarray(floors, dtype=float)))
+        return bool(np.any(row_array @ q >= floor_array))
 
     a_ub = np.vstack((np.ones((1, 2 * n)), np.hstack((-np.eye(n), np.eye(n)))))
     b_ub = np.concatenate(([2.0 * relocated_fraction * total], q))
     a_eq = np.hstack((np.ones((1, n)), -np.ones((1, n))))
     bounds = [(0.0, None)] * (2 * n)
-    for row, floor in zip(np.asarray(rows, dtype=float), np.asarray(floors, dtype=float)):
+    for row, floor in zip(row_array, floor_array):
         result = linprog(
             np.concatenate((-row, row)), A_ub=a_ub, b_ub=b_ub,
             A_eq=a_eq, b_eq=[0.0], bounds=bounds, method="highs",
