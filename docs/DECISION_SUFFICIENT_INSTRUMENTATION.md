@@ -1,4 +1,18 @@
-# The chiplet-count decision is not identifiable from the objective, and here is what is
+# The chiplet-count decision is not identifiable from the objective
+
+> **HELD-OUT UPDATE 2026-08-01 — the second half of the original title is withdrawn.** A
+> preregistered held-out evaluation (`docs/HELDOUT_PROTOCOL_RADII.md`, freeze ID
+> `method-freeze-radii-v1`) returned **6 PASS and 2 FAIL of 8**, and both failures are kill
+> conditions. `beta*` is **not** strictly monotone in the die count (2 of 8 groups reverse), and the
+> three thermal operators do **not** induce a common cut ordering (6 of 8 groups disagree; on the
+> `Nx2` grids the four-die design has the smallest radius under both grid operators and the largest
+> under `block`). **The claim that the relocation radius orders chiplet cuts stably is WITHDRAWN.**
+> Every "10 of 10" ordering statement below is a development-set observation on compact,
+> near-square grids and does not survive elongated ones. What did generalise — the diagnosis that
+> the decision is not determined by the objective under any composition or cost parameterisation
+> tried — is listed in `docs/HELDOUT_RESULT_RADII.md`, which also records that 6 of 18 architectures
+> were refused because the preregistered 4.0 mm spacing is outside the pinned evaluator's 3.5 mm
+> validity domain, so the spacing axis is untested.
 
 RESULT 2026-07-31. Development registry plus freshly generated architecture points; the frozen
 held-out split was not opened. No place-and-route, no sign-off flow: everything here is computable at
@@ -186,10 +200,16 @@ manufacturing-cost parameters one assumes, across every composition tried here**
 arithmetic mean, the all-dies-good product, a silicon-area proxy, and a transcribed OS
 recurring-cost model. Four modelling choices is a sample, not a spanning set, and they do not agree.
 
-**And the relocation radius is invariant to all of the above.** It rises monotonically with the die
-count in 10 of 10 groups and selects `n = 4` unanimously, computed from the power map and the linear
-thermal operator with no yield model, no cost model and no latency. It coincides with the
-recurring-cost choice in only 1 of 10 groups, so the two axes genuinely disagree.
+**And the relocation radius is invariant to all of the above** — it is computed from the power map
+and the linear thermal operator with no yield model, no cost model and no latency, and it coincides
+with the recurring-cost choice in only 1 of 10 development groups and **0 of 8 held-out groups**, so
+the two axes genuinely disagree. That disagreement is the surviving claim and it strengthened out of
+sample.
+
+**What the radius does NOT do is order the cuts stably.** On development it rose monotonically with
+the die count in 10 of 10 groups and selected `n = 4` unanimously; held out, 2 of 8 groups reverse
+and 6 of 8 contain an operator that disagrees with the family ordering. Withdrawn — see the banner
+above.
 
 The precise property is **manufacturing-cost invariance**, not "determined by physics". The radius
 carries its own modelling commitments — a HotSpot-only linear family, a steady-state single power
@@ -198,7 +218,7 @@ those are listed in the scope section. What it does not carry is any dependence 
 composition, the cost parameters or the volume, which is exactly the dependence that decides the
 chiplet count above.
 
-### The ordering is not one thermal operator's artefact either
+### The ordering IS one thermal operator's artefact — refuted on held-out data
 
 Every radius above is a minimum over the registered family, which is the fail-closed aggregation but
 also hides whether the operators agree. Scored separately (`per_model_radii.py`):
@@ -209,9 +229,12 @@ also hides whether the operators agree. Scored separately (`per_model_radii.py`)
 | `grid64-avg` | 10 of 10 groups |
 | `grid128-avg` | 10 of 10 groups |
 
-**0 of 10 decision groups have an operator that orders the cuts differently from the family minimum**
-— the ordering is `1 < 2 < 4` under all three, everywhere. The radii themselves differ, as a block
-model and a 128-cell grid must; the *order*, which is what a decision consumes, does not.
+**0 of 10 development groups have an operator that orders the cuts differently from the family
+minimum.** That was offered as evidence the ordering is not a modelling artefact. **The held-out
+split refutes it: 6 of 8 groups disagree**, and on the `Nx2` grids the two grid operators invert the
+whole ordering relative to `block`. On this evidence the development agreement was a property of
+compact, near-square floorplans rather than of the method, and the section heading above is kept in
+its original form only so the correction is visible against it.
 
 This is **within-family agreement, not independent validation**, and the difference is stated rather
 than glossed: all three are HotSpot on the same floorplan, package and boundary conditions, so a

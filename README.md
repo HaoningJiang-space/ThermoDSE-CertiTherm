@@ -69,14 +69,15 @@ on the chiplet count**. Four modelling choices is a sample, not a spanning set.
 under-prediction) and the relocation radius come from the power map and the linear HotSpot operator
 alone — no yield model, no cost model, no latency. The radius rises monotonically with the die count
 in **10 of 10** groups and selects the finest cut unanimously, under no manufacturing assumption.
-It agrees with the evaluator's own choice in 8 of 10 and with the complete-cost choice in only 1 of
-10, so the two axes genuinely disagree — and only one of them is invariant to the
+It disagrees with the transcribed-cost choice in 1 of 10 development groups and **8 of 8 held-out
+groups**, so the two axes genuinely disagree and that strengthened out of sample — and only one of them is invariant to the
 manufacturing-cost assumptions — which is not the same as being determined by physics: the radius
-carries a HotSpot-only linear family and a stress-test uncertainty set of its own. The ordering is also not one thermal operator's artefact:
-all three registered operators (`block`, `grid64-avg`, `grid128-avg`) induce it in **10 of 10**
-groups. That is within-family agreement rather than independent validation, and an independent
-simulator is recorded as blocked rather than skipped — 3D-ICE cannot represent a package whose die,
-spreader and sink have three distinct footprints.
+carries a HotSpot-only linear family and a stress-test uncertainty set of its own. **But the radius does not order the cuts
+stably, and that claim is withdrawn.** A preregistered held-out evaluation
+(`docs/HELDOUT_RESULT_RADII.md`) returned 6 PASS and 2 FAIL of 8: `beta*` is not strictly monotone
+in the die count, and 6 of 8 groups contain a thermal operator that disagrees with the family
+ordering — on the `Nx2` grids the two grid operators invert it relative to `block`. The 10-of-10
+agreement seen in development was a property of compact, near-square floorplans.
 
 ### What observation the decision actually needs, and under which uncertainty set
 
