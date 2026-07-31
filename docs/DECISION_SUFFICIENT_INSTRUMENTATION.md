@@ -97,28 +97,64 @@ Four things are visible in every one of the ten groups.
 
 **10 of 10 decision groups change their preferred chiplet count with the composition rule.**
 
-### The phase boundary brackets the registered value
+### Superseded: the proxy phase boundary, and what the complete cost model says instead
 
-| pair | physical crossovers | `y_b*` range | registered `y_b = 0.99` |
-| --- | --- | --- | --- |
-| `n=1` vs `n=2` | 10 of 10 | 0.8848 – 0.9736 | above all of them: `n=2` always wins |
-| `n=2` vs `n=4` | 9 of 10 | **0.9764 – 0.9997** | **inside the range** |
+The first version of this section reported a `n=2` versus `n=4` crossover in **0.9764 – 0.9997**
+with the registered 0.99 inside it, derived inside the silicon-area proxy
+`S(n) = sum_i (a_i + c) / Y(a_i + c)`. Peer review objected that the proxy omits wafer utilisation,
+scribe loss, bumps, substrate area and cost, test and the wasted-die term — every one
+count-dependent, any one able to move a crossover by more than the 0.0136 separating 0.9764 from
+0.99. **The objection was correct and the proxy result is superseded.**
 
-So at a realistic organic-substrate bonding yield the two-versus-four-chiplet choice is genuinely
-undetermined: some grids cross below 0.99 and some above, and moving the assumed bonding yield by
-about one percent moves the answer. The tenth pair has `y_b* = 1.0025 > 1`, which is **not** a
-boundary — every physical bonding yield is at most 1, so the coarser cut wins everywhere attainable,
-and it is labelled `no physical crossover` rather than quoted beside the others.
+`research/triangle/robustness/chiplet_cost.py` replaces it with a clean-room transcription of the
+organic-substrate recurring-cost path of a published chiplet cost model (Chiplet Actuary, DAC 2022;
+provenance, licence and semantic delta in `vendor/chiplet-actuary.md`, nothing vendored). Every
+omitted term is present; `NRE` is excluded as volume-dependent, which is a scope choice rather than
+a missing recurring term. The closed form for the tie no longer applies — under the full flow the
+substrate defect and wasted-chip terms scale with `1/y_b^n` while the raw chip and raw package terms
+do not — so the crossover is **scanned**, and each factor is swept one at a time.
 
-**The bracket is fragile, and this belongs beside the number rather than in a limitations section.**
-`y_b*` is derived inside the silicon-area proxy `S(n) = sum_i (a_i + c) / Y(a_i + c)`, which omits
-wafer utilisation and scribe loss, bump and interposer and substrate cost, test, and NRE — all of
-them count-dependent. Any one of them can move a crossover by more than the 0.0136 that separates
-0.9764 from 0.99. So what is established is that **a crossover exists in the physically attainable
-range and lands near the registered value**, not that 0.99 falls on one particular side of it. The
-conclusion that survives is the weaker and still useful one: the two-versus-four-chiplet choice is
-not determined by this objective at realistic bonding yields. Recomputing `y_b*` under a complete
-cost flow, and sweeping the omitted terms, is the experiment that would settle which side.
+Minimising `energy x delay x recurring cost per working system` over the same 30 points:
+
+| | proxy (superseded) | complete cost flow |
+| --- | --- | --- |
+| cost-optimal cut | `n = 2` or `n = 4` | **`n = 1` in 9 of 10 groups** |
+| `n=1` vs `n=2` | crossover at 0.8848–0.9736 | **no crossover at all** — monolithic wins across the entire 0.80–1.00 bonding-yield grid in 10 of 10 |
+| `n=2` vs `n=4` | 0.9764–0.9997, registered value inside | 0.954–0.986, registered value **above** all of them |
+| agrees with the robustness choice | 8 of 10 | **1 of 10** |
+
+At these die sizes the yield benefit of cutting does not pay for the wafer-utilisation, substrate
+and compounding-assembly terms — which is the same direction as that model's own headline, that
+chiplets pay only above a die-area threshold.
+
+### What actually determines the decision, measured factor by factor
+
+Each factor swept alone across a defensible range, asking whether the winner at the registered
+bonding yield changes:
+
+| swept factor | range | cut pairs whose winner flips |
+| --- | --- | --- |
+| substrate recurring cost `re_cost_factor` | 0.001 – 0.02 $/mm² | **11 of 20** |
+| substrate area multiplier `area_scale` | 2 – 8 | 7 of 20 |
+| defect density | 0.04 – 0.16 cm⁻² | 6 of 20 |
+| wafer cost | \$2 000 – \$9 000 | 6 of 20 |
+| C4 bump cost factor | 0.001 – 0.02 | **0 of 20** |
+
+**11 of 20 cut pairs change their winner under at least one single-factor sweep.** The decision is
+governed by the substrate cost model — not by bonding yield, which produces no crossover at all for
+the `n=1`/`n=2` pair, and not by the bump cost, which changes nothing anywhere.
+
+That is the corrected and sharper form of the claim this document opened with. It is not that one
+aggregation is wrong; it is that **the most characteristic chiplet decision is determined by which
+manufacturing-cost parameters one assumes, across every composition tried** — the evaluator's
+arithmetic mean, the all-dies-good product, a silicon-area proxy, and a published end-to-end cost
+flow, which between them span the plausible modelling choices and do not agree.
+
+**And the relocation radius is invariant to all of it.** It rises monotonically with the die count
+in 10 of 10 groups and selects `n = 4` unanimously, computed from the power map and the linear
+thermal operator with no yield model, no cost model and no latency. It coincides with the
+complete-cost choice in only 1 of 10 groups, so the two axes genuinely disagree — and only one of
+them gives the same answer whichever manufacturing assumptions a reader brings.
 
 **Where the compositions agree.** The robustness-preferred cut coincides with the evaluator's own
 choice in **8 of 10** groups. The claim is not that the objective is always wrong; it is that its

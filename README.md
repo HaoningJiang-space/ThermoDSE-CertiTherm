@@ -47,17 +47,27 @@ Carried into the objective the two order the cut *oppositely*: the product prefe
 in 10 of 10 groups, the evaluator's mean prefers a cut design in 8 of 10. **10 of 10 groups change
 their preferred chiplet count with the composition rule.**
 
-The decision also sits on a **phase boundary in a real manufacturing parameter**. The `n=2` versus
-`n=4` choice ties at a bonding yield in **0.9764 – 0.9997**, and the 0.99 an organic-substrate cost
-model registers falls *inside* that range — so at a realistic bonding yield some grids go one way and
-some the other, and a one-percent change in the assumption moves them.
+**Nor is it settled by a complete cost model.** Peer review objected that the composition comparison
+rested on a silicon-area proxy omitting wafer utilisation, bumps, substrate cost and test, so the
+proxy was replaced by a clean-room transcription of the organic-substrate recurring-cost path of a
+published chiplet cost model (Chiplet Actuary, DAC 2022; provenance in `vendor/chiplet-actuary.md`,
+nothing vendored). Under the complete flow the cost-optimal cut is **monolithic in 9 of 10 groups**,
+the opposite of what the proxy said — and sweeping one manufacturing factor at a time across a
+defensible range flips the winner in **11 of 20 cut pairs**. The substrate recurring cost drives it;
+the C4 bump cost changes nothing anywhere, and bonding yield produces no crossover at all for the
+one-versus-two pair.
+
+Four modelling choices spanning the plausible range — the evaluator's arithmetic mean, the
+all-dies-good product, a silicon-area proxy, and a published end-to-end cost flow — **do not agree
+on the chiplet count**.
 
 **The thermal robustness radii do not depend on any of that.** `tau*` (uniform total-power
 under-prediction) and the relocation radius come from the power map and the linear HotSpot operator
 alone — no yield model, no cost model, no latency. The radius rises monotonically with the die count
 in **10 of 10** groups and selects the finest cut unanimously, under no manufacturing assumption.
-It agrees with the evaluator's own choice in 8 of 10; the claim is not that the objective is always
-wrong, but that its answer is not determined by the physics while the radius's is.
+It agrees with the evaluator's own choice in 8 of 10 and with the complete-cost choice in only 1 of
+10, so the two axes genuinely disagree — and only one of them gives the same answer whichever
+manufacturing assumptions a reader brings.
 
 ### What observation the decision actually needs, and under which uncertainty set
 
