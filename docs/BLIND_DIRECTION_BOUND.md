@@ -7,6 +7,32 @@
 > pair the result and the radii the primary quantity. Everything below remains valid CONDITIONAL on
 > the registered coarse set, which admits every nonnegative redistribution preserving the workload
 > total.
+>
+> **SECOND WITHDRAWAL, 2026-07-31: the replacement number was mislabelled, and the label was the
+> load-bearing part.** A follow-up run reported a certified bound of **1440 at "5 % relocation"**,
+> offered as the defensible successor to 1312 because a fraction of total power relocated is a
+> statement a power model can be held to. It was computed on
+> `relocation_bounded_power_space`, which at that time returned the *box implied by* an L1 transfer
+> budget — an L-infinity ball of half-width `b · total`. That box is a **superset** of the L1 ball:
+> it lets all 237 blocks take the full allowance simultaneously, so the L1 distance it admits is
+> `237 × b × total`, not `2 × b × total`. Two orders of magnitude.
+>
+> The direction matters because the quantity is a **minimum-cost observation** bound, not a bound on
+> a scalar objective. A larger uncertainty set admits more SAFE/REJECT collisions and therefore
+> demands *at least as much* observation, so a lower bound proved on the superset does **not**
+> lower-bound the L1 problem. Peer review identified this; the function's own docstring had asserted
+> the opposite ("any bound proved on it remains valid"), and that sentence is what licensed the
+> label. `CertiTherm/measurements.py` now separates `deviation_bounded_power_space` (the
+> L-infinity superset, bounds do not transfer) from `relocation_bounded_power_space` (the largest
+> box *inscribed* in the L1 ball, half-width `2 b Q / n`, bounds do transfer), and
+> `CertiTherm/tests/test_relocation_space.py` pins the containment direction of each.
+>
+> **1440 is therefore a bound for a per-block deviation set, not for 5 % relocation, and it is not
+> quoted as a relocation requirement anywhere.** The same withdrawal applies to the radius: the
+> value reported as `beta* = 4.1 %` on `arch_a`/`default`/`resnet50` in the geometry sweep is the
+> exact L1 radius, while `architecture_sweep.py` and `threshold.py` measure the box and get
+> **2.637 %** on the same instance. Those are two different quantities and were reported under one
+> name; the box one is now `epsilon_star`.
 
 RESULT 2026-07-30. Method in `CertiTherm/blind_direction_cuts.py`, pinned by
 `CertiTherm/tests/test_blind_direction_cuts.py` (17 tests). Driver:

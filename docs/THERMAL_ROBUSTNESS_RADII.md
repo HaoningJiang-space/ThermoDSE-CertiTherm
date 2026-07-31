@@ -90,6 +90,49 @@ NOT monotone in die count -- arch_b, with two dies, has less margin than either 
 four-die design -- which is why the thermal side has to be measured rather than reasoned from the
 partition.
 
+## Correction 2026-07-31: two different radii were reported under the name `beta*`
+
+`geometries.py:radius_l1` solves the exact L1 transfer body `|p - q|_1 <= 2 b Q` with the lifted
+program `p = q + u - v`. `architecture_sweep.py:radii` and `threshold.py` instead measure the **box**
+`|p_i - q_i| <= b Q`, which is an L-infinity ball and a strict **superset** — it lets every block
+take the full allowance at once, admitting an L1 distance of `n b Q` rather than `2 b Q`. On
+`arch_a`/`default`/`resnet50` the box reaches a reject floor at **2.637 %** where the exact L1 body
+needs **4.1 %**. Those are two quantities, and the 0.5–4.3 % range quoted above is the L1 one.
+
+The box radius is now `epsilon_star` and the L1 one keeps `beta_star`. The consequence for the
+certified observation requirement is more serious and is recorded in
+`docs/BLIND_DIRECTION_BOUND.md`: a **lower** bound on minimum observation cost proved on a superset
+does not transfer to the subset, so the 1440 reported at "5 % relocation" is a bound for the
+deviation set, not for relocation. `CertiTherm/measurements.py` now provides both sets under names
+that say which is which, and the inscribed box `2 b Q / n` is the one whose bounds transfer.
+
+## The objective is not invariant to the yield composition, and the radii are
+
+`ThermoDSE/core/chiplet_eva.py:162-165` composes the yield term of EDYP as an area-weighted
+arithmetic **mean** of the per-die yields. The weights sum to one over that Cartesian double loop,
+so it is a genuine weighted mean — and under a refinement of a fixed tile grid every child die is
+smaller than its parent while `Y` decreases in area, so the mean can only **rise** as the design is
+cut, at any parameter values. Nothing in it grows with the die count.
+
+That is a statement about the objective, not an accusation about the implementation. The canonical
+chiplet cost model (Chiplet Actuary, DAC 2022) uses the *same* per-die negative-binomial yield
+(`exploration.py:51`) and then composes it two ways, neither an average: yield as a per-die cost
+divisor under known-good-die screening (`chip.py:50`), and an assembly loss that is
+**multiplicative** in the chip count (`package.py:209`, `y2 = bonding_yield ** chip_num()`), with
+wasted material scaling as `1/(y2 y3) - 1`. The count-dependent penalty is exactly the term a mean
+cannot have, and it is why that paper finds a die-area *crossover* rather than a monotone preference
+for more chiplets.
+
+`research/triangle/robustness/yield_composition.py` reports the same designs under all three
+assumptions from the recorded die geometry, and refuses unless its recomputed mean reproduces the
+evaluator's own `die_yield`. The point is not that one composition is correct — that needs
+fabrication, test and redundancy assumptions this project does not have — but that **the preferred
+chiplet count is not invariant across them**, so it cannot be certified from the objective value.
+
+`tau*` and `epsilon*` are computed from the power map and the linear thermal operator alone: no
+yield model, no cost model, no latency. Whatever a reader believes about composition, the radii are
+unchanged.
+
 ## What this does NOT say
 
 * **tau\* and S\* rank identically to the nominal peak on all 18 dev instances.** Zero inversions
@@ -109,6 +152,16 @@ partition.
   single steady-state map ignores phases and temperature-dependent leakage feedback.
 * The power maps come from a ThermoDSE evaluator with documented defects (`e_tot` subtracts compute
   energy, NoP energy is smeared over the interposer, HotSpot leakage feedback is disabled).
+* **"Inside the evaluator's error band" is not an argument available here, in either direction.**
+  An earlier draft dismissed sub-2 % EDYP differences by citing the sibling study's 0.5–5 % plateau.
+  Those three defects are directional modelling biases, not a calibrated error distribution, and a
+  plateau measured on a different registry is not an uncertainty interval for these points. Peer
+  review was right that it cuts both ways: the same argument that stops EDYP from discriminating
+  also stops any claimed cancellation from being physically meaningful. Small EDYP differences are
+  therefore reported as **unresolved**, never as equal and never as a priced difference.
+* A design-space statement here is a **finite-sample** statement. "No design in the swept space
+  survives a 1 % requirement" is a fact about the points generated, not about the parameterised
+  space, which was not exhausted.
 
 ## The observation requirement is a function of the uncertainty set
 
