@@ -21,6 +21,36 @@ This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
 EDA stage is sufficient to justify the resulting architecture choice.
 
+### Blind-direction certificates
+
+The strongest current result comes from a structural family of cuts rather
+than from accumulating generic ones. Every registered action is a 0/1
+indicator over a group of blocks, so two blocks whose coefficient COLUMNS
+agree in every multi-block action are indistinguishable along
+`delta = t (e_b - e_c)`: no module, chiplet or regional report can see that
+power move, while it does move the peak temperature. Such a collision is
+separable only by a single-block action on b or on c.
+
+Two consequences make this different in kind from cut accumulation. Hitting
+all such cuts inside one cell of the common refinement is a VERTEX COVER,
+whose minimum weight is computed exactly rather than approached
+logarithmically; and cells partition the blocks, so their minima ADD.
+
+Measured across the full 18-instance dev registry (3 architectures x 3
+packages x 2 workloads), certified lower bounds run **864 to 1320**, against
+a previously reported 22.8–88.3 on the headline instance. See
+`docs/BLIND_DIRECTION_BOUND.md` for the numbers, the search bug that changed
+them, and the negative results — the cover is necessary but NOT sufficient,
+and a fix that would have removed 98% of the remaining obstacles was rejected
+as fail-open.
+
+**Read the Scope section of that document before quoting any number.** The
+registered uncertainty set admits every nonnegative redistribution preserving
+the workload total; `measurements.activity_bounded_power_space` narrows it to
+a defensible activity range, and how the bound behaves under that narrowing is
+what decides whether the result is a property of the design or of the
+abstraction.
+
 ## Reproduce from a fresh clone
 
 ```bash
@@ -126,6 +156,13 @@ channels are never asked to identify an unobservable simulator label.
 
 - `CertiTherm/core.py` — validated power, thermal, action, and certificate data;
 - `CertiTherm/synthesis.py` — exact and proof-carrying anytime DSOS core;
+- `CertiTherm/blind_direction_cuts.py` — structural two-action cuts, forced
+  vertices, and the additive vertex-cover lower bound;
+- `CertiTherm/measurements.py` — obtainable action library and the registered
+  and activity-bounded uncertainty sets;
+- `CertiTherm/query_evidence.py` — witness replay and every coordinated result
+  table;
+- `CertiTherm/cache_receipts.py` — the false-cache-hit guard;
 - `CertiTherm/policies.py` — matched fixed, width, and dual-price baselines;
 - `CertiTherm/hotspot.py` — official HotSpot operator construction;
 - `CertiTherm/cli.py` — NPZ/TSV command line;
@@ -133,7 +170,9 @@ channels are never asked to identify an unobservable simulator label.
 - `docs/SPECTRAL_DECISION_ENVELOPE.md` — frequency/modal observability audit;
 - `docs/MEASUREMENT_LIBRARY.md` — obtainable EDA channels and costs;
 - `docs/THERMAL_ERROR_CONTRACT.md` — direct-replay error gate;
-- `docs/HELDOUT_PROTOCOL_V3.md` — current frozen 4×3×3 evaluation.
+- `docs/HELDOUT_PROTOCOL_V3.md` — current frozen 4×3×3 evaluation;
+- `docs/BLIND_DIRECTION_BOUND.md` — the blind-direction bound, its trajectory,
+  and its negative results.
 
 ## Evidence status
 
@@ -148,3 +187,13 @@ The v3 non-thermal precheck passed all 12 workload/architecture combinations
 without invoking HotSpot; the primary architecture set remains unchanged.
 No held-out thermal or policy result is claimed until the still-unopened v3
 protocol completes from a fresh clone and is archived unchanged.
+
+The blind-direction bounds are DEVELOPMENT-split results. They are certified
+in the sense that every counted pair carries a witness repaired to exact
+rational polytope feasibility and re-proved with zero slack, and the cover
+search runs to proven optimality or refuses. They are not held-out, they use
+one thermal family from one linear HotSpot configuration, and the power maps
+come from a ThermoDSE evaluator with documented defects recorded in the parent
+workspace's CLAUDE.md. The certified upper bound they are compared against is
+a greedy cover over discovered cuts — a feasible plan found by one search, not
+a proven optimum.
