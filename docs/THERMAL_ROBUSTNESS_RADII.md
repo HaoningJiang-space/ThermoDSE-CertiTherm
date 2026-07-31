@@ -43,6 +43,33 @@ The mechanism is visible in the numbers rather than inferred: arch_b wins on LAT
 multiplicative form lets that latency win absorb a 2.8% yield loss, and the thermal constraint --
 being a nominal pass/fail -- charges nothing for spending 90% of the margin.
 
+## The selection actually changes, at a defensible uncertainty level
+
+Peer review set the falsification gate: a ranking flip is not required and counting flips is the
+wrong study. What matters is whether a declared robustness requirement changes the SELECTION, at an
+uncertainty radius one can defend, under an uncertainty geometry that is not the one the effect was
+discovered in, with non-negligible regret.
+
+Declaring a total-power model accuracy `tau_req` and keeping only architectures with
+`tau* >= tau_req`:
+
+| workload | tau_req | robustly feasible | selection | cost of robustness | worst-case regret |
+| --- | --- | --- | --- | --- | --- |
+| resnet50 | 5–30% | a, b, c | unchanged (arch_b) | — | — |
+| transformer | 5% | a, b, c | unchanged (arch_b) | — | — |
+| transformer | **10%** | a, c | **changes to arch_c** | **+32.1% EDYP** | **+4.00 K** |
+| transformer | 20% | a, c | changes to arch_c | +32.1% EDYP | +4.36 K |
+| transformer | 30% | a, c | changes to arch_c | +32.1% EDYP | +4.73 K |
+
+Ten percent is inside the accuracy an architecture-stage power model is normally credited with, so
+this is not a flip hiding at an implausible radius. The geometry is the total-power band, which is
+the one direction the redistribution model deliberately excludes -- so the effect is not an artifact
+of the model it was found in. The regret is 4.00 K against a total power-driven rise of 10.9 K, or
+37% of it. And the robust choice is also the higher-yield one, 0.953 against 0.927.
+
+The honest other half: **resnet50 shows no disagreement anywhere up to 30%.** The effect is
+workload-dependent, and one workload of two is not a general claim.
+
 ## Why area is the shared variable
 
 The registered yield model is `Y(A) = (1 + A D0 / alpha)^(-alpha)` with `D0 = 0.08 cm^-2`,
