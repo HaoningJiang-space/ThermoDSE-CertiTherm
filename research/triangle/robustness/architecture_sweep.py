@@ -31,6 +31,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, ".")
+# The probe directory itself, so the sibling exact-L1 helper imports without a package marker.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from CertiTherm.experiments import (
     _capture,
@@ -43,6 +45,8 @@ from CertiTherm.experiments import (
 )
 from CertiTherm.hotspot import load_family
 from CertiTherm.thermal_constraints import reject_cell_rows
+from l1_body import radius_l1
+
 
 MARGIN_K = 0.05
 # The registry's own values for everything the sweep does not vary.
@@ -84,7 +88,7 @@ def radii(family, placed):
     a transfer budget -- an L-infinity ball of half-width `e * total` intersected with the
     total-power plane -- which is a strict RELAXATION of the L1 body and therefore reaches a floor
     at a SMALLER radius. The exact L1 radius is computed by
-    `research/triangle/robustness/geometries.py:radius_l1` and is the larger of the two on every
+    `research/triangle/robustness/l1_body.py:radius_l1` and is the larger of the two on every
     instance measured (e.g. arch_a/default/resnet50: 2.637% box against 4.1% L1). Reporting both
     under the name "beta*" was an error; this one is `epsilon_star`.
     """
@@ -168,7 +172,13 @@ def main() -> None:
             continue
         for wl in workloads:
             polytope, cap_blocks, placed, _flp = _power_space(captures[wl])
-            tau, beta = radii(family, np.asarray(placed, dtype=float))
+            placed_w = np.asarray(placed, dtype=float)
+            tau, eps = radii(family, placed_w)
+            # The EXACT L1 relocation radius, not the box's. The two differ by more than an order
+            # of magnitude on some instances and only this one may be quoted as "fraction of total
+            # power relocated"; `epsilon_star` is a per-block deviation radius.
+            reject_rows, reject_floors = reject_cell_rows(family, MARGIN_K)
+            beta = radius_l1(reject_rows, reject_floors, placed_w)
             with np.load(captures[wl], allow_pickle=False) as data:
                 edyp = (float(data["latency_ms"]) * float(data["energy_mj"])
                         / float(data["die_yield"]))
@@ -178,12 +188,13 @@ def main() -> None:
             results.append({"arch": arch["architecture_id"], "tiles": [tx, ty], "cut": [cx, cy],
                             "interval_m": float(interval),
                             "dies": cx * cy, "workload": wl, "blocks": len(cap_blocks),
-                            "peak_k": peak, "tau_star": tau, "epsilon_star": beta,
+                            "peak_k": peak, "tau_star": tau, "epsilon_star": eps, "beta_star_l1": beta,
                             "yield": y, "edyp": edyp})
             print("%-12s %dx%d cut %dx%d gap %-6s dies %d  %-12s peak %7.2f  tau* %7.1f%%"
-                  "  eps* %6.2f%%  Y %.4f  EDYP %8.3f  (%.0fs)" % (
+                  "  eps* %6.2f%%  beta* %6.2f%%  Y %.4f  EDYP %8.3f  (%.0fs)" % (
                       arch["architecture_id"], tx, ty, cx, cy, interval, cx * cy, wl, peak,
-                      tau * 100, beta * 100, y, edyp, time.monotonic() - started), flush=True)
+                      tau * 100, eps * 100, beta * 100, y, edyp,
+                      time.monotonic() - started), flush=True)
     (output / "sweep.json").write_text(json.dumps(results, indent=1))
     print("\n%d architecture-workload points written to %s" % (len(results), output / "sweep.json"))
 
