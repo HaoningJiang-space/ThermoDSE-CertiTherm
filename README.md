@@ -53,9 +53,12 @@ proxy was replaced by a clean-room transcription of the organic-substrate recurr
 published chiplet cost model (Chiplet Actuary, DAC 2022; provenance in `vendor/chiplet-actuary.md`,
 nothing vendored). Under the complete flow the cost-optimal cut is **monolithic in 9 of 10 groups**,
 the opposite of what the proxy said — and sweeping one manufacturing factor at a time across a
-defensible range flips the winner in **11 of 20 cut pairs**. The substrate recurring cost drives it;
-the C4 bump cost changes nothing anywhere, and bonding yield produces no crossover at all for the
-one-versus-two pair.
+defensible range flips the winner in **11 of 20 cut pairs**. The substrate term drives it; the C4
+bump cost changes nothing anywhere, and bonding yield produces no crossover at all for the
+one-versus-two pair. Sweeping all six factors *jointly*, 4 000 draws per group, **no cut owns the
+parameter box in any of the 10 groups**: the monolithic option holds 68–94 % of it and the four-die
+option 4–30 %, with the finer cut's share growing monotonically with compute area — the die-area
+threshold the published model reports, reproduced from the opposite direction.
 
 Four modelling choices spanning the plausible range — the evaluator's arithmetic mean, the
 all-dies-good product, a silicon-area proxy, and a published end-to-end cost flow — **do not agree

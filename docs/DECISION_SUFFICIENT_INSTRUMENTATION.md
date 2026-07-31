@@ -141,8 +141,34 @@ bonding yield changes:
 | C4 bump cost factor | 0.001 – 0.02 | **0 of 20** |
 
 **11 of 20 cut pairs change their winner under at least one single-factor sweep.** The decision is
-governed by the substrate cost model — not by bonding yield, which produces no crossover at all for
-the `n=1`/`n=2` pair, and not by the bump cost, which changes nothing anywhere.
+governed by the substrate term — `re_cost_factor` and `area_scale` multiply the same substrate cost,
+so their 11 and 7 are two views of one sensitivity rather than two independent ones — and not by
+bonding yield, which produces no crossover at all for the `n=1`/`n=2` pair, nor by the bump cost,
+which changes nothing anywhere.
+
+### Jointly, not one at a time
+
+One-at-a-time sweeps answer only whether the decision is fragile to a single assumption. They cannot
+see a combination where two factors cancel, and they cannot say how much of the plausible space each
+option owns. Sampling all six factors jointly, 4 000 draws per group, uniform over the ranges above:
+
+| tile grid | `n=1` | `n=2` | `n=4` |
+| --- | --- | --- | --- |
+| 4x4 | 91 – 94 % | 2 – 3 % | 4 – 6 % |
+| 4x6 | 81 – 85 % | 4 % | 11 – 14 % |
+| 6x4 | 82 – 86 % | 2 % | 12 – 15 % |
+| 8x4 | 72 – 78 % | 1 % | 21 – 27 % |
+| 6x6 | 68 – 72 % | 2 % | 26 – 30 % |
+
+**No cut owns the parameter box in any of the 10 groups.** The monolithic option dominates it —
+68–94 % — but the four-die option holds 4–30 %, and its share **grows monotonically with total
+compute area**. That is the die-area threshold the published model itself reports, reproduced here
+from the opposite direction, and it is the closest thing available to an independent check that the
+transcription behaves like its source.
+
+The uniform prior over each range is a stated assumption, not a measured one, and the *shares*
+depend on it. What does not is that **no option owns the whole box**: that conclusion needs only
+that both regions are non-empty.
 
 That is the corrected and sharper form of the claim this document opened with. It is not that one
 aggregation is wrong; it is that **the most characteristic chiplet decision is determined by which
