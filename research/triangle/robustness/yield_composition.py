@@ -211,6 +211,9 @@ def main() -> None:
             **{k: point[k] for k in ("arch", "tiles", "cut", "dies", "workload") if k in point},
             "interval_m": point.get("interval_m"),
             "epsilon_star": point.get("epsilon_star", point.get("beta_star")),
+            # The EXACT L1 relocation radius when the sweep recorded one. Distinct from
+            # `epsilon_star`, which is the deviation box's; the two must never be merged.
+            "beta_star_l1": point.get("beta_star_l1"),
             "tau_star": point.get("tau_star"),
             "peak_k": point.get("peak_k"),
             "energy_delay": energy_delay,
@@ -265,10 +268,13 @@ def main() -> None:
             for name, field in (("mean", "edyp_mean"), ("product", "edyp_product"),
                                 ("product_bonded", "edyp_product_bonded"), ("kgd", "edyp_kgd"))
         }
-        robust = max(
-            members,
-            key=lambda r: (r["epsilon_star"] if r["epsilon_star"] is not None else -1),
-        )
+        # Ranked by the EXACT relocation radius when it is present, since that is the quantity the
+        # document quotes; the deviation-box radius is the fallback for a sweep captured before it.
+        def _radius(row):
+            value = row["beta_star_l1"] if row["beta_star_l1"] is not None else row["epsilon_star"]
+            return value if value is not None else -1.0
+
+        robust = max(members, key=_radius)
         verdicts.append({
             "tiles": list(key[0]), "interval_m": key[1], "workload": key[2],
             "dies_by_composition": {n: p["dies"] for n, p in picks.items()},
