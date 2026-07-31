@@ -65,6 +65,7 @@ from CertiTherm.hotspot import load_family
 from CertiTherm.measurements import (
     activity_bounded_power_space,
     build_measurement_library,
+    relocation_bounded_power_space,
 )
 from CertiTherm.solver_budget import budget_scope
 from CertiTherm.synthesis import synthesize_minimum_observation
@@ -83,11 +84,17 @@ def main() -> None:
     synthesis_budget_s = float(sys.argv[9]) if len(sys.argv) > 9 else 0.0
     gaps_path = Path(sys.argv[10]) if len(sys.argv) > 10 and sys.argv[10] != "-" else None
     activity_span = float(sys.argv[11]) if len(sys.argv) > 11 else 0.0
+    relocated = float(sys.argv[12]) if len(sys.argv) > 12 else 0.0
 
     polytope, blocks, placed, floorplan_text = _power_space(
         artifacts / "captures" / f"{workload}--{candidate}.npz"
     )
-    if activity_span > 0:
+    if relocated > 0:
+        # The geometry the measurements single out: relocation radii on this registry are 0.5-4.3%
+        # of total power where uniform-scaling radii are 9-258%, so redistribution is the dangerous
+        # direction -- and it is the one group-level power reports cannot see.
+        polytope = relocation_bounded_power_space(placed, relocated_fraction=relocated)
+    elif activity_span > 0:
         polytope = activity_bounded_power_space(
             blocks, placed, activity_span=activity_span
         )

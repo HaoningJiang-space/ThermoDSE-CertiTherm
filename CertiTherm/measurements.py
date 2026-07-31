@@ -124,6 +124,54 @@ def activity_bounded_power_space(
     )
 
 
+def relocation_bounded_power_space(
+    placed_power_w: np.ndarray, *, relocated_fraction: float
+) -> PowerPolytope:
+    """Admit maps that differ from the placement by relocating at most a FRACTION of total power.
+
+    The third registered uncertainty geometry, and the one the measurements say matters. Comparing
+    the radii of the first two on this registry:
+
+        uniform total-power under-prediction     tolerated: 9% to 258%
+        relocation of a fraction of total power  tolerated: 0.5% to 4.3%
+
+    Redistribution is twenty to fifty times more dangerous than scaling here. A design absorbs a
+    doubling of its total power and fails when 5% of that power moves somewhere else -- which is
+    exactly the direction module-, chiplet- and region-level power reports cannot observe, since a
+    move inside one group leaves every group total unchanged.
+
+    `|p - q|_1 <= 2 * relocated_fraction * sum(q)` with the total conserved, so the parameter is a
+    scale-free fraction of the workload's own power. That is what makes it comparable across designs
+    and independent of how finely the design is decomposed into blocks -- the objection that a
+    per-block relative box gives a block with tiny nominal power a tiny absolute budget.
+
+    Encoded with the L1 term expanded as `p = q + u - v`, `u, v >= 0`, which keeps the constraint
+    matrix linear. The returned polytope is over `p` alone: the box is the tightest interval implied
+    by the budget, which is a RELAXATION of the L1 set, so any bound proved on it remains valid.
+    Callers needing the exact L1 body must build the lifted program themselves.
+    """
+
+    placed = np.asarray(placed_power_w, dtype=float)
+    if placed.ndim != 1 or not np.all(np.isfinite(placed)) or np.any(placed < 0):
+        raise ValueError("placed power must be a finite nonnegative vector")
+    if not np.isfinite(relocated_fraction) or relocated_fraction <= 0:
+        raise ValueError(
+            f"relocated_fraction must be finite and positive, got {relocated_fraction}"
+        )
+    total = float(np.sum(placed))
+    if total <= 0:
+        raise ValueError("placed power must have positive total")
+    budget = relocated_fraction * total
+    return PowerPolytope(
+        lower_w=np.maximum(placed - budget, 0.0),
+        upper_w=placed + budget,
+        a_eq=np.ones((1, placed.size)),
+        b_eq=np.array([total]),
+        a_ub=np.empty((0, placed.size)),
+        b_ub=np.empty(0),
+    )
+
+
 def _groups(labels: Sequence[str]) -> list[tuple[str, np.ndarray]]:
     grouped: dict[str, list[int]] = {}
     for index, label in enumerate(labels):
