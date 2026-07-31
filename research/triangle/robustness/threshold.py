@@ -13,8 +13,8 @@ Which tier may be quoted as an L1 statement depends on WHICH set it was measured
 directions are opposite. From the INNER set, existence travels up: a REJECT map exists, a
 coarse-blind pair exists, the cost is AT LEAST c. From the OUTER set, universal safety travels down:
 no REJECT map exists, coarse suffices for every map, no measurement is needed. So
-`NO_MEASUREMENT_NEEDED_AT_ANY_RADIUS` is an L1 claim only when measured on `deviation`, and
-`PER_BLOCK_REQUIRED_ABOVE_E_BLIND` is an L1 claim only when measured on `relocation`. Reading the
+`NO_REJECT_REACHABLE_AT_ANY_RADIUS` is an L1 claim only when measured on `deviation`, and
+`OUTSIDE_COARSE_LIBRARY_REQUIRED_ABOVE_E_BLIND` is an L1 claim only when measured on `relocation`. Reading the
 inner set's silence as safety is the certificate-direction error peer review found in an earlier
 draft, and it is the dangerous one: the concentrated relocations the inscribed box drops are exactly
 those that make a hotspot. `l1_body.py` sidesteps the choice for the reachability breakpoint, which
@@ -23,17 +23,21 @@ it computes EXACTLY.
 Both are intersected with the total-power plane and the nonnegative orthant, and both are NESTED in
 `b`, so anything measured on them is monotone and two breakpoints separate three tiers:
 
-    b < b_reach              NO measurement is needed.        Every admissible map is SAFE, so the
-                                                              empty plan certifies. This direction is
-                                                              a proof, not a measurement.
+    b < b_reach              NO SEPARATION is needed.         No admissible map is provably REJECT,
+                                                              so there is no SAFE/REJECT pair to tell
+                                                              apart. A proof, not a measurement -- but
+                                                              an IDENTIFIABILITY statement, not a
+                                                              feasibility one (see below).
     b_reach <= b < b_blind   COARSE reports suffice.          Some admissible map is REJECT, so
                                                               something must be observed -- but the
                                                               module/chiplet/region library separates
                                                               every SAFE/REJECT pair.
-    b >= b_blind             PER-BLOCK extraction is REQUIRED. A SAFE/REJECT pair exists that the
-                                                              entire coarse library reads identically;
-                                                              no plan built from it can certify, at
-                                                              any price.
+    b >= b_blind             SOMETHING OUTSIDE the coarse    A SAFE/REJECT pair exists that the
+                             library is REQUIRED.             entire coarse library reads identically,
+                                                              so no plan built from THAT LIBRARY can
+                                                              certify at any price. Per-block
+                                                              extraction is a known sufficient
+                                                              fallback, not the only possible one.
 
 `b_reach` is a robustness radius of the same family as the ones in
 `docs/THERMAL_ROBUSTNESS_RADII.md`, measured on whichever set was selected. That it is ALSO the
@@ -42,12 +46,14 @@ the REJECT set is empty, so there is nothing to distinguish. `b_blind` is the ne
 is the one that decides whether a designer needs post-route per-block power extraction or can stop
 at the reports an architecture-stage flow already produces.
 
-Two assumptions are load-bearing in the first tier and are stated rather than left implicit. The
-empty plan certifies only because SAFE is the complement of REJECT under the registered margin --
-`reject_cell_rows` and the SAFE conjunction partition the admissible maps, with the fail-closed
-margin folded one-sidedly into REJECT -- and because the nominal map itself is admitted at every
-radius, so the SAFE side is non-empty. Neither survives a formulation with an indifference band
-between the two, and this probe does not have one.
+**The first tier is about identifiability, not feasibility, and the difference is real here.** An
+earlier version of this docstring assumed SAFE is the complement of REJECT. It is not:
+`CertiTherm/thermal_constraints.py` puts SAFE at `r.p <= limit - margin - error - ambient` and REJECT
+at `r.p >= limit + margin - error - ambient`, so a map in the `2 * margin` band is NEITHER, and "no
+REJECT map exists" does not give "every admissible map is SAFE". Peer review raised it and the source
+confirms it. What `b < b_reach` establishes is that no SAFE/REJECT pair exists to be separated, which
+is exactly the DSOS question; the FEASIBILITY radius is the same computation against the SAFE rows
+and is reported by `l1_body.radii_l1`, not here.
 
 `b_reach <= b_blind` holds by construction: a blind pair contains a REJECT map, so it cannot exist
 before REJECT maps do. The gap between them is the range of power-model accuracy over which cheap
@@ -344,9 +350,9 @@ def main() -> None:
         if reach == 0.0:
             tier = "NOMINALLY_INFEASIBLE"
         elif not np.isfinite(reach):
-            tier = "NO_MEASUREMENT_NEEDED_AT_ANY_RADIUS"
+            tier = "NO_REJECT_REACHABLE_AT_ANY_RADIUS"
         elif np.isfinite(blind):
-            tier = "PER_BLOCK_REQUIRED_ABOVE_E_BLIND"
+            tier = "OUTSIDE_COARSE_LIBRARY_REQUIRED_ABOVE_E_BLIND"
         elif unresolved_steps:
             tier = "UNRESOLVED"
         else:
