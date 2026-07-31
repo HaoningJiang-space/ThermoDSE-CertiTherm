@@ -1,0 +1,506 @@
+[
+ {
+  "arch": "heldout_radii_00",
+  "tiles": [
+   2,
+   8
+  ],
+  "cut": [
+   1,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 1,
+  "workload": "resnet50",
+  "blocks": 177,
+  "peak_k": 323.5002539661564,
+  "tau_star": 1.2223244121141614,
+  "epsilon_star": 0.0279083251953125,
+  "beta_star_l1": 0.03568060369932707,
+  "yield": 0.8848314341581426,
+  "edyp": 5.138917301854072
+ },
+ {
+  "arch": "heldout_radii_00",
+  "tiles": [
+   2,
+   8
+  ],
+  "cut": [
+   1,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 1,
+  "workload": "transformer",
+  "blocks": 177,
+  "peak_k": 328.66563101237875,
+  "tau_star": 0.1306977190435259,
+  "epsilon_star": 0.0028228759765625,
+  "beta_star_l1": 0.010676966910221948,
+  "yield": 0.8848314341581426,
+  "edyp": 18.27904482617972
+ },
+ {
+  "arch": "heldout_radii_01",
+  "tiles": [
+   2,
+   8
+  ],
+  "cut": [
+   2,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 2,
+  "workload": "resnet50",
+  "blocks": 177,
+  "peak_k": 323.0875817979519,
+  "tau_star": 1.4080613722555382,
+  "epsilon_star": 0.0322723388671875,
+  "beta_star_l1": 0.09685199522907205,
+  "yield": 0.9449667974577235,
+  "edyp": 5.0097019159472165
+ },
+ {
+  "arch": "heldout_radii_01",
+  "tiles": [
+   2,
+   8
+  ],
+  "cut": [
+   2,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 2,
+  "workload": "transformer",
+  "blocks": 177,
+  "peak_k": 327.69691769783043,
+  "tau_star": 0.2454281451176717,
+  "epsilon_star": 0.005126953125,
+  "beta_star_l1": 0.01933882843198145,
+  "yield": 0.9449667974577235,
+  "edyp": 17.80708840203696
+ },
+ {
+  "arch": "heldout_radii_02",
+  "tiles": [
+   2,
+   8
+  ],
+  "cut": [
+   2,
+   2
+  ],
+  "interval_m": 0.0017,
+  "dies": 4,
+  "workload": "resnet50",
+  "blocks": 177,
+  "peak_k": 323.03790424178305,
+  "tau_star": 1.4325353795520934,
+  "epsilon_star": 0.033660888671875,
+  "beta_star_l1": 0.09655556884256723,
+  "yield": 0.9709488075399,
+  "edyp": 4.981057389193104
+ },
+ {
+  "arch": "heldout_radii_02",
+  "tiles": [
+   2,
+   8
+  ],
+  "cut": [
+   2,
+   2
+  ],
+  "interval_m": 0.0017,
+  "dies": 4,
+  "workload": "transformer",
+  "blocks": 177,
+  "peak_k": 327.5158022901291,
+  "tau_star": 0.269512171160313,
+  "epsilon_star": 0.0058135986328125,
+  "beta_star_l1": 0.02137765476273066,
+  "yield": 0.9709488075399,
+  "edyp": 17.757237053059264
+ },
+ {
+  "arch": "heldout_radii_03",
+  "tiles": [
+   8,
+   2
+  ],
+  "cut": [
+   1,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 1,
+  "workload": "resnet50",
+  "blocks": 177,
+  "peak_k": 322.79077414750213,
+  "tau_star": 1.562072538350013,
+  "epsilon_star": 0.019866943359375,
+  "beta_star_l1": 0.03531224602573744,
+  "yield": 0.8847055778140903,
+  "edyp": 5.126694151235201
+ },
+ {
+  "arch": "heldout_radii_03",
+  "tiles": [
+   8,
+   2
+  ],
+  "cut": [
+   1,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 1,
+  "workload": "transformer",
+  "blocks": 177,
+  "peak_k": 327.03821437772814,
+  "tau_star": 0.33772651003937365,
+  "epsilon_star": 0.003387451171875,
+  "beta_star_l1": 0.011107216051656866,
+  "yield": 0.8847055778140903,
+  "edyp": 19.498595428940508
+ },
+ {
+  "arch": "heldout_radii_04",
+  "tiles": [
+   8,
+   2
+  ],
+  "cut": [
+   2,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 2,
+  "workload": "resnet50",
+  "blocks": 177,
+  "peak_k": 322.6629373577666,
+  "tau_star": 1.634647693378166,
+  "epsilon_star": 0.0206146240234375,
+  "beta_star_l1": 0.037105664024562626,
+  "yield": 0.9401456283275604,
+  "edyp": 5.12781494784922
+ },
+ {
+  "arch": "heldout_radii_04",
+  "tiles": [
+   8,
+   2
+  ],
+  "cut": [
+   2,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 2,
+  "workload": "transformer",
+  "blocks": 177,
+  "peak_k": 326.6052925543233,
+  "tau_star": 0.4062198231000946,
+  "epsilon_star": 0.00408935546875,
+  "beta_star_l1": 0.012281606537289765,
+  "yield": 0.9401456283275604,
+  "edyp": 19.07117772325179
+ },
+ {
+  "arch": "heldout_radii_05",
+  "tiles": [
+   8,
+   2
+  ],
+  "cut": [
+   2,
+   2
+  ],
+  "interval_m": 0.0017,
+  "dies": 4,
+  "workload": "resnet50",
+  "blocks": 177,
+  "peak_k": 322.5112581711314,
+  "tau_star": 1.7262774945384478,
+  "epsilon_star": 0.02081298828125,
+  "beta_star_l1": 0.05565808457752205,
+  "yield": 0.9708791077746931,
+  "edyp": 5.181821960823654
+ },
+ {
+  "arch": "heldout_radii_05",
+  "tiles": [
+   8,
+   2
+  ],
+  "cut": [
+   2,
+   2
+  ],
+  "interval_m": 0.0017,
+  "dies": 4,
+  "workload": "transformer",
+  "blocks": 177,
+  "peak_k": 325.9315188602366,
+  "tau_star": 0.5279793332770542,
+  "epsilon_star": 0.0051727294921875,
+  "beta_star_l1": 0.0147404033680323,
+  "yield": 0.9708791077746931,
+  "edyp": 19.2236880511167
+ },
+ {
+  "arch": "heldout_radii_06",
+  "tiles": [
+   2,
+   6
+  ],
+  "cut": [
+   1,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 1,
+  "workload": "resnet50",
+  "blocks": 133,
+  "peak_k": 323.2485412362157,
+  "tau_star": 1.332039587233989,
+  "epsilon_star": 0.0300750732421875,
+  "beta_star_l1": 0.03818300881118609,
+  "yield": 0.9127273278184679,
+  "edyp": 4.751455627730333
+ },
+ {
+  "arch": "heldout_radii_06",
+  "tiles": [
+   2,
+   6
+  ],
+  "cut": [
+   1,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 1,
+  "workload": "transformer",
+  "blocks": 133,
+  "peak_k": 328.35393980161723,
+  "tau_star": 0.1652361961323562,
+  "epsilon_star": 0.004241943359375,
+  "beta_star_l1": 0.012150454221980751,
+  "yield": 0.9127273278184679,
+  "edyp": 17.623245895480036
+ },
+ {
+  "arch": "heldout_radii_07",
+  "tiles": [
+   2,
+   6
+  ],
+  "cut": [
+   2,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 2,
+  "workload": "resnet50",
+  "blocks": 133,
+  "peak_k": 322.86236213531055,
+  "tau_star": 1.5231507381205103,
+  "epsilon_star": 0.034637451171875,
+  "beta_star_l1": 0.1036504468270067,
+  "yield": 0.9585767333333345,
+  "edyp": 4.720264272922994
+ },
+ {
+  "arch": "heldout_radii_07",
+  "tiles": [
+   2,
+   6
+  ],
+  "cut": [
+   2,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 2,
+  "workload": "transformer",
+  "blocks": 133,
+  "peak_k": 327.4222560153532,
+  "tau_star": 0.2823200718694893,
+  "epsilon_star": 0.007171630859375,
+  "beta_star_l1": 0.022441630278091873,
+  "yield": 0.9585767333333345,
+  "edyp": 17.503097130712792
+ },
+ {
+  "arch": "heldout_radii_08",
+  "tiles": [
+   2,
+   6
+  ],
+  "cut": [
+   2,
+   2
+  ],
+  "interval_m": 0.0017,
+  "dies": 4,
+  "workload": "resnet50",
+  "blocks": 133,
+  "peak_k": 322.781111039257,
+  "tau_star": 1.5674184659384827,
+  "epsilon_star": 0.0361328125,
+  "beta_star_l1": 0.1023669117742486,
+  "yield": 0.9782984728234921,
+  "edyp": 4.729033075345553
+ },
+ {
+  "arch": "heldout_radii_08",
+  "tiles": [
+   2,
+   6
+  ],
+  "cut": [
+   2,
+   2
+  ],
+  "interval_m": 0.0017,
+  "dies": 4,
+  "workload": "transformer",
+  "blocks": 133,
+  "peak_k": 327.1929804894058,
+  "tau_star": 0.3148319864152766,
+  "epsilon_star": 0.0082550048828125,
+  "beta_star_l1": 0.025857778868656332,
+  "yield": 0.9782984728234921,
+  "edyp": 17.61759224132778
+ },
+ {
+  "arch": "heldout_radii_09",
+  "tiles": [
+   6,
+   2
+  ],
+  "cut": [
+   1,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 1,
+  "workload": "resnet50",
+  "blocks": 133,
+  "peak_k": 322.92008999505373,
+  "tau_star": 1.4926154458991503,
+  "epsilon_star": 0.0238494873046875,
+  "beta_star_l1": 0.03756963963622346,
+  "yield": 0.9126405070410611,
+  "edyp": 4.773571641558599
+ },
+ {
+  "arch": "heldout_radii_09",
+  "tiles": [
+   6,
+   2
+  ],
+  "cut": [
+   1,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 1,
+  "workload": "transformer",
+  "blocks": 133,
+  "peak_k": 327.09069195186186,
+  "tau_star": 0.3298746969493746,
+  "epsilon_star": 0.0050048828125,
+  "beta_star_l1": 0.012980091937475614,
+  "yield": 0.9126405070410611,
+  "edyp": 18.7618301954475
+ },
+ {
+  "arch": "heldout_radii_10",
+  "tiles": [
+   6,
+   2
+  ],
+  "cut": [
+   2,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 2,
+  "workload": "resnet50",
+  "blocks": 133,
+  "peak_k": 322.76521097728204,
+  "tau_star": 1.5762635897963024,
+  "epsilon_star": 0.0249786376953125,
+  "beta_star_l1": 0.039761755037789615,
+  "yield": 0.9553086114795628,
+  "edyp": 4.862334961274706
+ },
+ {
+  "arch": "heldout_radii_10",
+  "tiles": [
+   6,
+   2
+  ],
+  "cut": [
+   2,
+   1
+  ],
+  "interval_m": 0.0017,
+  "dies": 2,
+  "workload": "transformer",
+  "blocks": 133,
+  "peak_k": 326.64902861756593,
+  "tau_star": 0.39898340563597895,
+  "epsilon_star": 0.00640869140625,
+  "beta_star_l1": 0.014673730489529338,
+  "yield": 0.9553086114795628,
+  "edyp": 18.776356365051978
+ },
+ {
+  "arch": "heldout_radii_11",
+  "tiles": [
+   6,
+   2
+  ],
+  "cut": [
+   2,
+   2
+  ],
+  "interval_m": 0.0017,
+  "dies": 4,
+  "workload": "resnet50",
+  "blocks": 133,
+  "peak_k": 322.6040208840141,
+  "tau_star": 1.6694980355108402,
+  "epsilon_star": 0.026214599609375,
+  "beta_star_l1": 0.07047176057213798,
+  "yield": 0.9782516186468724,
+  "edyp": 4.951390288941173
+ },
+ {
+  "arch": "heldout_radii_11",
+  "tiles": [
+   6,
+   2
+  ],
+  "cut": [
+   2,
+   2
+  ],
+  "interval_m": 0.0017,
+  "dies": 4,
+  "workload": "transformer",
+  "blocks": 133,
+  "peak_k": 326.1591352261957,
+  "tau_star": 0.4845547820332739,
+  "epsilon_star": 0.0081634521484375,
+  "beta_star_l1": 0.02253883915937645,
+  "yield": 0.9782516186468724,
+  "edyp": 19.13266758508975
+ }
+]

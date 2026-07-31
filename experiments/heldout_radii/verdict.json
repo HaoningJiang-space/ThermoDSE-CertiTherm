@@ -1,0 +1,58 @@
+{
+ "freeze_id": "method-freeze-radii-v1",
+ "protocol": "docs/HELDOUT_PROTOCOL_RADII.md",
+ "architectures_declared": 18,
+ "architectures_evaluated": 12,
+ "architectures_refused": 6,
+ "points": 24,
+ "predictions": {
+  "P1_radius_strictly_monotone": {
+   "status": "FAIL",
+   "detail": [
+    "('[2, 8]', '0.0017', 'resnet50'): [0.03568060369932707, 0.09685199522907205, 0.09655556884256723]",
+    "('[2, 6]', '0.0017', 'resnet50'): [0.03818300881118609, 0.1036504468270067, 0.1023669117742486]"
+   ]
+  },
+  "P2_every_operator_and_radius_agrees": {
+   "status": "FAIL",
+   "detail": [
+    "[2, 6]/resnet50",
+    "[2, 8]/resnet50",
+    "[6, 2]/resnet50",
+    "[6, 2]/transformer",
+    "[8, 2]/resnet50",
+    "[8, 2]/transformer"
+   ]
+  },
+  "P3_product_prefers_monolithic": {
+   "status": "PASS",
+   "detail": []
+  },
+  "P4_recurring_cost_prefers_monolithic": {
+   "status": "PASS",
+   "detail": [
+    "8 of 8 prefer n=1, threshold 6"
+   ],
+   "count": 8
+  },
+  "P5_cost_and_robustness_disagree": {
+   "status": "PASS",
+   "detail": [
+    "8 of 8 disagree, threshold 6"
+   ],
+   "count": 8
+  },
+  "P6_no_cut_owns_the_box": {
+   "status": "PASS",
+   "detail": []
+  },
+  "P7_containment_holds": {
+   "status": "PASS",
+   "detail": []
+  },
+  "P8_monolithic_pair_root_outside": {
+   "status": "PASS",
+   "detail": []
+  }
+ }
+}
