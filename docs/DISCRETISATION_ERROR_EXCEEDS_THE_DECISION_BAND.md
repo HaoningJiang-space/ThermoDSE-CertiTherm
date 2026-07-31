@@ -11,7 +11,7 @@ The grid-convergence gate (`CertiTherm/grid_convergence_gate.py`, wired into `_o
 each calibration vector at `gridN` and at `grid2N` and bounds the per-block disagreement. Run on four
 architectures, one workload, five calibration vectors each:
 
-| architecture | linearisation error | drift vs 2x refinement | gate |
+| architecture | linearisation error | drift vs 2x refinement | gate, REFUSING design |
 | --- | --- | --- | --- |
 | `6x2` cut 1x1 | 0.00066 K | `grid64` **1.409 K**, `grid128` **0.759 K** | REJECT |
 | `6x2` cut 2x2 | 0.00067 K | up to **0.608 K** | REJECT |
@@ -20,6 +20,10 @@ architectures, one workload, five calibration vectors each:
 
 **All four refused — including both `4x4` controls, which are the compact, near-square development
 geometry that every number in this project was computed on.** Zero operators survived.
+
+That last column is the verdict of the gate's FIRST design, which refused. It was replaced by
+charging (below), under which all four certify. The drifts themselves are the measurement and are
+unchanged by that switch.
 
 Set against the registered constants:
 
@@ -60,17 +64,19 @@ anywhere:
 * the `n=1`/`n=2` crossover lying outside `(0, 1]`;
 * the transcription's term-by-term conformance against the upstream program.
 
-**Now carrying an unbounded error** — anything computed from the thermal operator:
+**Carried an unbounded error, now budgeted but not yet recomputed across the tree** — anything from
+the thermal operator:
 
 * every relocation and deviation radius, `beta*_safe`, `beta*_reject`, `epsilon*`, `tau*`;
 * the instrumentation bracket and every tier verdict;
 * the certified observation bounds, including the withdrawn 1312 and 1440;
 * the held-out P5 result, which pairs a cost choice against a `beta*` choice.
 
-Those numbers are not shown to be wrong. Their uncertainty is shown to be **unquantified, and larger
-than the band the decision is made in**. A 0.25 K resolution uncertainty on a design whose margin to
-the reject floor is a fraction of a kelvin is not a rounding detail; it is the same size as the
-quantity being decided.
+Those numbers were not shown to be wrong; their uncertainty was shown to be unquantified and larger
+than the band the decision is made in. With the budget applied they are now shown to be
+**overstated**, by 1.3x on compact geometry and up to 4.8x on elongated — measured below. The
+corrected values have not been propagated through the tree, so every thermal figure elsewhere in
+`docs/` and `README.md` is still the unbudgeted one unless it says otherwise.
 
 ## What is NOT established
 
@@ -79,12 +85,15 @@ quantity being decided.
   could be larger. It cannot be smaller in the sense that matters: two resolutions of the same
   physics disagreed by 0.15–1.41 K, so at least one of them is wrong by at least that much.
 * **Four architectures, one workload, five vectors.** Enough to refuse, not enough to characterise.
-* **`block` is ungated.** It has no refinement parameter, so nothing here measures it — and it was
-  already the outlier in one of the four convergence groups.
-* **The bound `GRID_DRIFT_LIMIT_K = 0.05` is a first registration, not a calibration.** It was set to
-  half the decision band before any drift was measured. That it refuses everything is a fact about
-  the operators, not evidence the bound is right; a defensible bound needs an argument from the
-  decision it protects, which is the next round's first task.
+* **`block` was ungated when these drifts were measured**, and closing that hole changed the answer
+  — see "the first attempt was routed around" below. It is now gated against the finest grid, on a
+  weaker argument than the grid-to-grid comparisons.
+* **`GRID_DRIFT_LIMIT_K = 0.05` is a first registration, not a calibration.** Set to half the
+  decision band before any drift was measured. Under the charging design it no longer decides
+  whether an operator is built — the budget does — and it survives only as the threshold for the
+  vacuity refusal, so its exact value now matters much less than it did.
+* **The budget is the worst block over five calibration vectors.** Deliberately pessimistic; a
+  per-block or per-cell budget would be tighter and has not been attempted.
 
 ## The repair: charge the error, do not refuse the operator
 
