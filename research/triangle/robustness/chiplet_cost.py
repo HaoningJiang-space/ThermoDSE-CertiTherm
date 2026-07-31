@@ -1,4 +1,4 @@
-"""The complete organic-substrate recurring cost of a chiplet system, not a silicon-area proxy.
+"""A transcribed organic-substrate RECURRING cost for a chiplet system, replacing a proxy.
 
 Peer review's sharpest surviving objection to the phase boundary was that it was derived inside a
 proxy `S(n) = sum_i (a_i + c) / Y(a_i + c)` which omits wafer utilisation, scribe loss, bumps,
@@ -7,7 +7,7 @@ able to move a crossover by more than the 0.0136 separating a measured 0.9764 fr
 0.99. So the boundary established that a crossover exists near the registered value, not which side
 of it the registered value falls on.
 
-This file removes that objection by implementing the published flow instead of a proxy. It is a
+This file addresses that objection by implementing the published recurring-cost path instead. It is a
 clean-room transcription of the organic-substrate (`OS`) recurring-cost path of Chiplet Actuary
 (Feng and Ma, DAC 2022, `github.com/Yinxiao-Feng/chiplet-actuary`, MIT licence), from
 `chiplet_actuary/chip.py`, `chiplet_actuary/package.py` and `parameter.ini`:
@@ -18,7 +18,7 @@ clean-room transcription of the organic-substrate (`OS`) recurring-cost path of 
     Y(A)        = (1 + D0/100 * A / L)^(-L)                          14 nm: D0 = 0.08 cm^-2, L = 10
     cost_raw    = W / N_die_total                                    wafer cost W = 3984 $
     cost_KGD    = W / (N_die_total * Y)
-    cost_defect = cost_KGD - cost_raw                                the test/discard term
+    cost_defect = cost_KGD - cost_raw                                the YIELD-DISCARD term
 
     package area = sum of die areas * 4                              os_area_scale_factor
     cost_raw_package = package area * 0.005 * f(area, chips)         RE_cost_factor, size factor
@@ -29,13 +29,39 @@ clean-room transcription of the organic-substrate (`OS`) recurring-cost path of 
          + cost_wasted_chips
     cost_raw_chips includes A * 0.005 per chip for C4 bumps.
 
-**Every term the proxy omitted is present**, and three of them grow with the chiplet count: the
-substrate defect term, the wasted-chip term, and the per-chip bump area. Nothing is vendored --
-this is a transcription with the source, commit-free path and licence recorded, in the style the
-workspace requires before reuse. NRE is deliberately NOT included: it is a non-recurring cost
-amortised over an unknown volume, so adding it would make the comparison depend on a number this
-project does not have. That exclusion is a scope statement, not an omission of a count-dependent
-recurring term.
+Terms the silicon-area proxy lacked and this has: wafer utilisation with scribe and edge loss, the
+yield-discard cost, C4 bump area, substrate area and rate, and the assembly-loss terms -- three of
+which grow with the chiplet count. Two things are still absent and are named rather than implied:
+
+* **NRE**, deliberately. It is non-recurring and amortised over a volume this project does not have,
+  and its sign is not universal -- per-design package NRE penalises extra cuts at low volume while
+  chiplet reuse amortises it and favours them. So this is a RECURRING-cost result, and any statement
+  about total product economics needs a volume.
+* **An explicit test cost.** `W/(N Y) - W/N` is the extra wafer cost of dies discarded under
+  idealised known-good-die screening -- a *yield-discard* cost. It is not wafer probe, die test,
+  package test or test escape, none of which the upstream OS path models either. Peer review caught
+  this file calling it "the test/discard term"; the honest name is yield-discard.
+
+So this is a **transcribed organic-substrate recurring-cost model**, not a complete or end-to-end
+cost flow, and the document says so. Nothing is vendored; provenance is in `vendor/chiplet-actuary.md`.
+
+## The total FACTORISES, and the closed form was never invalidated
+
+Peer review found an algebraic error that this file itself asserted. Writing `K` for the chip terms,
+`P` for the raw package and `L = y_b^(-n) - 1` for the assembly loss, the returned total is
+
+    K + P + P L + K L = (K + P)(1 + L) = (K + P) * y_b^(-n)
+
+so every design's cost is a bonding-yield-INDEPENDENT base times `y_b^(-n)`. The earlier claim -- that
+the substrate-defect and wasted-chip terms scale with `1/y_b^n` while the raw terms do not, and that
+the tie therefore had to be scanned -- confused the individual terms with their sum. Two cuts tie at
+
+    y_b* = ( ED_f (K_f + P_f) / ED_c (K_c + P_c) ) ^ (1 / (n_f - n_c))
+
+exactly, and `base_cost()` below returns `K + P` so a caller can evaluate it. Verified numerically
+against `recurring_cost` to 1e-9 on real instances. The numerical scan that replaced it was not
+wrong, only unnecessary -- and, being finite, it could report "no crossover" for a `y_b*` outside
+its grid, which the closed form classifies instead.
 
 The registry ThermoDSE uses agrees with this model on the per-die yield -- same negative-binomial
 family, same `D0 = 0.08` and `alpha = 10` at 14 nm -- which is why the two can be compared at all.
@@ -158,17 +184,32 @@ def recurring_cost(
     }
 
 
-def critical_bonding_yield(coarse_metric: float, fine_metric: float, coarse_n: int, fine_n: int):
-    """Where two cuts tie, solved for the ONE parameter that enters as `y_b^(-n)`.
+def base_cost(die_areas_mm2, **overrides) -> float:
+    """`K + P`: the part of the recurring cost that does NOT depend on the bonding yield.
 
-    Both objectives carry the same `1 / y_b^n` factor on their yield-dependent part, so the tie
-    condition is closed form only when the rest is `y_b`-independent. Under the full cost flow it
-    is NOT -- the substrate defect term and the wasted-chip term both scale with `1/y_b^n` while
-    the raw chip and raw package terms do not -- so this closed form belongs to the PROXY and the
-    full model must be swept numerically instead. Kept here, next to the model that refutes its
-    applicability, so the distinction cannot be lost again.
+    `recurring_total = base_cost * bonding_yield^(-chips)` exactly, which is what makes the tie
+    between two cuts a closed form again.
     """
 
-    if fine_n <= coarse_n or coarse_metric <= 0.0:
-        raise ValueError("the finer cut must have strictly more dies and a positive coarse metric")
+    cost = recurring_cost(die_areas_mm2, **overrides)
+    return cost["cost_raw_chips"] + cost["cost_defect_chips"] + cost["cost_raw_package"]
+
+
+def critical_bonding_yield(coarse_metric: float, fine_metric: float, coarse_n: int, fine_n: int):
+    """Where two cuts tie in bonding yield, exactly.
+
+    `metric` is `energy x delay x base_cost` -- the objective with the `y_b^(-n)` factor divided
+    out. Since the full total factorises as `base * y_b^(-n)`, the tie condition
+    `ED_c B_c y^(-n_c) = ED_f B_f y^(-n_f)` gives the root below with no scanning.
+
+    The returned value is a bare root and may lie OUTSIDE `(0, 1]`. That is information, not an
+    error: `y_b* > 1` means the coarser cut wins at every attainable bonding yield and `y_b* <= 0`
+    cannot occur for positive metrics. Callers must classify it; an earlier version of this study
+    quoted a root of 1.0025 beside a registered 0.99 as though the two were comparable.
+    """
+
+    if fine_n <= coarse_n:
+        raise ValueError("the finer cut must have strictly more dies")
+    if not (coarse_metric > 0.0 and fine_metric > 0.0):
+        raise ValueError("both metrics must be positive to take a root of their ratio")
     return (fine_metric / coarse_metric) ** (1.0 / (fine_n - coarse_n))

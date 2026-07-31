@@ -6,12 +6,21 @@ bumps, substrate area and cost, test and the wasted-die term -- every one count-
 able to move a crossover by more than the 0.0136 that separates 0.9764 from 0.99. So the proxy
 established that a crossover exists near the registered value, not which side 0.99 falls on.
 
-This probe answers that with the published flow instead (`chiplet_cost.py`, provenance in
-`vendor/chiplet-actuary.md`), and it answers it the only way the full model allows: **numerically**.
-The closed form `y_b* = (ratio)^(1/(n-m))` belongs to the proxy, where every yield-dependent term
-carried the same `1/y_b^n` factor. Under the full flow the substrate defect term and the wasted-chip
-term scale with `1/y_b^n` while the raw chip and raw package terms do not, so the tie condition is
-no longer a power of a constant ratio and must be scanned.
+This probe answers that with the transcribed recurring-cost model instead (`chiplet_cost.py`,
+provenance in `vendor/chiplet-actuary.md`).
+
+**It is answered in closed form, and an earlier version of this docstring was wrong about why it
+could not be.** That version claimed the tie had to be scanned because the substrate-defect and
+wasted-chip terms scale with `1/y_b^n` while the raw terms do not. The individual terms do differ;
+their SUM does not. With `K` the chip terms, `P` the raw package and `L = y_b^(-n) - 1`,
+
+    K + P + P L + K L = (K + P)(1 + L) = (K + P) y_b^(-n)
+
+so the total is a bonding-yield-independent base times `y_b^(-n)` and the tie is a root, exactly as
+for the proxy. Peer review found the error. The scan is retained ALONGSIDE the root as a
+cross-check -- two implementations, one algebraic and one enumerative -- and any disagreement is
+raised rather than reconciled. A scan alone was also unable to distinguish "no crossing" from "a
+crossing outside my grid", which the root classifies.
 
 Two questions, and the second is the one that decides whether the first means anything:
 
@@ -40,7 +49,12 @@ import numpy as np
 sys.path.insert(0, ".")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from chiplet_cost import OS_BONDING_YIELD, recurring_cost
+from chiplet_cost import (
+    OS_BONDING_YIELD,
+    base_cost,
+    critical_bonding_yield,
+    recurring_cost,
+)
 
 # Each swept one at a time around the registered value, over a range a reader can defend.
 SENSITIVITY = {
@@ -78,16 +92,50 @@ def crossover(members, coarse, fine, **overrides):
     proxy version made when it printed 1.0025.
     """
 
+    # The exact root first. `metric` is the objective with the `y_b^(-n)` factor divided out.
+    exact = critical_bonding_yield(
+        coarse["energy_delay"] * base_cost(coarse["die_areas_mm2"], **overrides),
+        fine["energy_delay"] * base_cost(fine["die_areas_mm2"], **overrides),
+        coarse["dies"], fine["dies"],
+    )
+    inside = 0.0 < exact <= 1.0
+
+    # The scan, kept as an independent cross-check of the root rather than as the answer.
+    scanned = None
     previous = None
-    for y_b in BONDING_GRID:
+    for y_b in BONDING_GRID:                       # descends from 1.00 to 0.80
         fine_wins = (
             objective(fine["die_areas_mm2"], fine["energy_delay"], y_b, **overrides)
             < objective(coarse["die_areas_mm2"], coarse["energy_delay"], y_b, **overrides)
         )
         if previous is not None and fine_wins != previous:
-            return {"critical_bonding_yield": y_b, "finer_wins_above": fine_wins}
+            # The grid DESCENDS, so `previous` is the state ABOVE this point. Reporting `fine_wins`
+            # -- the state below -- as "wins above" inverted the label; peer review caught it.
+            scanned = {"critical_bonding_yield": y_b, "finer_wins_above": previous}
+            break
         previous = fine_wins
-    return {"critical_bonding_yield": None, "finer_wins_everywhere": bool(previous)}
+    if scanned is None:
+        scanned = {"critical_bonding_yield": None, "finer_wins_over_scanned_grid": bool(previous)}
+
+    agree = (
+        scanned["critical_bonding_yield"] is not None
+        and abs(scanned["critical_bonding_yield"] - exact) <= 2.0 / len(BONDING_GRID)
+    ) or (scanned["critical_bonding_yield"] is None and not (min(BONDING_GRID) <= exact <= 1.0))
+    if not agree:
+        raise RuntimeError(
+            f"the exact root {exact} and the scan {scanned} disagree; one of the two "
+            "implementations of the same tie is wrong and neither may be reported"
+        )
+
+    return {
+        "critical_bonding_yield_exact": exact,
+        "inside_physical_range": inside,
+        "classification": (
+            "crossover" if inside else
+            ("coarser_wins_at_every_attainable_bonding_yield" if exact > 1.0 else "degenerate")
+        ),
+        "scanned": scanned,
+    }
 
 
 def joint_sweep(members, rng):
@@ -156,7 +204,12 @@ def main() -> None:
             members,
             key=lambda r: objective(r["die_areas_mm2"], r["energy_delay"], OS_BONDING_YIELD),
         )
-        robust = max(members, key=lambda r: r["beta_star_l1"] if r["beta_star_l1"] else -1.0)
+        # `is not None`, not truthiness: a radius of exactly 0.0 is a real measurement -- the
+        # design is nominally infeasible -- and reading it as missing would rank it last by accident.
+        robust = max(
+            members,
+            key=lambda r: r["beta_star_l1"] if r["beta_star_l1"] is not None else -1.0,
+        )
 
         pairs = []
         for coarse, fine in zip(members, members[1:]):
@@ -205,10 +258,9 @@ def main() -> None:
                 "  ".join(
                     "%d/%d:%s%s" % (
                         p["dies_coarse"], p["dies_fine"],
-                        "%.4f" % p["registered"]["critical_bonding_yield"]
-                        if p["registered"]["critical_bonding_yield"] is not None
-                        else ("finer-always" if p["registered"].get("finer_wins_everywhere")
-                              else "coarser-always"),
+                        "%.4f" % p["registered"]["critical_bonding_yield_exact"]
+                        if p["registered"]["inside_physical_range"]
+                        else "y*=%.4f(outside)" % p["registered"]["critical_bonding_yield_exact"],
                         "" if p["order_is_stable_under_every_swept_factor"] else "*UNSTABLE",
                     )
                     for p in pairs

@@ -112,32 +112,57 @@ def main() -> None:
         if len(members) < 2:
             continue
         members.sort(key=lambda r: r["dies"])
+        # BOTH radii. Agreement on the REJECT ordering does not establish agreement on the safety
+        # ordering, and the two are different decisions -- the split that peer review required is
+        # only honoured if it is carried through here as well.
         orders = {}
-        for model_id in model_ids:
-            orders[model_id] = tuple(
-                m["dies"] for m in sorted(
-                    members, key=lambda r: r["per_model"][model_id]["beta_star_reject"]
+        for which in ("beta_star_reject", "beta_star_safe"):
+            for model_id in model_ids:
+                orders[f"{model_id}|{which}"] = tuple(
+                    m["dies"] for m in sorted(
+                        members, key=lambda r: r["per_model"][model_id][which]
+                    )
                 )
-            )
         family_order = tuple(
-            m["dies"] for m in sorted(members, key=lambda r: r["beta_star_family"] or -1.0)
+            m["dies"] for m in sorted(
+                members,
+                key=lambda r: (
+                    r["beta_star_family"] if r["beta_star_family"] is not None else -1.0
+                ),
+            )
         )
+        # Near-ties would let tuple agreement hide a disagreement the sort resolved arbitrarily, so
+        # the smallest separation actually seen is reported beside the verdict.
+        separations = [
+            abs(a["per_model"][m][w] - b["per_model"][m][w])
+            for w in ("beta_star_reject", "beta_star_safe")
+            for m in model_ids
+            for a, b in zip(members, members[1:])
+        ]
         agree = len(set(orders.values())) == 1 and set(orders.values()) == {family_order}
         disagreements += 0 if agree else 1
         verdicts.append({
             "tiles": list(key[0]), "workload": key[1],
-            "order_by_model": {k: list(v) for k, v in orders.items()},
+            "order_by_model_and_radius": {k: list(v) for k, v in orders.items()},
             "order_family": list(family_order),
-            "all_models_induce_the_family_order": agree,
+            "all_models_and_both_radii_induce_the_family_order": agree,
+            "smallest_adjacent_separation": min(separations) if separations else None,
         })
         print(
             "%-6s %-12s  family %s   %s   %s" % (
                 "%dx%d" % key[0], key[1], "<".join(str(d) for d in family_order),
                 "  ".join(
-                    "%s:%s" % (m.replace("grid", "g"), "<".join(str(d) for d in orders[m]))
+                    "%s:%s" % (
+                        m.replace("grid", "g"),
+                        "/".join(
+                            "<".join(str(d) for d in orders[f"{m}|{w}"])
+                            for w in ("beta_star_reject", "beta_star_safe")
+                        ),
+                    )
                     for m in model_ids
                 ),
-                "AGREE" if agree else "DISAGREE",
+                ("AGREE" if agree else "DISAGREE")
+                + (" minsep %.2e" % min(separations) if separations else ""),
             ),
             flush=True,
         )
