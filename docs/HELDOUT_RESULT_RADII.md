@@ -66,10 +66,19 @@ observation on compact, near-square grids**, and it does not survive elongated o
 per-operator agreement that was offered as evidence the ordering is not a modelling artefact is,
 on this evidence, **evidence that it can be exactly that**.
 
-The most likely mechanism, offered as a hypothesis and not a finding: on a `2xN` or `Nx2` die the
-block-average and grid-average operators resolve lateral spreading very differently, because a
-two-tile-wide die has an edge-to-area ratio far outside the range the development grids covered. A
-`grid256` convergence study would test it, and is calibration-only rather than certified.
+**The `grid256` convergence study was run, and the answer is neither of the two possibilities this
+section originally listed.** The registered grid operators are **not converged** at these aspect
+ratios: on the `6x2` grids the radius moves 9.3–24.9 % between `grid128` and `grid256`, and the
+`4 < 1 < 2` inversion that `grid64` and `grid128` both produce **disappears at 256**, which returns
+`1 < 2 < 4` in 4 of 4 groups. Worse, the frozen `0.01 K` contract cannot detect this, because it
+replays each operator through its own `model_id` and therefore tests **linearity at a fixed
+discretisation** rather than convergence: `grid128-avg` passed with a worst error of 0.0027 K while
+disagreeing with a 4x finer grid by 17 %. Full measurement, the structural reason, and the
+grid-convergence gate this earns are in `docs/GRID_CONVERGENCE_FINDING.md`.
+
+None of that un-withdraws the ordering claim. The split is burned, so a convergence verdict is
+evidence about the instrument measured on architectures already seen, and restoring the hypothesis
+from it would be the post-hoc move the preregistration exists to prevent.
 
 ## What survives, and it is the diagnosis rather than the prescription
 

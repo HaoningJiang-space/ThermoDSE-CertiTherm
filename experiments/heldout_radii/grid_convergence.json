@@ -1,0 +1,317 @@
+{
+ "model_ids": [
+  "block",
+  "grid64-avg",
+  "grid128-avg",
+  "grid256-avg"
+ ],
+ "note": "Calibration-only. The method-freeze-radii-v1 split is burned, so this is evidence about the instrument and not a re-test of the ordering hypothesis; rebuilding that claim requires a new freeze ID and a new split.",
+ "points": [
+  {
+   "arch": "heldout_radii_06",
+   "workload": "resnet50",
+   "tiles": [
+    2,
+    6
+   ],
+   "dies": 1,
+   "beta_star_reject_by_model": {
+    "block": 0.03822423135528228,
+    "grid64-avg": 0.1258400075248121,
+    "grid128-avg": 0.1247278547489129,
+    "grid256-avg": 0.11847254432648731
+   }
+  },
+  {
+   "arch": "heldout_radii_06",
+   "workload": "transformer",
+   "tiles": [
+    2,
+    6
+   ],
+   "dies": 1,
+   "beta_star_reject_by_model": {
+    "block": 0.012169755261292764,
+    "grid64-avg": 0.014868290892376164,
+    "grid128-avg": 0.014999927287352277,
+    "grid256-avg": 0.013615537113614858
+   }
+  },
+  {
+   "arch": "heldout_radii_07",
+   "workload": "resnet50",
+   "tiles": [
+    2,
+    6
+   ],
+   "dies": 2,
+   "beta_star_reject_by_model": {
+    "block": 0.1037722398079511,
+    "grid64-avg": 0.15307197118904686,
+    "grid128-avg": 0.1344351352836326,
+    "grid256-avg": 0.13390699182726717
+   }
+  },
+  {
+   "arch": "heldout_radii_07",
+   "workload": "transformer",
+   "tiles": [
+    2,
+    6
+   ],
+   "dies": 2,
+   "beta_star_reject_by_model": {
+    "block": 0.022519047060717372,
+    "grid64-avg": 0.028897367971292297,
+    "grid128-avg": 0.023974795254555564,
+    "grid256-avg": 0.023785181878601187
+   }
+  },
+  {
+   "arch": "heldout_radii_08",
+   "workload": "resnet50",
+   "tiles": [
+    2,
+    6
+   ],
+   "dies": 4,
+   "beta_star_reject_by_model": {
+    "block": 0.10248570278070374,
+    "grid64-avg": 0.15728925784158015,
+    "grid128-avg": 0.1394070572896728,
+    "grid256-avg": 0.13877776272209402
+   }
+  },
+  {
+   "arch": "heldout_radii_08",
+   "workload": "transformer",
+   "tiles": [
+    2,
+    6
+   ],
+   "dies": 4,
+   "beta_star_reject_by_model": {
+    "block": 0.025938524166066634,
+    "grid64-avg": 0.034033653888577056,
+    "grid128-avg": 0.02691492712684591,
+    "grid256-avg": 0.026749154407567092
+   }
+  },
+  {
+   "arch": "heldout_radii_09",
+   "workload": "resnet50",
+   "tiles": [
+    6,
+    2
+   ],
+   "dies": 1,
+   "beta_star_reject_by_model": {
+    "block": 0.037610438901002165,
+    "grid64-avg": 0.10235765628823748,
+    "grid128-avg": 0.07304109916117717,
+    "grid256-avg": 0.0622864299051542
+   }
+  },
+  {
+   "arch": "heldout_radii_09",
+   "workload": "transformer",
+   "tiles": [
+    6,
+    2
+   ],
+   "dies": 1,
+   "beta_star_reject_by_model": {
+    "block": 0.013000137171482741,
+    "grid64-avg": 0.02497052492854238,
+    "grid128-avg": 0.0167683955563785,
+    "grid256-avg": 0.01374479988329366
+   }
+  },
+  {
+   "arch": "heldout_radii_10",
+   "workload": "resnet50",
+   "tiles": [
+    6,
+    2
+   ],
+   "dies": 2,
+   "beta_star_reject_by_model": {
+    "block": 0.0398042817434265,
+    "grid64-avg": 0.10507415104412347,
+    "grid128-avg": 0.07788537118725461,
+    "grid256-avg": 0.06453785108883463
+   }
+  },
+  {
+   "arch": "heldout_radii_10",
+   "workload": "transformer",
+   "tiles": [
+    6,
+    2
+   ],
+   "dies": 2,
+   "beta_star_reject_by_model": {
+    "block": 0.014695061333422183,
+    "grid64-avg": 0.02956945062343306,
+    "grid128-avg": 0.02119429961799253,
+    "grid256-avg": 0.016963355959688148
+   }
+  },
+  {
+   "arch": "heldout_radii_11",
+   "workload": "resnet50",
+   "tiles": [
+    6,
+    2
+   ],
+   "dies": 4,
+   "beta_star_reject_by_model": {
+    "block": 0.10207050494522034,
+    "grid64-avg": 0.08074392584041887,
+    "grid128-avg": 0.07056296752588952,
+    "grid256-avg": 0.07780986828203416
+   }
+  },
+  {
+   "arch": "heldout_radii_11",
+   "workload": "transformer",
+   "tiles": [
+    6,
+    2
+   ],
+   "dies": 4,
+   "beta_star_reject_by_model": {
+    "block": 0.034947666029597826,
+    "grid64-avg": 0.026036197737096162,
+    "grid128-avg": 0.022586038315416744,
+    "grid256-avg": 0.025261897341424127
+   }
+  }
+ ],
+ "verdicts": [
+  {
+   "tiles": [
+    2,
+    6
+   ],
+   "workload": "resnet50",
+   "order_by_model": {
+    "block": [
+     1,
+     4,
+     2
+    ],
+    "grid64-avg": [
+     1,
+     2,
+     4
+    ],
+    "grid128-avg": [
+     1,
+     2,
+     4
+    ],
+    "grid256-avg": [
+     1,
+     2,
+     4
+    ]
+   },
+   "finest_two_grids_agree": true,
+   "block_agrees_with_finest_grid": false
+  },
+  {
+   "tiles": [
+    2,
+    6
+   ],
+   "workload": "transformer",
+   "order_by_model": {
+    "block": [
+     1,
+     2,
+     4
+    ],
+    "grid64-avg": [
+     1,
+     2,
+     4
+    ],
+    "grid128-avg": [
+     1,
+     2,
+     4
+    ],
+    "grid256-avg": [
+     1,
+     2,
+     4
+    ]
+   },
+   "finest_two_grids_agree": true,
+   "block_agrees_with_finest_grid": true
+  },
+  {
+   "tiles": [
+    6,
+    2
+   ],
+   "workload": "resnet50",
+   "order_by_model": {
+    "block": [
+     1,
+     2,
+     4
+    ],
+    "grid64-avg": [
+     4,
+     1,
+     2
+    ],
+    "grid128-avg": [
+     4,
+     1,
+     2
+    ],
+    "grid256-avg": [
+     1,
+     2,
+     4
+    ]
+   },
+   "finest_two_grids_agree": false,
+   "block_agrees_with_finest_grid": true
+  },
+  {
+   "tiles": [
+    6,
+    2
+   ],
+   "workload": "transformer",
+   "order_by_model": {
+    "block": [
+     1,
+     2,
+     4
+    ],
+    "grid64-avg": [
+     1,
+     4,
+     2
+    ],
+    "grid128-avg": [
+     1,
+     2,
+     4
+    ],
+    "grid256-avg": [
+     1,
+     2,
+     4
+    ]
+   },
+   "finest_two_grids_agree": true,
+   "block_agrees_with_finest_grid": true
+  }
+ ]
+}

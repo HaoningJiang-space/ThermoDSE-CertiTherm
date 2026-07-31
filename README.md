@@ -79,6 +79,15 @@ in the die count, and 6 of 8 groups contain a thermal operator that disagrees wi
 ordering — on the `Nx2` grids the two grid operators invert it relative to `block`. The 10-of-10
 agreement seen in development was a property of compact, near-square floorplans.
 
+A `grid256` convergence study (`docs/GRID_CONVERGENCE_FINDING.md`) then found the cause, and it is
+worse than a disagreement between operators: **the registered grid operators are not converged** at
+these aspect ratios — the radius moves 9.3–24.9 % between `grid128` and `grid256` on the `Nx2` grids
+— and **the frozen 0.01 K error contract cannot detect that**, because it replays each operator
+through its own `model_id` and so certifies linearity at a fixed discretisation, not convergence.
+`grid128-avg` passed with a worst error of 0.0027 K while disagreeing with a 4x finer grid by 17 %.
+The method change this earns is a grid-convergence gate beside the linearity gate; it needs a new
+freeze ID and is the first item of the next round.
+
 ### What observation the decision actually needs, and under which uncertainty set
 
 Three uncertainty sets are in play and **containment transfers asymmetrically**. From a SUBSET of the
