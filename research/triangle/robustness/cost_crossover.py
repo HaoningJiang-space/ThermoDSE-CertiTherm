@@ -51,6 +51,11 @@ SENSITIVITY = {
     "re_cost_factor": (0.001, 0.0025, 0.005, 0.01, 0.02),
 }
 BONDING_GRID = [1.0 - i / 2000.0 for i in range(0, 401)]      # 1.000 down to 0.800 in 0.0005 steps
+JOINT_SAMPLES = 4000
+JOINT_SEED = 20260801
+# Bonding yield joins the joint sweep as a sixth factor; it is scanned separately for the crossover
+# but must vary WITH the others when the question is how often each cut wins.
+JOINT_RANGES = dict(SENSITIVITY, bonding_yield=(0.95, 1.0))
 
 
 def objective(die_areas_mm2, energy_delay, bonding_yield, **overrides) -> float:
@@ -83,6 +88,36 @@ def crossover(members, coarse, fine, **overrides):
             return {"critical_bonding_yield": y_b, "finer_wins_above": fine_wins}
         previous = fine_wins
     return {"critical_bonding_yield": None, "finer_wins_everywhere": bool(previous)}
+
+
+def joint_sweep(members, rng):
+    """How often does each cut win when EVERY factor moves at once?
+
+    One-at-a-time sweeps answer "is this decision fragile to any single assumption", which is the
+    weaker question: they cannot see a combination where two factors cancel, and they cannot say how
+    much of the plausible space each option owns. Sampling the box jointly answers both, and it is
+    the version a reader should be given when the conclusion is "the decision is not determined by
+    the cost model".
+
+    Uniform over each factor's own range, which is a stated prior and not a measured one -- the
+    ranges come from the published parameter file's own spread across nodes and package types, and a
+    different prior would give different shares. What does NOT depend on the prior is whether any
+    option owns the whole box.
+    """
+
+    wins = {member["dies"]: 0 for member in members}
+    for _ in range(JOINT_SAMPLES):
+        draw = {}
+        for name, values in JOINT_RANGES.items():
+            low, high = min(values), max(values)
+            draw[name] = float(rng.uniform(low, high))
+        bonding = draw.pop("bonding_yield")
+        best = min(
+            members,
+            key=lambda r: objective(r["die_areas_mm2"], r["energy_delay"], bonding, **draw),
+        )
+        wins[best["dies"]] += 1
+    return {n: c / JOINT_SAMPLES for n, c in wins.items()}
 
 
 def main() -> None:
@@ -152,16 +187,21 @@ def main() -> None:
                 "sensitivity": moved,
             })
 
+        shares = joint_sweep(members, np.random.default_rng(JOINT_SEED))
         verdicts.append({
             "tiles": list(key[0]), "workload": key[1],
+            "joint_sweep_win_share": shares,
+            "joint_sweep_samples": JOINT_SAMPLES,
+            "any_cut_owns_the_whole_box": max(shares.values()) == 1.0,
             "dies_at_registered_cost": at_registered["dies"],
             "dies_most_robust": robust["dies"],
             "cost_choice_matches_robust": at_registered["dies"] == robust["dies"],
             "pairs": pairs,
         })
         print(
-            "%-6s %-12s  cost->n=%-2d  robust->n=%-2d  %s" % (
+            "%-6s %-12s  cost->n=%-2d  robust->n=%-2d  joint[%s]  %s" % (
                 "%dx%d" % key[0], key[1], at_registered["dies"], robust["dies"],
+                " ".join("%d:%.0f%%" % (n, 100 * f) for n, f in sorted(shares.items())),
                 "  ".join(
                     "%d/%d:%s%s" % (
                         p["dies_coarse"], p["dies_fine"],
@@ -183,10 +223,13 @@ def main() -> None:
     )
     total_pairs = sum(len(v["pairs"]) for v in verdicts)
     matches = sum(1 for v in verdicts if v["cost_choice_matches_robust"])
+    owned = sum(1 for v in verdicts if v["any_cut_owns_the_whole_box"])
     print(
         "\n%d of %d cut pairs change their winner under at least one swept cost factor.\n"
+        "Under the JOINT sweep of all six factors, %d of %d groups have a single cut winning "
+        "every one of the %d samples; in the rest the decision is split.\n"
         "The full-cost choice coincides with the robustness choice in %d of %d groups."
-        % (unstable, total_pairs, matches, len(verdicts)),
+        % (unstable, total_pairs, owned, len(verdicts), JOINT_SAMPLES, matches, len(verdicts)),
         flush=True,
     )
     if out_path is not None:
