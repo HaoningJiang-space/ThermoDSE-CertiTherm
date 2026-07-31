@@ -4,9 +4,15 @@ The question DSOS asks is "which observations are decision-sufficient". Answered
 is a number, and a number is not a method. This probe measures the thing that IS one: the answer is
 a step function of a single physically meaningful parameter, with two computable breakpoints.
 
-Let `U(b)` be the relocation-bounded uncertainty set -- every power map reachable from the placed
-map by relocating at most a fraction `b` of the workload's own total power. The sets are NESTED, so
-anything measured on them is monotone in `b`, and two breakpoints separate three tiers:
+Let `U(b)` be the uncertainty set at radius `b`, selected by argv and RECORDED in every output row:
+
+    relocation  the largest box inscribed in `|p - q|_1 <= 2 b sum(q)` -- a SUBSET of the L1
+                transfer ball, so a bound proved on it is also a bound for the L1 problem
+    deviation   the L-infinity ball of half-width `b sum(q)` -- a SUPERSET of that ball, whose
+                bounds do NOT transfer to an L1 statement
+
+Both are intersected with the total-power plane and the nonnegative orthant, and both are NESTED in
+`b`, so anything measured on them is monotone and two breakpoints separate three tiers:
 
     b < b_reach              NO measurement is needed.        Every admissible map is SAFE, so the
                                                               empty plan certifies. This direction is
@@ -20,11 +26,19 @@ anything measured on them is monotone in `b`, and two breakpoints separate three
                                                               no plan built from it can certify, at
                                                               any price.
 
-`b_reach` is the robustness radius `beta*` already reported in `docs/THERMAL_ROBUSTNESS_RADII.md`.
-That it is ALSO the point at which observation becomes necessary is not a coincidence and needs no
-experiment: below it the REJECT set is empty, so there is nothing to distinguish. `b_blind` is the
-new quantity, and it is the one that decides whether a designer needs post-route per-block power
-extraction or can stop at the reports an architecture-stage flow already produces.
+`b_reach` is a robustness radius of the same family as the ones in
+`docs/THERMAL_ROBUSTNESS_RADII.md`, measured on whichever set was selected. That it is ALSO the
+point at which observation becomes necessary is not a coincidence and needs no experiment: below it
+the REJECT set is empty, so there is nothing to distinguish. `b_blind` is the new quantity, and it
+is the one that decides whether a designer needs post-route per-block power extraction or can stop
+at the reports an architecture-stage flow already produces.
+
+Two assumptions are load-bearing in the first tier and are stated rather than left implicit. The
+empty plan certifies only because SAFE is the complement of REJECT under the registered margin --
+`reject_cell_rows` and the SAFE conjunction partition the admissible maps, with the fail-closed
+margin folded one-sidedly into REJECT -- and because the nominal map itself is admitted at every
+radius, so the SAFE side is non-empty. Neither survives a formulation with an indifference band
+between the two, and this probe does not have one.
 
 `b_reach <= b_blind` holds by construction: a blind pair contains a REJECT map, so it cannot exist
 before REJECT maps do. The gap between them is the range of power-model accuracy over which cheap
@@ -78,7 +92,11 @@ sys.path.insert(0, ".")
 
 from CertiTherm.experiments import _measurement_costs, _power_space, _rows, ROOT
 from CertiTherm.hotspot import load_family
-from CertiTherm.measurements import build_measurement_library, relocation_bounded_power_space
+from CertiTherm.measurements import (
+    build_measurement_library,
+    deviation_bounded_power_space,
+    relocation_bounded_power_space,
+)
 from CertiTherm.solver_budget import budget_scope
 from CertiTherm.synthesis import UnresolvedComputation, _collision_search
 from CertiTherm.thermal_constraints import reject_cell_rows
@@ -87,23 +105,36 @@ MARGIN_K = 0.05
 FEASIBILITY_TOLERANCE = 1e-9
 BISECTION_STEPS = 14
 COLLISION_BUDGET_S = 900.0
+# Which uncertainty set the tiers are measured on, selected by argv. `relocation` is the box
+# INSCRIBED in the L1 transfer ball, so its bounds transfer to an L1 statement; `deviation` is the
+# L-infinity superset, whose bounds do not. Reporting one under the other's name was the error peer
+# review found, so the choice is recorded in every output row rather than left implicit.
+SPACES = {
+    "relocation": (relocation_bounded_power_space, "relocated_fraction"),
+    "deviation": (deviation_bounded_power_space, "deviation_fraction"),
+}
+GEOMETRY = "relocation"
 
 
-def reject_reachable(rows: np.ndarray, floors: np.ndarray, placed: np.ndarray, beta: float) -> bool:
+def reject_reachable(rows, floors, placed, radius, build_space, radius_key) -> bool:
     """Is any map in U(beta) REJECT?  Exact, by greedy fill -- no solver.
 
     Maximising a linear form over {lower <= p <= upper, sum p = total} is solved exactly by
     filling the largest coefficients to their upper bound from the all-lower start, because the
     single equality makes the feasible set a transportation polytope whose vertices are reached
-    that way. Using the box implied by the L1 budget is a RELAXATION of the L1 body, so the radius
-    this returns is a lower bound on the true one -- and `relocation_bounded_power_space` builds
-    the same box, so the two agree by construction rather than by coincidence.
+    that way. Exact for the BOX; the box is whatever `build_space` returns, so this answers the
+    reachability question for the same set the collision search is run on and the two cannot drift
+    apart. Radius zero is the nominal map itself, which is why it is passed through unmodified
+    rather than through a builder that refuses a non-positive fraction.
     """
 
     total = float(placed.sum())
-    budget = beta * total
-    upper = placed + budget
-    lower = np.maximum(placed - budget, 0.0)
+    if radius <= 0.0:
+        upper = lower = placed.copy()
+    else:
+        space = build_space(placed, **{radius_key: radius})
+        upper = np.asarray(space.upper_w, dtype=float)
+        lower = np.asarray(space.lower_w, dtype=float)
     for j in range(rows.shape[0]):
         row = np.asarray(rows[j], dtype=float)
         p = lower.copy()
@@ -168,7 +199,12 @@ def coarse_blind(polytope, family, actions, coarse, single_block, budget_s):
 def main() -> None:
     artifacts = Path(sys.argv[1])
     out_path = Path(sys.argv[2])
-    if len(sys.argv) > 3:
+    global GEOMETRY
+    GEOMETRY = sys.argv[4] if len(sys.argv) > 4 else "relocation"
+    if GEOMETRY not in SPACES:
+        raise SystemExit(f"unknown geometry {GEOMETRY!r}; choose from {sorted(SPACES)}")
+    build_space, radius_key = SPACES[GEOMETRY]
+    if len(sys.argv) > 3 and sys.argv[3] != "-":
         instances = [tuple(s.split(":")) for s in sys.argv[3].split(",")]
     else:
         instances = [
@@ -214,15 +250,15 @@ def main() -> None:
         # whether the DESIGN is nominally infeasible. Bisecting without that test would return a
         # small positive value after a finite number of halvings and fabricate a safe interval
         # below it -- peer review found this in both this probe and `architecture_sweep.radii`.
-        if reject_reachable(rows, floors, placed, 0.0):
+        if reject_reachable(rows, floors, placed, 0.0, build_space, radius_key):
             reach = 0.0
-        elif not reject_reachable(rows, floors, placed, 1.0):
+        elif not reject_reachable(rows, floors, placed, 1.0, build_space, radius_key):
             reach = float("inf")
         else:
             lo, hi = 0.0, 1.0
             for _ in range(BISECTION_STEPS + 6):
                 mid = 0.5 * (lo + hi)
-                if reject_reachable(rows, floors, placed, mid):
+                if reject_reachable(rows, floors, placed, mid, build_space, radius_key):
                     hi = mid
                 else:
                     lo = mid
@@ -239,7 +275,7 @@ def main() -> None:
 
         def probe(radius):
             verdict = coarse_blind(
-                relocation_bounded_power_space(placed, relocated_fraction=radius),
+                build_space(placed, **{radius_key: radius}),
                 family, actions, coarse, single_block, COLLISION_BUDGET_S,
             )
             ladder.append({"radius": radius, "verdict": verdict})
@@ -289,7 +325,7 @@ def main() -> None:
             # a DIFFERENT number (`research/triangle/robustness/geometries.py:radius_l1`) and the
             # two must not be reported under one name -- they were, and the box value is the smaller
             # of the two on every instance measured.
-            "geometry": "linf_ball_radius_times_total_intersect_total_plane",
+            "geometry": GEOMETRY,
             "epsilon_reach": reach,
             "epsilon_blind": blind,
             "epsilon_unsynthesizable": unsynthesizable_at,

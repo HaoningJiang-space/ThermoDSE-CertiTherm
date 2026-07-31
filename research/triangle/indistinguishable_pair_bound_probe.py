@@ -64,6 +64,7 @@ from CertiTherm.experiments import _measurement_costs, _power_space, _rows, ROOT
 from CertiTherm.hotspot import load_family
 from CertiTherm.measurements import (
     activity_bounded_power_space,
+    deviation_bounded_power_space,
     build_measurement_library,
     relocation_bounded_power_space,
 )
@@ -85,15 +86,29 @@ def main() -> None:
     gaps_path = Path(sys.argv[10]) if len(sys.argv) > 10 and sys.argv[10] != "-" else None
     activity_span = float(sys.argv[11]) if len(sys.argv) > 11 else 0.0
     relocated = float(sys.argv[12]) if len(sys.argv) > 12 else 0.0
+    geometry = "registered"
 
     polytope, blocks, placed, floorplan_text = _power_space(
         artifacts / "captures" / f"{workload}--{candidate}.npz"
     )
     if relocated > 0:
-        # The geometry the measurements single out: relocation radii on this registry are 0.5-4.3%
-        # of total power where uniform-scaling radii are 9-258%, so redistribution is the dangerous
-        # direction -- and it is the one group-level power reports cannot see.
-        polytope = relocation_bounded_power_space(placed, relocated_fraction=relocated)
+        # The geometry the measurements single out: redistribution radii on this registry are a few
+        # percent of total power where uniform-scaling radii are 9-258%, so redistribution is the
+        # dangerous direction -- and it is the one group-level power reports cannot see.
+        #
+        # WHICH redistribution set, though, decides whether the resulting bound may be quoted as a
+        # relocation requirement. `relocation_bounded_power_space` is the box INSCRIBED in the L1
+        # transfer ball, so a lower bound proved on it also lower-bounds the L1 problem;
+        # `deviation_bounded_power_space` is the L-infinity SUPERSET, whose bounds do not transfer.
+        # The 1440 reported at "5% relocation" was computed on the superset and must be relabelled.
+        # A negative fraction selects the superset explicitly, so both remain reachable and neither
+        # can be produced by accident.
+        if relocated < 0:
+            polytope = deviation_bounded_power_space(placed, deviation_fraction=-relocated)
+            geometry = "deviation"
+        else:
+            polytope = relocation_bounded_power_space(placed, relocated_fraction=relocated)
+            geometry = "relocation"
     elif activity_span > 0:
         polytope = activity_bounded_power_space(
             blocks, placed, activity_span=activity_span
@@ -134,6 +149,10 @@ def main() -> None:
     ceiling = sum(sum(sorted(cost[b] for b in cell)[:-1]) for cell in multi)
     print(json.dumps({
         "candidate": candidate, "package": package, "workload": workload,
+        "uncertainty_geometry": (
+            geometry if relocated != 0 else ("activity" if activity_span > 0 else "registered")
+        ),
+        "relocated_fraction": abs(relocated) if relocated != 0 else None,
         "blocks": len(blocks), "library_actions": len(actions),
         "single_block_actions": len(single_block_actions),
         "models": models, "points": points, "scan_points": scan_points,

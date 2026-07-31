@@ -124,31 +124,74 @@ def activity_bounded_power_space(
     )
 
 
+def deviation_bounded_power_space(
+    placed_power_w: np.ndarray, *, deviation_fraction: float
+) -> PowerPolytope:
+    """Admit maps whose EVERY block deviates by at most `deviation_fraction` of TOTAL power.
+
+    An L-infinity ball of half-width `deviation_fraction * sum(q)`, intersected with the
+    total-power plane and the nonnegative orthant. Note what that is NOT: it is not a bound on how
+    much power moves. Each of `n` blocks may take its full allowance at once, so the L1 distance it
+    admits reaches `n * deviation_fraction * sum(q)`, which on a 237-block instance is two orders of
+    magnitude more than an L1 transfer budget of the same nominal fraction.
+
+    This function used to be called `relocation_bounded_power_space` and its docstring described the
+    L1 body it does not build. Two distinct radii were reported under one name -- the box reaches a
+    reject floor at 2.637% on arch_a/default/resnet50 where the exact L1 body needs 4.1% -- and the
+    docstring asserted that "any bound proved on it remains valid", which is false in the direction
+    that matters: the box is a SUPERSET of the L1 ball, so a lower bound on the box's minimum
+    observation cost does NOT lower-bound the L1 problem's. A superset admits more SAFE/REJECT
+    collisions and therefore demands at least as much observation. Peer review caught the claim; use
+    `relocation_bounded_power_space` below when the conclusion must be about relocation.
+    """
+
+    placed = np.asarray(placed_power_w, dtype=float)
+    if placed.ndim != 1 or not np.all(np.isfinite(placed)) or np.any(placed < 0):
+        raise ValueError("placed power must be a finite nonnegative vector")
+    if not np.isfinite(deviation_fraction) or deviation_fraction <= 0:
+        raise ValueError(
+            f"deviation_fraction must be finite and positive, got {deviation_fraction}"
+        )
+    total = float(np.sum(placed))
+    if total <= 0:
+        raise ValueError("placed power must have positive total")
+    budget = deviation_fraction * total
+    return PowerPolytope(
+        lower_w=np.maximum(placed - budget, 0.0),
+        upper_w=placed + budget,
+        a_eq=np.ones((1, placed.size)),
+        b_eq=np.array([total]),
+        a_ub=np.empty((0, placed.size)),
+        b_ub=np.empty(0),
+    )
+
+
 def relocation_bounded_power_space(
     placed_power_w: np.ndarray, *, relocated_fraction: float
 ) -> PowerPolytope:
-    """Admit maps that differ from the placement by relocating at most a FRACTION of total power.
+    """The largest box INSIDE `|p - q|_1 <= 2 * relocated_fraction * sum(q)`, total conserved.
 
-    The third registered uncertainty geometry, and the one the measurements say matters. Comparing
-    the radii of the first two on this registry:
+    The uncertainty statement a power model can actually be held to: at most a fraction of the
+    workload's own total power ends up somewhere other than predicted. It is scale-free and
+    independent of how finely the design is decomposed into blocks, which a per-block relative box
+    is not.
 
-        uniform total-power under-prediction     tolerated: 9% to 258%
-        relocation of a fraction of total power  tolerated: 0.5% to 4.3%
+    The exact L1 body needs the lifted program `p = q + u - v`, `u, v >= 0`, and so cannot be
+    written over `p` alone with finitely many rows. What CAN be, soundly, is its largest inscribed
+    box. With the total conserved, `sum(p - q) = 0`, so `|p - q|_1 = 2 * sum(positive part)` and a
+    box of half-width `h` admits at most `n * h`. Setting
 
-    Redistribution is twenty to fifty times more dangerous than scaling here. A design absorbs a
-    doubling of its total power and fails when 5% of that power moves somewhere else -- which is
-    exactly the direction module-, chiplet- and region-level power reports cannot observe, since a
-    move inside one group leaves every group total unchanged.
+        h = 2 * relocated_fraction * sum(q) / n
 
-    `|p - q|_1 <= 2 * relocated_fraction * sum(q)` with the total conserved, so the parameter is a
-    scale-free fraction of the workload's own power. That is what makes it comparable across designs
-    and independent of how finely the design is decomposed into blocks -- the objection that a
-    per-block relative box gives a block with tiny nominal power a tiny absolute budget.
+    puts the box INSIDE the L1 ball. That is the direction that makes a bound transfer: a subset
+    admits no more SAFE/REJECT collisions than the set containing it, so a certified LOWER bound on
+    the subset's minimum observation cost is also a valid lower bound for the L1 problem. The
+    superset box -- `deviation_bounded_power_space` above -- gives no such guarantee, and reading a
+    bound computed on it as an L1 statement was an error peer review found.
 
-    Encoded with the L1 term expanded as `p = q + u - v`, `u, v >= 0`, which keeps the constraint
-    matrix linear. The returned polytope is over `p` alone: the box is the tightest interval implied
-    by the budget, which is a RELAXATION of the L1 set, so any bound proved on it remains valid.
-    Callers needing the exact L1 body must build the lifted program themselves.
+    The price is that this is a conservative inner approximation: it is tight only for a deviation
+    spread evenly across every block, and it cannot express moving the whole budget onto one block.
+    A caller who needs that must build the lifted program.
     """
 
     placed = np.asarray(placed_power_w, dtype=float)
@@ -161,7 +204,7 @@ def relocation_bounded_power_space(
     total = float(np.sum(placed))
     if total <= 0:
         raise ValueError("placed power must have positive total")
-    budget = relocated_fraction * total
+    budget = 2.0 * relocated_fraction * total / placed.size
     return PowerPolytope(
         lower_w=np.maximum(placed - budget, 0.0),
         upper_w=placed + budget,
