@@ -83,6 +83,7 @@ from .thermodse_bridge import (
     write_hotspot_config as _configure,
 )
 from .frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
+from .grid_convergence_gate import GRID_DRIFT_LIMIT_K, refined_model_id
 from .split_protocol import (
     ANYTIME_SPLITS as _ANYTIME_SPLITS,
     BURNED_SPLITS as _BURNED_SPLITS,
@@ -372,6 +373,7 @@ def _operator_cache_signature(
         "models": MODELS,
         "thermal_limit_k": THERMAL_LIMIT_K,
         "error_limit_k": MODEL_ERROR_LIMIT_K,
+        "grid_drift_limit_k": GRID_DRIFT_LIMIT_K,
         "calibration_vectors": CALIBRATION_VECTOR_IDS,
         "gpu_enabled": gpu_enabled,
     }
@@ -400,6 +402,11 @@ def _operator_cache_signature(
                 "CertiTherm/digest.py",
                 "CertiTherm/experiments.py",
                 "CertiTherm/gpu_hotspot.py",
+                # The gate decides whether an operator may be built at all, so an operator cached
+                # under the old logic must not be accepted under the new one. Omitting a module
+                # that validates the artifact is the false-HIT this bundle exists to prevent, and
+                # it has already happened twice in this repository.
+                "CertiTherm/grid_convergence_gate.py",
                 "CertiTherm/hotspot.py",
                 "CertiTherm/measurements.py",
                 # See _capture_cache_signature: the receipt is written and validated through
@@ -662,6 +669,35 @@ def _operator(
             + family.response_k_per_w[model_index] @ power
         )
         error = float(np.max(np.abs(direct - predicted)))
+        # The SECOND comparison, and the one the linearity contract structurally cannot make: the
+        # same power map at twice the grid resolution. `direct` and `predicted` share a grid, so a
+        # perfectly linear but under-resolved operator scores near zero above -- measured, 0.0027 K
+        # of linearity error beside a 17% disagreement with a 4x finer grid, which reversed the cut
+        # ordering it induced (docs/GRID_CONVERGENCE_FINDING.md). `block` has no refinement
+        # parameter and is recorded as ungated rather than passed.
+        try:
+            fine_id = refined_model_id(model_id)
+        except ValueError:
+            drift, drift_status = float("nan"), "UNGATED"
+        else:
+            refined = replay_power(
+                HOTSPOT,
+                config,
+                floorplan,
+                TEMPLATE / "example.materials",
+                fine_id,
+                blocks,
+                power,
+                work / "convergence" / f"{capture_index}--{vector_id}--{fine_id}",
+            )
+            drift = float(np.max(np.abs(direct - refined)))
+            # Finiteness first and separately: `nan > limit` is False, so a non-finite field would
+            # pass the bound AND be recorded as the drift.
+            drift_status = (
+                "REJECT"
+                if not math.isfinite(drift) or drift > GRID_DRIFT_LIMIT_K
+                else "PASS"
+            )
         return {
             "capture": capture_name,
             "vector_id": vector_id,
@@ -669,6 +705,9 @@ def _operator(
             "model_id": model_id,
             "max_abs_error_k": error,
             "registered_error_k": MODEL_ERROR_LIMIT_K,
+            "grid_drift_k": drift,
+            "registered_grid_drift_k": GRID_DRIFT_LIMIT_K,
+            "grid_status": drift_status,
             "bound_status": "PASS" if error <= MODEL_ERROR_LIMIT_K else "REJECT",
         }
 
@@ -684,6 +723,11 @@ def _operator(
         for row in calibration
         if row["bound_status"] == "REJECT"
     ]
+    drifted = [
+        (row["capture"], row["vector_id"], row["model_id"], row["grid_drift_k"])
+        for row in calibration
+        if row["grid_status"] == "REJECT"
+    ]
     _write_tsv(calibration_path, calibration)
     if rejected:
         worst = max(rejected, key=lambda item: item[-1])
@@ -691,6 +735,17 @@ def _operator(
             "frozen 0.01 K error contract rejected "
             f"{len(rejected)} replay(s); worst={worst[0]}/{worst[1]}/"
             f"{worst[2]}:{worst[3]:.6g} K"
+        )
+    if drifted:
+        # Reported AFTER the linearity refusal so an operator failing both is named by the older
+        # contract first, which keeps existing refusal messages stable.
+        worst = max(
+            drifted, key=lambda item: item[-1] if math.isfinite(item[-1]) else float("inf")
+        )
+        raise RuntimeError(
+            f"grid-convergence gate rejected {len(drifted)} replay(s) against the 2x refinement; "
+            f"worst={worst[0]}/{worst[1]}/{worst[2]}:{worst[3]:.6g} K above "
+            f"{GRID_DRIFT_LIMIT_K} K"
         )
     family = type(family)(
         family.model_ids,
