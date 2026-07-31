@@ -21,6 +21,18 @@ This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
 EDA stage is sufficient to justify the resulting architecture choice.
 
+> **2026-08-01 — the thermal instrument is not validated, and this qualifies everything below it
+> that uses it.** A grid-convergence gate, built after a held-out failure and wired into the
+> operator build, replays each calibration vector at `gridN` and `grid2N` and bounds the
+> disagreement. It **refused all four architectures tested, including both compact `4x4` controls
+> from the development regime**: measured drift 0.153–1.409 K against a frozen linearisation budget
+> of 0.01 K and a SAFE/REJECT decision band of 0.10 K. The linearisation error is 0.0004–0.0017 K
+> throughout — the frozen contract is exact, and it bounds the wrong error, because both sides of
+> its comparison share the grid. Every radius, tier and certified observation bound in this
+> repository therefore keeps its value and loses its error bar. The composition and cost results,
+> which never touch the thermal operator, are unaffected. Full measurement and the claim-by-claim
+> split: `docs/DISCRETISATION_ERROR_EXCEEDS_THE_DECISION_BAND.md`.
+
 ### The chiplet-count decision is not identifiable from the objective
 
 The current headline. Full statement, with scope and the two withdrawn predecessors, in

@@ -105,7 +105,14 @@ agreement between two successive refinements on five power maps, not a proof of 
 `block` has no refinement parameter, so it is reported as `ungated` rather than passed — it was the
 outlier in one of the four groups measured and nothing here would catch it.
 
-**It is not wired into `experiments.py`**, which is frozen under `method-freeze-radii-v1`. Adopting
+**It has since been wired into `experiments.py`** under `method-freeze-radii-v2`, and running it
+refused every architecture it was pointed at -- including the compact `4x4` development controls, at
+0.153-0.250 K of drift. That result supersedes this document as the round's principal finding and is
+recorded in `docs/DISCRETISATION_ERROR_EXCEEDS_THE_DECISION_BAND.md`: the discretisation error is
+larger than the SAFE/REJECT band, not merely larger than the linearisation budget.
+
+The paragraph below was written before that run and is kept because it states the reasoning that led
+to it. Adopting
 it is a method change requiring a new freeze ID and a fresh development run — the same rule that
 sent this round to a new split rather than reusing `method-freeze-v1`. The ordering claim cannot be
 retested until it is adopted, because until then the family cannot be trusted to order anything on a

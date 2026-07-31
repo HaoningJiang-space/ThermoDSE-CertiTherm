@@ -1,0 +1,16 @@
+capture	vector_id	power_sha256	model_id	max_abs_error_k	registered_error_k	grid_drift_k	registered_grid_drift_k	grid_status	bound_status
+resnet50--gatecheck_01.npz	placed	4daf0b6daf31571b8dc94cd263384b3fc00ed7ed0eff4cbdcbdcacc618e25aae	block	3.254854163969867e-10	0.01	nan	0.05	UNGATED	PASS
+resnet50--gatecheck_01.npz	placed	4daf0b6daf31571b8dc94cd263384b3fc00ed7ed0eff4cbdcbdcacc618e25aae	grid64-avg	0.0006748131190761342	0.01	0.23534531749999132	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	placed	4daf0b6daf31571b8dc94cd263384b3fc00ed7ed0eff4cbdcbdcacc618e25aae	grid128-avg	0.0014415143116934814	0.01	0.14913288069999453	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	bounded-uniform	d3aa432f9910be4027c5cea8363f0ea63be4a2bb1ee68b5b5d5ef7172b8cb49f	block	2.5352164811920375e-10	0.01	nan	0.05	UNGATED	PASS
+resnet50--gatecheck_01.npz	bounded-uniform	d3aa432f9910be4027c5cea8363f0ea63be4a2bb1ee68b5b5d5ef7172b8cb49f	grid64-avg	0.0005970329265210239	0.01	0.1461037468000086	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	bounded-uniform	d3aa432f9910be4027c5cea8363f0ea63be4a2bb1ee68b5b5d5ef7172b8cb49f	grid128-avg	0.0012708042522717733	0.01	0.1471019854000133	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	bounded-random-17	2c0d31ff35528da0c9afe83721cef81b3380bd8abcd904b4aa8fc23e761f14c2	block	2.673345989023801e-10	0.01	nan	0.05	UNGATED	PASS
+resnet50--gatecheck_01.npz	bounded-random-17	2c0d31ff35528da0c9afe83721cef81b3380bd8abcd904b4aa8fc23e761f14c2	grid64-avg	0.0004822604236665029	0.01	0.5516070627999738	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	bounded-random-17	2c0d31ff35528da0c9afe83721cef81b3380bd8abcd904b4aa8fc23e761f14c2	grid128-avg	0.001213456999266782	0.01	0.3186935617999893	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	bounded-random-23	74a31ce7ae737934edce29b887a91d6383c3c2eebf637f3c56321fc0438797ab	block	2.934825715783518e-10	0.01	nan	0.05	UNGATED	PASS
+resnet50--gatecheck_01.npz	bounded-random-23	74a31ce7ae737934edce29b887a91d6383c3c2eebf637f3c56321fc0438797ab	grid64-avg	0.0005500011862409337	0.01	0.4590823905000434	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	bounded-random-23	74a31ce7ae737934edce29b887a91d6383c3c2eebf637f3c56321fc0438797ab	grid128-avg	0.0014411316360565252	0.01	0.3503484152000169	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	bounded-random-41	da0bb3379de3b9952a455a35cdd47b5a231c17a75811fe4b1faf506eb745f644	block	3.4719960240181535e-10	0.01	nan	0.05	UNGATED	PASS
+resnet50--gatecheck_01.npz	bounded-random-41	da0bb3379de3b9952a455a35cdd47b5a231c17a75811fe4b1faf506eb745f644	grid64-avg	0.0005445881508308048	0.01	0.4399509988999739	0.05	REJECT	PASS
+resnet50--gatecheck_01.npz	bounded-random-41	da0bb3379de3b9952a455a35cdd47b5a231c17a75811fe4b1faf506eb745f644	grid128-avg	0.0014934983932448631	0.01	0.6082604600999844	0.05	REJECT	PASS
