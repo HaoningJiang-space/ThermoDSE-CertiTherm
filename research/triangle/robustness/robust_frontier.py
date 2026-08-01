@@ -106,7 +106,14 @@ def main() -> None:
     # turns it into a parity check instead of a silent preference for whichever loaded first.
     fine_dirs = [Path(p) for p in sys.argv[5].split(",")] if len(sys.argv) > 5 else []
 
-    architectures = [row["architecture_id"] for row in _rows(ROOT / "experiments" / "architectures.tsv")]
+    # RESTRICTED TO ONE SPLIT, because a held-out architecture that was deliberately not run is not
+    # an unresolved one. Counting the nine frozen architectures as UNRESOLVED reported a protocol
+    # boundary as a failure, and would have made every certified fraction here look like 3 of 12.
+    split = sys.argv[6] if len(sys.argv) > 6 else "dev"
+    registry = _rows(ROOT / "experiments" / "architectures.tsv")
+    if split not in {row["split"] for row in registry}:
+        raise SystemExit(f"unknown split {split!r}")
+    architectures = [row["architecture_id"] for row in registry if row["split"] == split]
     # Missing inputs are counted, never silently dropped: skipping a candidate whose operator
     # failed to build removes exactly the hard cases from the denominator and inflates the
     # certified fraction. They are UNRESOLVED, which is a verdict this project already has.
