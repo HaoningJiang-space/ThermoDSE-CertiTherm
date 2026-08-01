@@ -38,7 +38,8 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 
-from CertiTherm.experiments import GpuSelection, _gpu_backend, _power_space
+from CertiTherm.experiments import GpuSelection, ROOT, _gpu_backend, _power_space, _rows
+from CertiTherm.thermodse_bridge import write_hotspot_config as _configure
 from CertiTherm.frozen_limits import THERMAL_LIMIT_K
 from CertiTherm.hotspot import build_family, save_family
 from CertiTherm.paths import HOTSPOT, TEMPLATE
@@ -49,17 +50,23 @@ def main() -> None:
     capture = Path(sys.argv[2])
     out_path = Path(sys.argv[3])
     models = tuple((sys.argv[4] if len(sys.argv) > 4 else "grid256-avg").split(","))
+    package_id = sys.argv[5] if len(sys.argv) > 5 else "default"
 
+    # The pipeline's own `work/` directory is not kept alongside the operators, so the config is
+    # rebuilt HERE THROUGH THE SAME FUNCTION rather than hand-copied. `write_hotspot_config` is
+    # deterministic in the package row, so the rebuilt file is identical by construction; a copied
+    # one only looks safer, and would silently pair this operator with a different package if the
+    # wrong directory were reached for.
+    packages = {row["package_id"]: row for row in _rows(ROOT / "experiments" / "packages.tsv")}
+    if package_id not in packages:
+        raise SystemExit(f"unknown package {package_id!r}; have {sorted(packages)}")
+    work.mkdir(parents=True, exist_ok=True)
     config = work / "package.config"
-    if not config.exists():
-        raise SystemExit(
-            f"{config} must exist; reuse the package.config the pipeline's operator build wrote, so "
-            "a difference between this operator and that one is the grid and nothing else"
-        )
+    _configure(TEMPLATE / "example.config", config, packages[package_id])
+
     _space, blocks, _placed, floorplan_text = _power_space(capture)
     floorplan = work / "floorplan.flp"
-    if not floorplan.exists():
-        floorplan.write_text(floorplan_text, encoding="utf-8")
+    floorplan.write_text(floorplan_text, encoding="utf-8")
 
     gpu = GpuSelection.from_environment()
     backend = _gpu_backend(gpu)
