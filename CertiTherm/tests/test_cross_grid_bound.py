@@ -12,7 +12,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from CertiTherm.cross_grid_bound import row_discrepancy_bounds, sample_bound
+from CertiTherm.cross_grid_bound import (
+    reference_model_id,
+    refined_model_id,
+    row_discrepancy_bounds,
+    sample_bound,
+)
 
 _LOWER = np.zeros(4)
 _UPPER = np.array([4.0, 4.0, 4.0, 4.0])
@@ -123,3 +128,35 @@ def test_an_empty_polytope_is_refused_rather_than_bounded() -> None:
 def test_an_empty_sample_is_refused_rather_than_scoring_zero() -> None:
     with pytest.raises(ValueError):
         sample_bound(_COARSE, _FINE, _AMB, _AMB, [])
+
+
+# --- model-id helpers, moved here with the code they select grids for ----------------------------
+
+
+def test_the_refinement_of_a_grid_id_doubles_its_size() -> None:
+    assert refined_model_id("grid64-avg") == "grid128-avg"
+    assert refined_model_id("grid256") == "grid512"
+
+
+def test_block_is_compared_against_the_finest_grid_rather_than_left_ungated() -> None:
+    """The hole that decided a published radius.
+
+    With the budget applied, the two charged grid operators gave `beta*` of 5.796 % and 6.448 %
+    while `block`, carrying only the linearisation budget, gave 3.757 % and set the family minimum.
+    Charging the measured models did not protect the family because the binding one escaped.
+    """
+
+    family = ("block", "grid64-avg", "grid128-avg")
+    assert reference_model_id("block", family) == "grid256-avg"
+    assert reference_model_id("grid64-avg", family) == "grid128-avg"
+
+
+def test_a_family_with_no_grid_at_all_cannot_gate_block_and_says_so() -> None:
+    with pytest.raises(ValueError):
+        reference_model_id("block", ("block",))
+
+
+def test_a_malformed_grid_id_is_refused() -> None:
+    for model_id in ("block", "grid-avg", "gridN-avg", "grid0-avg"):
+        with pytest.raises(ValueError):
+            refined_model_id(model_id)

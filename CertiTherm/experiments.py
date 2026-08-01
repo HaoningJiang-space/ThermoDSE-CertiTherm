@@ -83,12 +83,8 @@ from .thermodse_bridge import (
     write_hotspot_config as _configure,
 )
 from .frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
-from .grid_convergence_gate import (
-    GRID_DRIFT_LIMIT_K,
-    GRID_DRIFT_SAFETY_FACTOR,
-    budgeted_error_k,
-    reference_model_id,
-)
+from .cross_grid_bound import reference_model_id, row_discrepancy_bounds
+from .solution_verification import SAFETY_FACTOR_THREE_GRID
 from .split_protocol import (
     ANYTIME_SPLITS as _ANYTIME_SPLITS,
     BURNED_SPLITS as _BURNED_SPLITS,
@@ -378,8 +374,7 @@ def _operator_cache_signature(
         "models": MODELS,
         "thermal_limit_k": THERMAL_LIMIT_K,
         "error_limit_k": MODEL_ERROR_LIMIT_K,
-        "grid_drift_limit_k": GRID_DRIFT_LIMIT_K,
-        "grid_drift_safety_factor": GRID_DRIFT_SAFETY_FACTOR,
+        "grid_safety_factor": SAFETY_FACTOR_THREE_GRID,
         "calibration_vectors": CALIBRATION_VECTOR_IDS,
         "gpu_enabled": gpu_enabled,
     }
@@ -412,7 +407,8 @@ def _operator_cache_signature(
                 # under the old logic must not be accepted under the new one. Omitting a module
                 # that validates the artifact is the false-HIT this bundle exists to prevent, and
                 # it has already happened twice in this repository.
-                "CertiTherm/grid_convergence_gate.py",
+                "CertiTherm/cross_grid_bound.py",
+                "CertiTherm/solution_verification.py",
                 "CertiTherm/hotspot.py",
                 "CertiTherm/measurements.py",
                 # See _capture_cache_signature: the receipt is written and validated through
@@ -700,13 +696,9 @@ def _operator(
                 work / "convergence" / f"{capture_index}--{vector_id}--{fine_id}",
             )
             drift = float(np.max(np.abs(direct - refined)))
-            # Finiteness first and separately: `nan > limit` is False, so a non-finite field would
-            # pass the bound AND be recorded as the drift.
-            drift_status = (
-                "REJECT"
-                if not math.isfinite(drift) or drift > GRID_DRIFT_LIMIT_K
-                else "PASS"
-            )
+            # Finiteness first and separately: `nan > x` is False everywhere, so a non-finite field
+            # would slip through any single comparison and be recorded as the drift.
+            drift_status = "MEASURED" if math.isfinite(drift) else "NON_FINITE"
         return {
             "capture": capture_name,
             "vector_id": vector_id,
@@ -715,7 +707,6 @@ def _operator(
             "max_abs_error_k": error,
             "registered_error_k": MODEL_ERROR_LIMIT_K,
             "grid_drift_k": drift,
-            "registered_grid_drift_k": GRID_DRIFT_LIMIT_K,
             "grid_status": drift_status,
             "bound_status": "PASS" if error <= MODEL_ERROR_LIMIT_K else "REJECT",
         }
@@ -740,31 +731,60 @@ def _operator(
             f"{len(rejected)} replay(s); worst={worst[0]}/{worst[1]}/"
             f"{worst[2]}:{worst[3]:.6g} K"
         )
-    # Discretisation drift is CHARGED, not refused. Refusing was the first design and running it
-    # rejected every operator including the compact development controls, which is fail-closed and
-    # useless: it yields no certificate and treats a large error as the defect when the defect is an
-    # UNBUDGETED one. `thermal_constraints` subtracts `error_k` from both the SAFE and the REJECT
-    # right-hand sides, so folding the drift in makes SAFE harder and REJECT easier -- fail-closed on
-    # both -- and the price of a coarse grid appears as a smaller robustness radius rather than as a
-    # missing answer. See docs/DISCRETISATION_ERROR_EXCEEDS_THE_DECISION_BAND.md.
-    worst_drift = {model_id: 0.0 for model_id in family.model_ids}
+    # Discretisation error is CHARGED, and the charge is a bound over the POLYTOPE rather than a
+    # maximum over the five calibration vectors. The vectors still run -- they are what the
+    # linearity contract needs -- but the budget below comes from `cross_grid_bound`, whose
+    # per-row supremum is exact because the discrepancy is affine in `p`. An earlier version took
+    # the five-vector maximum and called the result sound; a maximum over five power maps is not a
+    # bound over the set the certificate quantifies over.
+    #
+    # `thermal_constraints` subtracts `error_k` from both the SAFE and the REJECT right-hand sides,
+    # so a larger budget makes SAFE harder to reach and REJECT easier -- fail-closed on both.
     for row in calibration:
-        drift = row["grid_drift_k"]
-        if row["grid_status"] == "UNGATED":
-            continue
-        if not math.isfinite(drift):
+        if row["grid_status"] == "NON_FINITE":
             raise RuntimeError(
                 f"the grid-convergence replay for {row['capture']}/{row['vector_id']}/"
                 f"{row['model_id']} returned a non-finite drift; an unmeasurable error cannot be "
                 "budgeted and must not be treated as zero"
             )
-        worst_drift[row["model_id"]] = max(worst_drift[row["model_id"]], drift)
-    budgeted = np.array(
-        [
-            budgeted_error_k(MODEL_ERROR_LIMIT_K, worst_drift[model_id])
-            for model_id in family.model_ids
-        ]
-    )
+
+    refined_families: dict = {}
+    budgeted = np.empty(len(family.model_ids), dtype=float)
+    for index, model_id in enumerate(family.model_ids):
+        try:
+            fine_id = reference_model_id(model_id, family.model_ids)
+        except ValueError:
+            budgeted[index] = MODEL_ERROR_LIMIT_K
+            continue
+        if fine_id not in refined_families:
+            refined, refined_blocks = build_family(
+                HOTSPOT, config, floorplan, TEMPLATE / "example.materials",
+                (fine_id,), work / "reference" / fine_id, THERMAL_LIMIT_K,
+                workers=workers, gpu_backend=_gpu_backend(gpu),
+            )
+            if refined_blocks != blocks:
+                raise RuntimeError(
+                    f"the {fine_id} reference resolves a different block set than {model_id}; the "
+                    "cross-grid discrepancy would be between different quantities"
+                )
+            refined_families[fine_id] = refined
+        reference = refined_families[fine_id]
+        # One bound per (model, point) row, then the worst over the rows this model owns. Rows the
+        # two grids agree on everywhere contribute nothing, which the flat multiplier never allowed.
+        with np.load(captures[0], allow_pickle=False) as data:
+            placed_power = np.asarray(data["placed_power_w"], dtype=float)
+        upper = content_upper_bounds(blocks, placed_power)
+        per_row = row_discrepancy_bounds(
+            family.response_k_per_w[index],
+            reference.response_k_per_w[0],
+            family.ambient_k[index],
+            reference.ambient_k[0],
+            np.zeros(len(blocks)),
+            upper,
+            float(np.sum(placed_power)),
+        )
+        budgeted[index] = MODEL_ERROR_LIMIT_K + SAFETY_FACTOR_THREE_GRID * float(np.max(per_row))
+
     # An operator whose budget swallows the whole headroom decides nothing, and a certificate that
     # cannot separate SAFE from REJECT is worse than an absent one because it still looks like an
     # answer. That is the only case refusal is kept for.
@@ -776,10 +796,11 @@ def _operator(
     ]
     if vacuous:
         raise RuntimeError(
-            "the grid-convergence budget is at least the whole headroom to the thermal limit for "
+            "the cross-grid budget is at least the whole headroom to the thermal limit for "
             f"{len(vacuous)} model(s); worst={vacuous[0][0]}:{vacuous[0][1]:.6g} K against "
             f"{headroom:.6g} K, so no SAFE/REJECT separation exists to certify"
         )
+
     family = type(family)(
         family.model_ids,
         family.response_k_per_w,

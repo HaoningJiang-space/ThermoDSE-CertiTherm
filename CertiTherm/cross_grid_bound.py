@@ -32,12 +32,64 @@ So a caller that wants a defensible model-error budget needs both: this, for the
 extent of the disagreement, and a convergence verdict, for whether the disagreement may be read as
 an error at all. Neither alone is enough.
 
-Leaf module: depends only on numpy and the polytope's array fields.
+## What lives here
+
+The polytope-wide per-row bound, and the model-id helpers that say WHICH pair of grids to compare.
+Those helpers came from `grid_convergence_gate`, whose estimator this module replaces: keeping the
+naming rules next to the bound that uses them removes a module whose only remaining purpose was to
+hold two regexes and a superseded safety factor.
+
+Leaf module: depends only on numpy, `re`, and the polytope's array fields.
 """
 
 from __future__ import annotations
 
+import re
+from typing import Sequence
+
 import numpy as np
+
+
+_GRID = re.compile(r"^grid(\d+)(-.+)?$")
+
+
+def reference_model_id(model_id: str, family_model_ids: Sequence[str]) -> str:
+    """What `model_id` must be compared against: its own 2x refinement, or the finest grid.
+
+    A `gridN` model is compared with `grid2N`, which is a genuine refinement and supports the
+    Richardson factor. A model with no refinement parameter -- `block` -- is compared with the
+    refinement of the finest grid in the family, because both produce per-block temperatures and are
+    therefore two discretisations of the same physics. Leaving it out was a hole that decided a
+    published radius; see the module docstring.
+    """
+
+    try:
+        return refined_model_id(model_id)
+    except ValueError:
+        grids = [m for m in family_model_ids if _GRID.match(m)]
+        if not grids:
+            raise ValueError(
+                f"{model_id!r} has no refinement parameter and the family contains no grid model "
+                "to compare it against, so its discretisation error cannot be measured at all"
+            )
+        finest = max(grids, key=lambda m: int(_GRID.match(m).group(1)))
+        return refined_model_id(finest)
+
+
+def refined_model_id(model_id: str) -> str:
+    """`gridN-avg` -> `grid2N-avg`. Raises for anything without a refinement parameter."""
+
+    match = _GRID.match(model_id)
+    if match is None:
+        raise ValueError(
+            f"{model_id!r} has no grid refinement parameter; use `reference_model_id` to compare "
+            "it against the finest grid in its family instead"
+        )
+    size = int(match.group(1))
+    if size <= 0:
+        raise ValueError(f"{model_id!r} has a non-positive grid size")
+    return f"grid{size * 2}{match.group(2) or ''}"
+
 
 
 def _extreme(coefficients: np.ndarray, lower: np.ndarray, upper: np.ndarray, total: float) -> float:
