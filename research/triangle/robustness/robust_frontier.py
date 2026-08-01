@@ -41,7 +41,9 @@ import numpy as np
 
 sys.path.insert(0, ".")
 
-from CertiTherm.cross_grid_bound import one_sided_containment_bounds, peak_over_polytope
+from CertiTherm.core import PowerPolytope
+from CertiTherm.cross_grid_bound import one_sided_containment_bounds
+from CertiTherm.reanchored_certificate import certify_over_polytope
 from CertiTherm.experiments import _power_space, _rows, ROOT
 from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
 from CertiTherm.hotspot import load_family
@@ -188,6 +190,17 @@ def main() -> None:
             # whose adversarial vertices no workload phase produces. So the frontier is computed
             # under BOTH: the registered coarse set, and the activity-bounded set the project
             # already provides for exactly this objection.
+            # The polytope objects are what the shared certificate takes; the loose arrays below
+            # are kept only for the per-pair band table, which compares model pairs rather than
+            # certifying. One source of truth for the set, two views of it.
+            spaces = {
+                "coarse_content_bound": PowerPolytope(
+                    lower_w=np.zeros(len(blocks)),
+                    upper_w=content_upper_bounds(blocks, power),
+                    a_eq=np.ones((1, len(blocks))), b_eq=np.array([total]),
+                    a_ub=np.empty((0, len(blocks))), b_ub=np.empty(0),
+                )
+            }
             sets = {"coarse_content_bound": (
                 np.zeros(len(blocks)), content_upper_bounds(blocks, power),
                 np.empty((0, len(blocks))), np.empty(0),
@@ -197,6 +210,7 @@ def main() -> None:
                 # THE FULL POLYTOPE, class-total inequalities included. Passing only the box
                 # dropped `a_ub` and bounded a LARGER set: sound, but it turned certifiable
                 # designs into refusals and inflated every band. Peer review found it.
+                spaces["activity_span_%.2f" % span] = space
                 sets["activity_span_%.2f" % span] = (
                     np.asarray(space.lower_w, dtype=float), np.asarray(space.upper_w, dtype=float),
                     np.asarray(space.a_ub, dtype=float), np.asarray(space.b_ub, dtype=float),
@@ -269,13 +283,21 @@ def main() -> None:
                 (m for m in ("grid512-avg", "grid256-avg", "grid128-avg") if m in ids), ids[0]
             )
             reference_rows, reference_ambient = models[reference_id]
+            fem_rows, fem_ambient = models.get("fem-dolfinx", (None, None))
             nominal_peak = float(np.max(reference_rows @ power + reference_ambient))
-            worst_peaks = {
-                set_name: peak_over_polytope(
-                    reference_rows, reference_ambient, lower, upper, total, a_ub, b_ub
+            # ONE definition of the certificate, shared with the census verdict. Both used to
+            # compute this arithmetic independently, which is the "a second implementation cannot be
+            # its own oracle" hazard with neither checking the other.
+            certificates = {
+                set_name: certify_over_polytope(
+                    reference_rows, reference_ambient, spaces[set_name], total,
+                    limit_k=THERMAL_LIMIT_K, margin_k=MARGIN_K,
+                    linearisation_k=MODEL_ERROR_LIMIT_K,
+                    comparison_rows=fem_rows, comparison_ambient=fem_ambient,
                 )
-                for set_name, (lower, upper, a_ub, b_ub) in sets.items()
+                for set_name in sets
             }
+            worst_peaks = {n: c.sup_peak_k for n, c in certificates.items()}
             # Headroom is reported against the nominal map for continuity with the earlier tables,
             # but FEASIBILITY below is decided on `worst_peaks`, which is the certifying quantity.
             headroom = THERMAL_LIMIT_K - MARGIN_K - nominal_peak
@@ -289,22 +311,16 @@ def main() -> None:
                 set_name: THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K - peak
                 for set_name, peak in worst_peaks.items()
             }
+            # The shared certificate already folds the model-form band in one-sidedly; this row
+            # keeps the un-re-anchored number beside it so the two are visibly different quantities.
             # THE RE-ANCHORED BUDGET. The certificate above is against HotSpot at its finest
             # grid, so it budgets discretisation and linearisation and nothing else. Folding in
             # `sup_p [T_FEM(p) - T_grid512(p)]` one-sidedly certifies against the INDEPENDENT
             # solver instead: it is the amount the FEM can read hotter, so subtracting it can
             # only make certification harder, never easier. Measured rather than declared, and
             # it is the term the frozen 0.01 K contract never contained.
-            model_form = {
-                set_name: bands.get(f"{set_name}|model_form_grid512_fem")
-                for set_name in sets
-            }
-            reanchored_slack = {
-                set_name: (
-                    certified_slack[set_name] - max(term, 0.0) if term is not None else None
-                )
-                for set_name, term in model_form.items()
-            }
+            model_form = {n: c.model_form_band_k for n, c in certificates.items()}
+            reanchored_slack = {n: c.slack_k for n, c in certificates.items()}
             # What certifying from a COARSE model instead would have cost. This is a different
             # question from the one above -- it is the price of a cheap thermal surrogate, not the
             # feasibility of the design -- and it is reported as such rather than folded in.
