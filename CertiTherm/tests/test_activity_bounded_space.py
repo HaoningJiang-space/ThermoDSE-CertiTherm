@@ -16,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from CertiTherm.cross_grid_bound import _extreme
 from CertiTherm.measurements import (
     activity_bounded_power_space,
     coarse_power_space,
@@ -105,3 +106,51 @@ def test_class_rows_can_be_switched_off_without_changing_the_box() -> None:
     assert np.allclose(with_rows.lower_w, without.lower_w)
     assert np.allclose(with_rows.upper_w, without.upper_w)
     assert without.a_ub.shape[0] == 0
+
+
+def test_the_class_caps_are_implied_by_the_box_so_the_LP_path_is_currently_inert() -> None:
+    """Why dropping `a_ub` at the call site changed no number, and when that would stop being true.
+
+    Peer review found that the callers passed only `lower_w`/`upper_w`, silently maximising over a
+    larger set. The defect was real and is fixed. The measured effect was zero, and this test says
+    why: `upper = min(placed * (1 + span), content_upper_bounds) <= placed * (1 + span)`, so each
+    class's members already sum to at most `class_total * (1 + span)`, which is exactly `b_ub`.
+
+    **This is a property of the current construction, not a theorem about the method.** If the box
+    ever stops implying the caps -- a different per-block rule, a tighter class budget -- the LP path
+    becomes load-bearing and the bounds move. This test failing is the signal that has happened, and
+    the message is what tells the next reader which way to go.
+    """
+
+    blocks = ["core0", "core1", "core2", "mem0", "mem1", "io0"]
+    placed = np.array([4.0, 3.0, 2.0, 1.5, 1.0, 0.5])
+    for span in (0.05, 0.3, 1.2):
+        space = activity_bounded_power_space(blocks, placed, activity_span=span)
+        rows = np.asarray(space.a_ub, dtype=float)
+        assert rows.size, "the declared set is supposed to carry class-total rows"
+        slack = np.asarray(space.b_ub, dtype=float) - rows @ np.asarray(space.upper_w, dtype=float)
+        assert np.all(slack >= -1e-9), (
+            f"at span {span} a class cap is BINDING (slack {slack.min():.3e}); the LP path is now "
+            "load-bearing, so every bound must be recomputed with a_ub supplied and the documents "
+            "that quote them are stale"
+        )
+
+
+def test_the_LP_and_the_greedy_agree_on_the_activity_set() -> None:
+    """Two constructions of one supremum, on the set the certificate actually uses."""
+
+    blocks = ["core0", "core1", "core2", "mem0", "mem1", "io0"]
+    placed = np.array([4.0, 3.0, 2.0, 1.5, 1.0, 0.5])
+    total = float(np.sum(placed))
+    space = activity_bounded_power_space(blocks, placed, activity_span=0.3)
+    lower = np.asarray(space.lower_w, dtype=float)
+    upper = np.asarray(space.upper_w, dtype=float)
+    rng = np.random.default_rng(5)
+    for _ in range(20):
+        coefficients = rng.normal(size=placed.size)
+        greedy = _extreme(coefficients, lower, upper, total)
+        constrained = _extreme(
+            coefficients, lower, upper, total,
+            np.asarray(space.a_ub, dtype=float), np.asarray(space.b_ub, dtype=float),
+        )
+        assert abs(greedy - constrained) < 1e-6, f"{greedy} against {constrained}"
