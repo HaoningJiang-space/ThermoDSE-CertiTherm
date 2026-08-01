@@ -57,6 +57,40 @@ EDYP_INDISTINGUISHABLE_FRACTION = 0.05
 BACKEND_PARITY_TOL_K_PER_W = 1e-6
 
 
+class _Operator:
+    """Model ids, response rows and ambients, without claiming certified-family membership.
+
+    `load_family` builds a `ThermalFamily`, whose `__post_init__` requires a finite non-negative
+    `error_k` per model. The FEM reference deliberately carries NaN there -- its discretisation,
+    source placement and boundary realisation are all unmeasured, and a zero would let the
+    containment machinery treat an unconverged operator as a certified reference. That refusal is
+    correct and is left in place; what changes is that the FEM is not pushed through the certified
+    schema at all. It is a reference for MEASURING a band, not a member of the family being
+    certified, and loading it as one would assert a membership it does not have.
+    """
+
+    __slots__ = ("model_ids", "response_k_per_w", "ambient_k")
+
+    def __init__(self, model_ids, response_k_per_w, ambient_k):
+        self.model_ids = tuple(model_ids)
+        self.response_k_per_w = response_k_per_w
+        self.ambient_k = ambient_k
+
+
+def _load_operator(path: Path):
+    """Either a certified family NPZ or a bare reference operator, as ids/rows/ambients/blocks."""
+
+    with np.load(path, allow_pickle=False) as data:
+        return (
+            _Operator(
+                [str(m) for m in data["model_ids"]],
+                np.asarray(data["response_k_per_w"], dtype=float),
+                np.asarray(data["ambient_k"], dtype=float),
+            ),
+            tuple(str(b) for b in data["block_ids"]),
+        )
+
+
 def _merged_models(families):
     """`model_id -> (response rows, ambient)` across several families over the SAME block list.
 
@@ -129,7 +163,7 @@ def main() -> None:
             fine_path = fine_dir / f"{arch}--{package}.npz"
             if not fine_path.exists():
                 continue
-            fine_family, fine_blocks = load_family(fine_path)
+            fine_family, fine_blocks = _load_operator(fine_path)
             if tuple(fine_blocks) != tuple(blocks):
                 raise SystemExit(
                     f"{arch}: the fine operator in {fine_dir} resolves a different block list than "
