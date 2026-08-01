@@ -24,12 +24,19 @@ development architectures. Measured on that design, the model-form band moves
 **0.6093 -> 0.6673 -> 0.6905 K** (contraction 2.5 per doubling, observed order ~1.32, Richardson
 limit ~0.706 K).
 
-*Direction:* **measured on one design, not asserted for all.** On `arxv008` a coarser mesh understates
-the band, which would make certification easier. Peer review is right that FEM refinement is not
-monotone in the signed quantity `max_{j,p} [T_FEM,j(p) - T_ref,j(p)]`, so "raising the mesh can only
-lower X" does not follow from one design. Both the `n = 64` and `n = 192` operators exist for **all 64
-designs**, so the direction is a measurement, not a claim: the per-design band change is reported in
-the verdict rather than assumed.
+*Direction:* **measured across the whole census, not asserted.** Peer review was right that FEM
+refinement is not monotone in the signed quantity `max_{j,p} [T_FEM,j(p) - T_ref,j(p)]`, so "raising
+the mesh can only lower X" does not follow from one design. Both operator sets exist for every
+design, so it was measured at span 0.30 on the 62 designs that had both:
+
+| | `n = 64` | `n = 192` |
+| --- | --- | --- |
+| model-form band | 0.1754 - 1.1227 K (median 0.6007) | 0.1793 - 1.2261 K (median 0.6444) |
+
+The finer mesh gives a **larger** band -- the stricter direction -- on **61 of 62 designs (98 %)**,
+by a median of +0.0461 K and at most +0.1705 K. The single exception, `arxv002`, moves the other way
+by **0.0006 K**. So the direction holds empirically with one negligible counterexample, which is a
+measurement and not the theorem the earlier wording implied.
 
 *Protocol status:* the preregistration fixes the FEM **tolerances** and not the mesh, so this is not
 a protocol change. The `n = 64` operators are retained on disk as the convergence evidence.
