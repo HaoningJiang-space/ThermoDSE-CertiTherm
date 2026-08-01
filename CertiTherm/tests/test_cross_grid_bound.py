@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from CertiTherm.cross_grid_bound import (
+    one_sided_containment_bounds,
     reference_model_id,
     refined_model_id,
     row_discrepancy_bounds,
@@ -160,3 +161,57 @@ def test_a_malformed_grid_id_is_refused() -> None:
     for model_id in ("block", "grid-avg", "gridN-avg", "grid0-avg"):
         with pytest.raises(ValueError):
             refined_model_id(model_id)
+
+
+# --- one-sided containment, which is what a certificate actually needs -------------------------
+
+
+def test_the_signed_bounds_are_the_two_extrema_and_the_symmetric_one_is_their_max() -> None:
+    """`delta = fine - coarse = [-0.1, 0, +0.05, 0]` over the same polytope.
+
+    The fine grid reads hotter only on block 2, whose coefficient difference is +0.05 and whose cap
+    is 4, so `u = 0.2`. The coarse grid reads hotter on block 0 by 0.1 with the same cap, so
+    `l = 0.4`. The symmetric magnitude is `max(u, l) = 0.4`, which is what charging `|.|` costs.
+    """
+
+    u, lo = one_sided_containment_bounds(_COARSE, _FINE, _AMB, _AMB, _LOWER, _UPPER, _TOTAL)
+    assert u[0] == pytest.approx(0.2)
+    assert lo[0] == pytest.approx(0.4)
+    assert _bounds()[0] == pytest.approx(max(u[0], lo[0]))
+    assert u[1] == pytest.approx(0.0) and lo[1] == pytest.approx(0.0)
+
+
+def test_tightening_by_u_certifies_against_the_fine_operator() -> None:
+    """`{p : T_c(p) <= L - u}` must contain no map the fine operator calls unsafe.
+
+    Sampled rather than argued: every point admitted by the tightened coarse constraint is checked
+    against the fine rows directly.
+    """
+
+    limit = 305.0
+    u, _ = one_sided_containment_bounds(_COARSE, _FINE, _AMB, _AMB, _LOWER, _UPPER, _TOTAL)
+    rng = np.random.default_rng(5)
+    admitted = 0
+    for _ in range(500):
+        raw = rng.random(4)
+        p = raw / raw.sum() * _TOTAL
+        coarse_t = _COARSE @ p + _AMB
+        if np.any(coarse_t > limit - u):
+            continue
+        fine_t = _FINE @ p + _AMB
+        assert np.all(fine_t <= limit + 1e-9), (
+            f"a map admitted by the tightened coarse set is unsafe under the fine operator: "
+            f"{fine_t} against {limit}"
+        )
+        admitted += 1
+    assert admitted > 50, "the tightened set admitted too few maps to test containment"
+
+
+def test_a_uniformly_colder_fine_operator_gives_a_NEGATIVE_u_which_tightens_nothing() -> None:
+    """Information, not an error: clamping it to zero would silently discard a real relaxation."""
+
+    colder = _COARSE - 0.05
+    u, lo = one_sided_containment_bounds(_COARSE, colder, _AMB, _AMB, _LOWER, _UPPER, _TOTAL)
+    assert np.all(u < 0.0)
+    assert np.all(lo > 0.0)
+    assert np.all(_bounds() >= 0.0), "the symmetric bound must stay nonnegative"

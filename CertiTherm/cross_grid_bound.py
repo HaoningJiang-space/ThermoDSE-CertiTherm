@@ -123,7 +123,7 @@ def _extreme(coefficients: np.ndarray, lower: np.ndarray, upper: np.ndarray, tot
     return float(coefficients @ p)
 
 
-def row_discrepancy_bounds(
+def one_sided_containment_bounds(
     coarse_rows: np.ndarray,
     fine_rows: np.ndarray,
     coarse_ambient: np.ndarray,
@@ -131,13 +131,46 @@ def row_discrepancy_bounds(
     lower_w: np.ndarray,
     upper_w: np.ndarray,
     total_w: float,
-) -> np.ndarray:
-    """Per row, `sup_p |d_j(p)|` over the polytope. One entry per row, all nonnegative.
+):
+    """The two SIGNED extrema, which is what set containment actually needs.
 
-    Both maximum and minimum are computed, because the discrepancy is signed and the certificate
-    needs its magnitude: a row where the coarse grid reads 0.4 K COLD everywhere is as dangerous as
-    one where it reads 0.4 K hot, and taking only the maximum would score the first as zero.
+    Certifying "every admissible map is safe under the FINE operator" while only holding the coarse
+    one requires the amount by which the fine operator can read HOTTER:
+
+        u_j = max_p [ T_fine,j(p) - T_coarse,j(p) ]
+        l_j = max_p [ T_coarse,j(p) - T_fine,j(p) ]
+
+    Then, writing `F` for a feasible set at limit `L`,
+
+        {p : T_coarse,j(p) <= L - u_j  for all j}  is a SUBSET of  F_fine
+        F_fine  is a SUBSET of  {p : T_coarse,j(p) <= L + l_j  for all j}
+
+    so tightening the coarse rows by `u_j` certifies against the fine operator, and relaxing them by
+    `l_j` bounds it from outside. Neither `u_j` nor `l_j` is `max |.|`, and using the symmetric
+    magnitude -- as `row_discrepancy_bounds` does -- replaces BOTH by the larger of the two. That is
+    valid and needlessly conservative, and the conservatism is not academic here: it is what drove a
+    development registry to stop certifying. Peer review supplied the construction.
+
+    Returns `(u, l)`, each one entry per row and each possibly negative -- a negative `u_j` means the
+    fine operator reads strictly colder everywhere on the polytope, which TIGHTENS nothing and is
+    information rather than an error.
     """
+
+    coarse, fine, ambient_coarse, ambient_fine, lower, upper = _validated(
+        coarse_rows, fine_rows, coarse_ambient, fine_ambient, lower_w, upper_w, total_w
+    )
+    delta = fine - coarse                       # positive where the FINE grid reads hotter
+    offset = ambient_fine - ambient_coarse
+    u = np.empty(coarse.shape[0], dtype=float)
+    lo = np.empty(coarse.shape[0], dtype=float)
+    for j in range(coarse.shape[0]):
+        u[j] = _extreme(delta[j], lower, upper, total_w) + offset[j]
+        lo[j] = _extreme(-delta[j], lower, upper, total_w) - offset[j]
+    return u, lo
+
+
+def _validated(coarse_rows, fine_rows, coarse_ambient, fine_ambient, lower_w, upper_w, total_w):
+    """Shared shape and finiteness checks for both bound flavours."""
 
     coarse = np.atleast_2d(np.asarray(coarse_rows, dtype=float))
     fine = np.atleast_2d(np.asarray(fine_rows, dtype=float))
@@ -162,16 +195,32 @@ def row_discrepancy_bounds(
         raise ValueError("the polytope has an upper bound below its lower bound")
     if not np.isfinite(total_w) or total_w <= 0.0:
         raise ValueError(f"the total power must be finite and positive, got {total_w}")
+    return coarse, fine, ambient_coarse, ambient_fine, lower, upper
 
-    delta_rows = coarse - fine
-    delta_ambient = ambient_coarse - ambient_fine
-    bounds = np.empty(coarse.shape[0], dtype=float)
-    for j in range(coarse.shape[0]):
-        row = delta_rows[j]
-        high = _extreme(row, lower, upper, total_w) + delta_ambient[j]
-        low = -_extreme(-row, lower, upper, total_w) + delta_ambient[j]
-        bounds[j] = max(abs(high), abs(low))
-    return bounds
+
+def row_discrepancy_bounds(
+    coarse_rows: np.ndarray,
+    fine_rows: np.ndarray,
+    coarse_ambient: np.ndarray,
+    fine_ambient: np.ndarray,
+    lower_w: np.ndarray,
+    upper_w: np.ndarray,
+    total_w: float,
+) -> np.ndarray:
+    """Per row, `sup_p |d_j(p)|` over the polytope. One entry per row, all nonnegative.
+
+    Both maximum and minimum are computed, because the discrepancy is signed and the certificate
+    needs its magnitude: a row where the coarse grid reads 0.4 K COLD everywhere is as dangerous as
+    one where it reads 0.4 K hot, and taking only the maximum would score the first as zero.
+    """
+
+    u, lo = one_sided_containment_bounds(
+        coarse_rows, fine_rows, coarse_ambient, fine_ambient, lower_w, upper_w, total_w
+    )
+    # The symmetric magnitude is the larger of the two signed extrema. Kept because a single scalar
+    # per row is what the operator build charges, but a caller certifying set containment should use
+    # the signed pair, which is strictly tighter.
+    return np.maximum(np.maximum(u, lo), 0.0)
 
 
 def sample_bound(

@@ -83,7 +83,7 @@ from .thermodse_bridge import (
     write_hotspot_config as _configure,
 )
 from .frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
-from .cross_grid_bound import reference_model_id, row_discrepancy_bounds
+from .cross_grid_bound import one_sided_containment_bounds, reference_model_id
 from .solution_verification import SAFETY_FACTOR_THREE_GRID
 from .split_protocol import (
     ANYTIME_SPLITS as _ANYTIME_SPLITS,
@@ -774,7 +774,15 @@ def _operator(
         with np.load(captures[0], allow_pickle=False) as data:
             placed_power = np.asarray(data["placed_power_w"], dtype=float)
         upper = content_upper_bounds(blocks, placed_power)
-        per_row = row_discrepancy_bounds(
+        # The SIGNED bound, not the symmetric magnitude. Certifying against the finer operator
+        # needs only the amount by which the FINE grid can read hotter -- `u_j` -- because
+        # `{p : T_coarse <= L - u}` is a subset of the fine operator's feasible set. Charging
+        # `max|.|` replaces `u_j` by the larger of the two extrema and is what made a development
+        # registry stop certifying; on the fixture that costs 0.4 K where 0.2 K suffices.
+        #
+        # A negative `u_j` means the fine grid reads colder everywhere on the polytope and tightens
+        # nothing, so the budget floors at the linearisation term rather than going below it.
+        hotter, _colder = one_sided_containment_bounds(
             family.response_k_per_w[index],
             reference.response_k_per_w[0],
             family.ambient_k[index],
@@ -783,7 +791,9 @@ def _operator(
             upper,
             float(np.sum(placed_power)),
         )
-        budgeted[index] = MODEL_ERROR_LIMIT_K + SAFETY_FACTOR_THREE_GRID * float(np.max(per_row))
+        budgeted[index] = MODEL_ERROR_LIMIT_K + SAFETY_FACTOR_THREE_GRID * max(
+            float(np.max(hotter)), 0.0
+        )
 
     # An operator whose budget swallows the whole headroom decides nothing, and a certificate that
     # cannot separate SAFE from REJECT is worse than an absent one because it still looks like an
