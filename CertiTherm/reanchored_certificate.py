@@ -45,7 +45,9 @@ from .core import PowerPolytope
 from .cross_grid_bound import one_sided_containment_bounds, peak_over_polytope
 
 
-@dataclass(frozen=True, slots=True)
+# `slots=True` is 3.10+; the pinned interpreter is python3.8, and the rest of the
+# package uses the plain frozen form for the same reason.
+@dataclass(frozen=True)
 class ReanchoredCertificate:
     """One design, one uncertainty set. `slack_k >= 0` is the verdict."""
 
