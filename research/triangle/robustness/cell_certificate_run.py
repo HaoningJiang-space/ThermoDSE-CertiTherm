@@ -121,52 +121,34 @@ def main() -> None:
     packages = {row["package_id"]: row for row in _rows(ROOT / "experiments" / "packages.tsv")}
     _configure(TEMPLATE / "example.config", config, packages["default"])
 
-    power = np.asarray(placed, dtype=float)
-    total = float(np.sum(power))
-    started = time.monotonic()
-    rows, ambient = cell_operator(config, floorplan, blocks, model_id, work)
-    elapsed = time.monotonic() - started
     operator = out_path.with_suffix(".npz")
-    np.savez_compressed(
-        operator, model_ids=np.asarray([model_id]), response_k_per_w=rows[None, :, :],
-        ambient_k=ambient[None, :], block_ids=np.asarray(blocks),
-        # Layer 0 only, so every row is a die cell.
-        cell_endpoint=np.asarray(["tool_compatible"] * rows.shape[0]),
-    )
-
-    space = activity_bounded_power_space(blocks, power, activity_span=span)
-    cell = certify_cells(
-        rows, ambient, ["tool_compatible"] * rows.shape[0], space, total,
-        endpoint="tool_compatible", limit_k=THERMAL_LIMIT_K, margin_k=MARGIN_K,
-        linearisation_k=MODEL_ERROR_LIMIT_K,
-    )
-    # The same certificate on BLOCK-average rows, which is what every earlier verdict used. The gap
-    # between the two is the quantity peer review kept asking for and it is reported, not folded in.
-    block_peak = float(np.max(_extreme_rows(
-        _block_average(rows, blocks, floorplan_text), np.asarray(space.lower_w, dtype=float),
-        np.asarray(space.upper_w, dtype=float), total,
-    ) + _block_average(ambient[None, :], blocks, floorplan_text)[0]))
-    payload = {
-        "capture": capture.name, "model": model_id, "span": span,
-        "blocks": len(blocks), "cells": int(rows.shape[0]), "operator_seconds": elapsed,
-        "endpoint": cell.endpoint,
-        "sup_peak_over_cells_k": cell.sup_peak_k,
-        "argmax_cell": cell.argmax_cell,
-        "slack_k": cell.slack_k,
-        "certified": cell.certified,
-        "sup_peak_over_block_averages_k": block_peak,
-        "cell_minus_block_k": cell.sup_peak_k - block_peak,
-    }
-    print(json.dumps(payload, indent=1), flush=True)
-    out_path.write_text(json.dumps(payload, indent=1))
+    if not operator.exists():
+        started = time.monotonic()
+        rows, ambient = cell_operator(config, floorplan, blocks, model_id, work)
+        print("  built in %.0f s" % (time.monotonic() - started), flush=True)
+        np.savez_compressed(
+            operator, model_ids=np.asarray([model_id]), response_k_per_w=rows[None, :, :],
+            ambient_k=ambient[None, :], block_ids=np.asarray(blocks),
+            # Layer 0 only, so every row is a die cell.
+            cell_endpoint=np.asarray(["tool_compatible"] * rows.shape[0]),
+        )
+    _report(capture, operator, out_path, model_id, span)
+    return
 
 
 def _block_average(rows, blocks, floorplan_text):
-    """Area-weighted mean of the cell rows over each block, i.e. what `gridN-avg` reports.
+    """`integral_B T / |B|` by AREA-WEIGHTED cell overlap, which is the exact projection.
 
-    Recomputed here rather than read from the block operator so that the two endpoints come from the
-    SAME solve. Comparing a cell peak from one run with a block average from another would measure
-    the difference between the runs.
+    The first version sampled cell CENTRES and averaged the cells whose centre fell inside the block.
+    That is not the block average, and it is not even defined for a block smaller than a cell: the
+    run died on `obuf_0 covers no grid cell centre at 128x128` -- correctly, fail-closed, but only
+    after paying for 227 impulse solves.
+
+    Overlap weights are the right construction and they are also the ADJOINT-CONSISTENT one. That is
+    not incidental: `CertiTherm/reciprocity.py` measures HotSpot's own grid-to-block mapping breaking
+    reciprocity by 2.5-12 %, which is exactly the signature of a membership-count mapping rather than
+    an `L^2` projection. So this function does not reproduce `gridN-avg`; it computes what
+    `gridN-avg` approximates, and the two differ by that artefact.
     """
 
     size = int(round(math.sqrt(rows.shape[0])))
@@ -177,18 +159,64 @@ def _block_average(rows, blocks, floorplan_text):
             geometry[parts[0]] = tuple(float(v) for v in parts[1:5])
     extent_x = max(x + w for w, _h, x, _y in geometry.values())
     extent_y = max(y + h for _w, h, _x, y in geometry.values())
-    centres_x = (np.arange(size) + 0.5) * extent_x / size
-    centres_y = (np.arange(size) + 0.5) * extent_y / size
-    grid_x, grid_y = np.meshgrid(centres_x, centres_y, indexing="xy")
-    flat_x, flat_y = grid_x.ravel(), grid_y.ravel()
+    edges_x = np.arange(size + 1) * extent_x / size
+    edges_y = np.arange(size + 1) * extent_y / size
     out = np.empty((len(blocks), rows.shape[1]), dtype=float)
     for index, name in enumerate(blocks):
         w, h, x, y = geometry[name]
-        inside = (flat_x >= x) & (flat_x < x + w) & (flat_y >= y) & (flat_y < y + h)
-        if not inside.any():
-            raise SystemExit(f"block {name} covers no grid cell centre at {size}x{size}")
-        out[index] = rows[inside].mean(axis=0)
+        # Overlap length of each cell interval with the block interval, per axis; the 2-D overlap is
+        # the outer product because the grid is a tensor product.
+        ox = np.clip(np.minimum(edges_x[1:], x + w) - np.maximum(edges_x[:-1], x), 0.0, None)
+        oy = np.clip(np.minimum(edges_y[1:], y + h) - np.maximum(edges_y[:-1], y), 0.0, None)
+        weights = np.outer(oy, ox).ravel()
+        total = float(weights.sum())
+        if total <= 0.0:
+            raise SystemExit(
+                f"block {name} overlaps no cell of the {size}x{size} grid; the block and the grid "
+                "describe different extents"
+            )
+        out[index] = weights @ rows / total
     return out
+
+
+def _report(capture, operator_path, out_path, model_id, span):
+    """Certify from a SAVED cell operator. The impulse solves are the expensive part and they are
+    already paid for; a defect in the reporting must not cost them again."""
+
+    _space, blocks, placed, floorplan_text = _power_space(capture)
+    with np.load(operator_path, allow_pickle=False) as data:
+        rows = np.asarray(data["response_k_per_w"], dtype=float)[0]
+        ambient = np.asarray(data["ambient_k"], dtype=float)[0]
+        if tuple(str(b) for b in data["block_ids"]) != tuple(blocks):
+            raise SystemExit("the saved operator resolves a different block list than its capture")
+    power = np.asarray(placed, dtype=float)
+    total = float(np.sum(power))
+    space = activity_bounded_power_space(blocks, power, activity_span=span)
+    cell = certify_cells(
+        rows, ambient, ["tool_compatible"] * rows.shape[0], space, total,
+        endpoint="tool_compatible", limit_k=THERMAL_LIMIT_K, margin_k=MARGIN_K,
+        linearisation_k=MODEL_ERROR_LIMIT_K,
+    )
+    block_rows = _block_average(rows, blocks, floorplan_text)
+    # The ambient field is one value per cell, so it projects exactly like a response column.
+    block_ambient = _block_average(ambient[:, None], blocks, floorplan_text).ravel()
+    block_peak = float(np.max(
+        _extreme_rows(block_rows, np.asarray(space.lower_w, dtype=float),
+                      np.asarray(space.upper_w, dtype=float), total) + block_ambient
+    ))
+    payload = {
+        "capture": Path(capture).name, "model": model_id, "span": span,
+        "blocks": len(blocks), "cells": int(rows.shape[0]),
+        "endpoint": cell.endpoint,
+        "sup_peak_over_cells_k": cell.sup_peak_k,
+        "argmax_cell": cell.argmax_cell,
+        "slack_k": cell.slack_k,
+        "certified": cell.certified,
+        "sup_peak_over_exact_block_projection_k": block_peak,
+        "cell_minus_block_k": cell.sup_peak_k - block_peak,
+    }
+    print(json.dumps(payload, indent=1), flush=True)
+    Path(out_path).write_text(json.dumps(payload, indent=1))
 
 
 if __name__ == "__main__":
