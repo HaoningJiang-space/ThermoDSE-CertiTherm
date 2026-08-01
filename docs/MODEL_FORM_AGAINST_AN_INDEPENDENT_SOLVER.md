@@ -1,5 +1,13 @@
 # The model-form error, measured against an independent solver
 
+> **PROVISIONAL pending the cell-level certificate.** Every number below is computed on
+> **block-average rows**, and on this same FEM a unit impulse puts the domain maximum **2.06 K** above
+> the hottest block average (0.18 K inside HotSpot). That term is reported here and **not** folded
+> into the certificate. The tightest point on the frontier has **0.31 K** of slack, so folding it in
+> can be expected to break at least that point. **Do not quote `+32.1 %` or "5 of 6 certify" outside
+> this repository until the cell-level certificate lands.** The three independent routes that agree
+> on +32.1 % share the block-level assumption, so their agreement does not cover this gap.
+
 RESULT 2026-08-01. Development split (`arch_a`, `arch_b`, `arch_c`) x 2 workloads, `default`
 package. The three held-out splits are untouched.
 
