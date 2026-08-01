@@ -46,6 +46,69 @@ def _matrix(value: np.ndarray, n: int, name: str) -> np.ndarray:
     return _sealed(out)
 
 
+def _row_extrema_over_box(
+    row: np.ndarray, lower: np.ndarray, upper: np.ndarray
+) -> Tuple[float, float]:
+    """`(min, max)` of `row . p` over the box alone, exactly, by greedy fill.
+
+    A row is linear, so over a box its extremes are attained by sending each coordinate to
+    whichever bound its coefficient prefers. No solver, one pass.
+    """
+
+    positive = np.maximum(row, 0.0)
+    negative = np.minimum(row, 0.0)
+    return (
+        float(positive @ lower + negative @ upper),
+        float(positive @ upper + negative @ lower),
+    )
+
+
+def _refuse_empty_rows(
+    lower: np.ndarray,
+    upper: np.ndarray,
+    a_eq: np.ndarray,
+    b_eq: np.ndarray,
+    a_ub: np.ndarray,
+    b_ub: np.ndarray,
+) -> None:
+    """Reject a polytope that is empty for a reason visible one row at a time.
+
+    **These conditions are NECESSARY, NOT SUFFICIENT, and the difference is the whole
+    contract of this function.** Each row is checked against the box in isolation, so a set
+    whose rows are individually satisfiable but jointly contradictory still passes. Deciding
+    emptiness exactly needs an LP, which would put SciPy into what is otherwise a
+    numpy-only leaf module and cost a solve per construction -- `PowerPolytope` is built per
+    candidate. What is bought here for free is the failure that actually happens: a declared
+    total power outside the range the per-block bounds can reach, which arises whenever a
+    span is widened or a capture's placed power drifts from the bounds derived beside it.
+
+    Passing this check therefore does NOT license "the polytope is nonempty". It licenses
+    only "no single row is unsatisfiable over the box". Callers that need real nonemptiness
+    must establish it themselves; the LP in `cross_grid_bound._extreme_lp` reports
+    infeasibility and is the existing place that does.
+
+    Why refuse at all rather than let it surface downstream: every consumer of an empty
+    polytope produces a confident wrong answer rather than an error. `sup` over an empty set
+    is `-inf`, so a band computed over it is `-inf`, which SUBTRACTS from a SAFE right-hand
+    side and certifies everything. That is the fail-open direction, and it is silent.
+    """
+
+    for index, (row, target) in enumerate(zip(a_eq, b_eq)):
+        low, high = _row_extrema_over_box(row, lower, upper)
+        if not (low <= target <= high):
+            raise ValueError(
+                f"a_eq row {index} makes the polytope empty: the box can only reach "
+                f"[{low:.6g}, {high:.6g}] but the equality demands {float(target):.6g}"
+            )
+    for index, (row, cap) in enumerate(zip(a_ub, b_ub)):
+        low, _high = _row_extrema_over_box(row, lower, upper)
+        if low > cap:
+            raise ValueError(
+                f"a_ub row {index} makes the polytope empty: the box's smallest reachable "
+                f"value is {low:.6g}, above the cap {float(cap):.6g}"
+            )
+
+
 @dataclass(frozen=True)
 class PowerPolytope:
     """Compact admissible placed-power set."""
@@ -69,6 +132,7 @@ class PowerPolytope:
         b_ub = _vector(self.b_ub, a_ub.shape[0], "b_ub")
         if np.any(lower < 0) or np.any(upper < lower):
             raise ValueError("power bounds must obey 0 <= lower <= upper")
+        _refuse_empty_rows(lower, upper, a_eq, b_eq, a_ub, b_ub)
         for name, value in (
             ("lower_w", lower),
             ("upper_w", upper),

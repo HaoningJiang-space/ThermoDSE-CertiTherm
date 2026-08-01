@@ -103,3 +103,30 @@ def reciprocity_residual(response_k_per_w: np.ndarray) -> ReciprocityReport:
         relative=float(np.max(gap) / scale) if scale > 0.0 else 0.0,
         worst_pair=(int(worst[0]), int(worst[1])),
     )
+
+
+def family_reciprocity_residuals(family) -> np.ndarray:
+    """One residual per model of a `ThermalFamily`, in K/W. `NaN` where reciprocity does not apply.
+
+    A second implementation of this landed in `core.py` while this module was being written, which is
+    exactly the duplication the project's own rule warns about -- two constructions of one invariant,
+    neither checking the other. The primitive lives here because this is where the measurements and
+    the tests are; `core` stays a leaf that validates its own dataclasses and does not grow analysis.
+
+    **Reciprocity applies only when a model's evaluation points ARE its source blocks.** A
+    block-average family observes the same blocks it drives, so `R` is square and must be symmetric.
+    A cell-level operator observes 262 144 cells from 237 sources: the matrix is not square and the
+    statement is simply not about it. Those models get `NaN` rather than a fabricated zero.
+
+    The other implementation's docstring said no committed operator had been measured against this.
+    That is no longer true and the numbers are in this module's header: HotSpot's `gridN-avg` breaks
+    it by 2.5-12 %, shrinking with refinement, while `block` and the FEM hold it to 1e-10.
+    """
+
+    response = np.asarray(family.response_k_per_w, dtype=float)
+    residuals = np.full(response.shape[0], np.nan)
+    for index in range(response.shape[0]):
+        matrix = response[index]
+        if matrix.shape[0] == matrix.shape[1]:
+            residuals[index] = reciprocity_residual(matrix).max_asymmetry_k_per_w
+    return residuals
