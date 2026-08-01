@@ -26,7 +26,7 @@ import numpy as np
 
 sys.path.insert(0, ".")
 
-from CertiTherm.cross_grid_bound import one_sided_containment_bounds, peak_over_polytope
+from CertiTherm.reanchored_certificate import certify_over_polytope
 from CertiTherm.experiments import _power_space
 from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
 from CertiTherm.measurements import activity_bounded_power_space
@@ -180,26 +180,22 @@ def main() -> None:
                     float(data["latency_ms"]) * float(data["energy_mj"]) / float(data["die_yield"])
                 )
             record["nominal_peak_k"] = float(np.max(reference @ power + reference_ambient))
+            # ONE definition of the certificate, shared with the frontier probe. It takes the
+            # POLYTOPE rather than a box, so the class-total rows cannot be dropped the way they
+            # silently were when the interface accepted loose arrays.
             per_span = {}
             for span in CURVE_SPANS:
-                space = activity_bounded_power_space(blocks, power, activity_span=span)
-                lower = np.asarray(space.lower_w, dtype=float)
-                upper = np.asarray(space.upper_w, dtype=float)
-                # THE FULL POLYTOPE. The class-total inequalities are part of the declared set;
-                # dropping them bounds a LARGER one, which is sound but depresses the certified
-                # fraction and inflates the band. Peer review found this before the verdict ran.
-                a_ub = np.asarray(space.a_ub, dtype=float)
-                b_ub = np.asarray(space.b_ub, dtype=float)
-                peak = peak_over_polytope(
-                    reference, reference_ambient, lower, upper, total, a_ub, b_ub
+                certificate = certify_over_polytope(
+                    reference, reference_ambient,
+                    activity_bounded_power_space(blocks, power, activity_span=span), total,
+                    limit_k=THERMAL_LIMIT_K, margin_k=MARGIN_K,
+                    linearisation_k=MODEL_ERROR_LIMIT_K,
+                    comparison_rows=fem, comparison_ambient=fem_ambient,
                 )
-                hotter, _colder = one_sided_containment_bounds(
-                    reference, fem, reference_ambient, fem_ambient, lower, upper, total, a_ub, b_ub
-                )
-                band = max(float(np.max(hotter)), 0.0)
                 per_span["%.2f" % span] = {
-                    "sup_peak_k": peak, "model_form_band_k": band,
-                    "slack_k": THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K - peak - band,
+                    "sup_peak_k": certificate.sup_peak_k,
+                    "model_form_band_k": certificate.model_form_band_k,
+                    "slack_k": certificate.slack_k,
                 }
             record["per_span"] = per_span
             # `>= 0.0`, because the frozen rule is `<= limit - margin - linearisation`: zero slack
