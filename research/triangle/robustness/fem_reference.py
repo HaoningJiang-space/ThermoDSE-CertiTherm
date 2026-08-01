@@ -502,9 +502,12 @@ def main() -> None:
         ])),
         "thermal_limit_k": THERMAL_LIMIT_K,
     }
-    print(json.dumps(ledger, indent=1), flush=True)
+    # THE GATE RUNS BEFORE THE LEDGER IS WRITTEN. It used to run after, so a solve that FAILED its
+    # tolerances still left a normal-looking ledger carrying a plausible `nominal_peak_...` -- and
+    # that is not hypothetical: the isothermal-sink sensitivity run failed at 5.34e-06 and its
+    # ledger was read as a result. A failed run now writes an explicitly failed receipt.
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    ledger_path.write_text(json.dumps(ledger, indent=1))
+    breaches = []
     for name, value, limit in (
         ("energy balance", worst_balance, 1e-6),
         ("impulse power error (W)", worst_impulse_w, 1e-6),
@@ -513,10 +516,19 @@ def main() -> None:
         # `math.isfinite` first and separately: `NaN > limit` is False, so a single inequality
         # would let a NaN pass the guard AND get recorded.
         if not np.isfinite(value) or value > limit:
-            raise SystemExit(
-                f"{name} is {value:.3e} against a {limit:.0e} tolerance; the solve is not sound "
-                "enough for its response matrix to mean what the columns claim"
-            )
+            breaches.append(f"{name} is {value:.3e} against a {limit:.0e} tolerance")
+    if breaches:
+        ledger_path.write_text(json.dumps(
+            {"status": "FAILED", "breaches": breaches, "capture": capture.name,
+             "note": "no temperature from this run is admissible; the diagnostics are kept so the "
+                     "failure can be understood, and every result field is deliberately absent"},
+            indent=1))
+        raise SystemExit(
+            "; ".join(breaches) + " -- the solve is not sound enough for its response matrix to "
+            "mean what the columns claim, and the ledger records the failure rather than a number"
+        )
+    print(json.dumps(ledger, indent=1), flush=True)
+    ledger_path.write_text(json.dumps(ledger, indent=1))
 
     np.savez_compressed(
         out_path,
