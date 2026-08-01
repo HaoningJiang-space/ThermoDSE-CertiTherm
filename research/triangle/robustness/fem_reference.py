@@ -89,6 +89,23 @@ DIE_THICKNESS_M = 0.00015
 # stiffness matrix for no gain. At 0.026 against silicon's 130 the lateral leak through the void is
 # four orders of magnitude below the die path, so the geometry still matches HotSpot's "absent".
 AIR_K_W_PER_M_K = 0.026
+# THE THREE ASSUMPTIONS THE LEDGER DECLARES "EQUIVALENT, NOT MATCHED", MADE FALSIFIABLE.
+# Each is a knob whose default reproduces the matched-to-HotSpot choice, so a sensitivity run is a
+# single environment variable and the band's dependence on the assumption is measured rather than
+# asserted. Peer review asked how one knows 1.06 K is HotSpot's error and not the FEM setup's; this
+# is the answer, and it is only an answer if the runs are actually done.
+#
+# 1. Source depth. HotSpot's lumped die element takes the block's power over the whole thickness;
+#    the physical sources are a thin active layer. A fraction < 1 puts the power in a top slice.
+SOURCE_FRACTION = float(os.environ.get("CERTITHERM_FEM_SOURCE_FRACTION", "1.0"))
+# 2. Void filler. HotSpot has no material outside each plate; the FEM box must be tiled. Lowering
+#    this drives the void towards the adiabatic limit HotSpot actually models.
+VOID_K_W_PER_M_K = float(os.environ.get("CERTITHERM_FEM_VOID_K", str(AIR_K_W_PER_M_K)))
+# 3. Boundary realisation. `r_convec` is a LUMPED sink-to-ambient resistance; this adapter spreads it
+#    as a uniform Robin coefficient over the sink top, which couples differently when the sink is not
+#    isothermal. Scaling the sink conductivity up drives it to the isothermal limit, where the
+#    distributed and lumped realisations coincide -- so a large scale factor measures the gap.
+SINK_K_SCALE = float(os.environ.get("CERTITHERM_FEM_SINK_K_SCALE", "1.0"))
 # Cells per layer in z. The layers span 20 um to 6.9 mm, so a single cell per layer -- which is what
 # an unrefined node list gives -- would put the entire 6.9 mm sink in one element and resolve none of
 # the spreading this comparison exists to measure.
@@ -294,12 +311,17 @@ def main() -> None:
         box_y, lateral_cells,
     )
     z_nodes = []
-    for layer, (z0, z1) in (("die", z_die), ("tim", z_tim), ("spreader", z_spr), ("sink", z_sink)):
+    die_layers = (("die", (z_die[0], source_z0)), ("die", (source_z0, z_die[1]))) \
+        if SOURCE_FRACTION < 1.0 else (("die", z_die),)
+    for layer, (z0, z1) in die_layers + (("tim", z_tim), ("spreader", z_spr), ("sink", z_sink)):
         count = Z_CELLS_PER_LAYER[layer]
         z_nodes.extend(z0 + (z1 - z0) * step / count for step in range(count))
     z_nodes = tuple(z_nodes) + (box_z,)
 
-    die_volume = DIE_THICKNESS_M
+    # The source slab sits at the TOP of the die, which is where the active layer is. At
+    # SOURCE_FRACTION = 1 it is the whole thickness and the geometry is unchanged.
+    source_z0 = z_die[1] - SOURCE_FRACTION * DIE_THICKNESS_M
+    die_volume = SOURCE_FRACTION * DIE_THICKNESS_M
     # THE REGIONS ARE DISJOINT AND TILE THE BOX. `SteadyHeatBox` validates both, so the void is the
     # exact complement of each plate rather than a slab the plates are laid on top of.
     die_box = (_snap(die_x0), _snap(die_y0), _snap(die_x0 + die_width), _snap(die_y0 + die_height))
@@ -311,18 +333,26 @@ def main() -> None:
         # footprint. Sizing it to the spreader would lay a 20 um k=4 sheet under the whole overhang,
         # changing the spreading path -- and that difference would have been read as HotSpot's
         # model-form error, which is the one thing this comparison must not manufacture.
-        BoxRegion(f"void_die_{name}", lower, upper, AIR_K_W_PER_M_K)
+        BoxRegion(f"void_die_{name}", lower, upper, VOID_K_W_PER_M_K)
         for name, lower, upper in _frame(box_x, box_y, die_box, z_die[0], z_tim[1])
     ) + tuple(
-        BoxRegion(f"void_spreader_{name}", lower, upper, AIR_K_W_PER_M_K)
+        BoxRegion(f"void_spreader_{name}", lower, upper, VOID_K_W_PER_M_K)
         for name, lower, upper in _frame(box_x, box_y, spr_box, z_spr[0], z_spr[1])
     )
-    passive = (
+    # The unpowered silicon under the source slab, present only when the source is thinner than the
+    # die. At SOURCE_FRACTION = 1 this region has zero thickness and is omitted.
+    bulk = (
+        (BoxRegion("die_bulk", (die_box[0], die_box[1], z_die[0]),
+                   (die_box[2], die_box[3], source_z0), SILICON_K_W_PER_M_K),)
+        if SOURCE_FRACTION < 1.0 else ()
+    )
+    passive = bulk + (
         BoxRegion("tim", (die_box[0], die_box[1], z_tim[0]), (die_box[2], die_box[3], z_tim[1]),
                   TIM_K_W_PER_M_K),
         BoxRegion("spreader", (spr_box[0], spr_box[1], z_spr[0]),
                   (spr_box[2], spr_box[3], z_spr[1]), COPPER_K_W_PER_M_K),
-        BoxRegion("sink", (0.0, 0.0, z_sink[0]), (box_x, box_y, z_sink[1]), COPPER_K_W_PER_M_K),
+        BoxRegion("sink", (0.0, 0.0, z_sink[0]), (box_x, box_y, z_sink[1]),
+                  COPPER_K_W_PER_M_K * SINK_K_SCALE),
     )
 
     def problem(power_w: np.ndarray) -> "SteadyHeatBox":
@@ -331,7 +361,7 @@ def main() -> None:
             area = (x1 - x0) * (y1 - y0)
             die_regions.append(BoxRegion(
                 f"die::{name}",
-                (_snap(die_x0 + x0), _snap(die_y0 + y0), z_die[0]),
+                (_snap(die_x0 + x0), _snap(die_y0 + y0), source_z0),
                 (_snap(die_x0 + x1), _snap(die_y0 + y1), z_die[1]),
                 SILICON_K_W_PER_M_K,
                 float(power_w[index]) / (area * die_volume),
@@ -432,7 +462,9 @@ def main() -> None:
         "solves": len(problems), "seconds": elapsed,
         "mesh_cells": [len(x_nodes) - 1, len(y_nodes) - 1, len(z_nodes) - 1],
         "z_cells_per_layer": Z_CELLS_PER_LAYER,
-        "void_filler_k_w_per_m_k": AIR_K_W_PER_M_K,
+        "void_filler_k_w_per_m_k": VOID_K_W_PER_M_K,
+        "source_fraction_of_die_thickness": SOURCE_FRACTION,
+        "sink_conductivity_scale": SINK_K_SCALE,
         "matched": {
             "die_footprint_m": [die_width, die_height],
             "die_thickness_m": DIE_THICKNESS_M, "die_k_w_per_m_k": SILICON_K_W_PER_M_K,
