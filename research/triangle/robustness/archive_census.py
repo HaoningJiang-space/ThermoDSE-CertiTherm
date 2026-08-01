@@ -94,6 +94,12 @@ def candidate_set(count: int):
     return len(designs), len(pool), pool[:count]
 
 
+def _public(row: dict) -> dict:
+    """The registry-shaped fields, without this script's private bookkeeping."""
+
+    return {k: v for k, v in row.items() if not k.startswith("_")}
+
+
 def architecture_row(index: int, sys_info: str, record: dict) -> dict:
     """One archive design as the same 10-field row the bridge already consumes.
 
@@ -138,12 +144,11 @@ def main() -> None:
         "declared_count": count,
         "denominator": count,
         "shard": shard, "shards": shards,
-        "designs": [
-            {k: v for k, v in row.items() if not k.startswith("_")}
-            | {"sys_info": row["_sys_info"], "edyp_reported": row["_edyp_reported"],
-               "reported_peak_k": row["_reported_peak_k"]}
-            for row in rows
-        ],
+        # `dict | dict` is 3.9+, and the pinned interpreter is python3.8. Written out rather
+        # than relying on a version the bootstrap does not promise.
+        "designs": [dict(_public(row), sys_info=row["_sys_info"],
+                         edyp_reported=row["_edyp_reported"],
+                         reported_peak_k=row["_reported_peak_k"]) for row in rows],
     }
     (workdir / "candidate_set.json").write_text(json.dumps(manifest, indent=1))
     mine = [row for index, row in enumerate(rows) if index % shards == shard]
@@ -170,7 +175,7 @@ def main() -> None:
     results = []
     for row in mine:
         arch_id = row["architecture_id"]
-        arch = {k: v for k, v in row.items() if not k.startswith("_")}
+        arch = _public(row)
         record = {
             "architecture_id": arch_id, "sys_info": row["_sys_info"],
             "edyp_reported": row["_edyp_reported"], "reported_peak_k": row["_reported_peak_k"],
