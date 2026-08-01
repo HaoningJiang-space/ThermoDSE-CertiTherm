@@ -116,21 +116,35 @@ def _extreme_lp(
 
     from scipy.optimize import linprog
 
-    result = linprog(
-        -np.asarray(coefficients, dtype=float),
-        A_ub=a_ub, b_ub=b_ub,
-        A_eq=np.ones((1, coefficients.size)), b_eq=np.array([total]),
-        bounds=list(zip(lower.tolist(), upper.tolist())),
-        method="highs",
-    )
-    if not result.success:
-        # FAIL CLOSED. An infeasible or unbounded relaxation has no supremum, and returning the
-        # greedy's answer instead would silently substitute a bound over a LARGER set.
-        raise ValueError(
-            f"the polytope maximisation did not solve ({result.message.strip()}); a supremum over "
-            "a set the solver could not certify as feasible is not a number"
+    objective = np.asarray(coefficients, dtype=float)
+    # SCALE THE OBJECTIVE. The row differences are ~1e-3 K/W while the equality's right-hand side is
+    # tens of watts, and HiGHS returned `model_status Unknown` on a problem whose feasibility is not
+    # in doubt -- the placed power map satisfies every constraint by construction. Dividing by the
+    # largest coefficient leaves the argmax untouched and removes the conditioning problem; the
+    # optimum is scaled back at the end.
+    scale = float(np.max(np.abs(objective)))
+    if scale == 0.0:
+        # A constant objective. Every feasible point attains it, and the feasible set is non-empty
+        # whenever the box admits the total, which `_validated` has already checked.
+        return 0.0
+    bounds = list(zip(lower.tolist(), upper.tolist()))
+    failures = []
+    for method in ("highs", "highs-ds", "highs-ipm"):
+        result = linprog(
+            -objective / scale,
+            A_ub=a_ub, b_ub=b_ub,
+            A_eq=np.ones((1, objective.size)), b_eq=np.array([total]),
+            bounds=bounds, method=method,
         )
-    return float(-result.fun)
+        if result.success:
+            return float(-result.fun) * scale
+        failures.append(f"{method}: {result.message.strip()}")
+    # FAIL CLOSED. An unsolved relaxation has no supremum, and falling back to the greedy would
+    # silently substitute a bound over a LARGER set -- the very defect this function exists to fix.
+    raise ValueError(
+        "the polytope maximisation did not solve under any HiGHS variant (" + "; ".join(failures)
+        + "); a supremum over a set the solver could not certify as feasible is not a number"
+    )
 
 
 def _extreme(
