@@ -29,8 +29,14 @@ power vector**. So the FEM map is affine, `T = R p + a`, exactly like HotSpot's 
 
 Any mismatch in geometry, conductivity or boundary condition shows up as a temperature difference
 and would be **misattributed to model form**. So this module emits an explicit ledger of every
-matched quantity, and validates energy balance first: the solver reports generated and convected
-power, and if they disagree the geometry is wrong and no temperature comparison means anything.
+matched quantity and checks what can be checked before reporting anything.
+
+**Energy balance is a numerical check, not a physics-matching check.** Peer review was right that
+a completely wrong but closed geometry conserves energy exactly, so a passing balance says the
+solve converged and says nothing about whether the stack is HotSpot's. What guards the matching
+is `_assert_matches_hotspot_inputs`, which parses the actual template and materials file and
+refuses on any drift, plus the ledger's explicit list of what was ASSUMED equivalent rather than
+matched. The remaining assumptions are falsifiable by the sensitivity runs the ledger names.
 
 Two matching decisions are not mechanical and are recorded as such:
 
@@ -64,9 +70,13 @@ sys.path.insert(0, ".")
 
 from CertiTherm.experiments import ROOT, _power_space, _rows
 from CertiTherm.frozen_limits import THERMAL_LIMIT_K
+from CertiTherm.paths import TEMPLATE
 
-# Read from the HotSpot template and materials file rather than restated here, so a package edit
-# cannot leave the two solvers describing different stacks.
+# RESTATED HERE, AND CHECKED AGAINST THE HOTSPOT INPUTS AT RUN TIME. An earlier revision carried a
+# comment claiming these were read from the template and materials file; they were not, so a template
+# edit could have moved HotSpot's stack while the FEM's stayed put and the divergence would have been
+# reported as model-form error. `_assert_matches_hotspot_inputs` parses the real files and refuses on
+# any disagreement, which keeps the constants readable without letting them drift.
 SILICON_K_W_PER_M_K = 130.0
 COPPER_K_W_PER_M_K = 400.0
 TIM_K_W_PER_M_K = 4.0
@@ -109,6 +119,45 @@ def _floorplan_blocks(text: str):
 # those near-duplicates survive the node set and then bisect to an interval of zero width, which the
 # solver rejects as a non-increasing node list -- the symptom is far from the cause.
 EDGE_QUANTUM_M = 1.0e-9
+
+
+def _assert_matches_hotspot_inputs(template_config, materials) -> dict:
+    """Parse the real HotSpot inputs and refuse if any constant above has drifted from them."""
+
+    config = {}
+    for line in template_config.read_text(encoding="utf-8").splitlines():
+        line = line.split("#")[0].strip()
+        if line.startswith("-") and len(line.split()) >= 2:
+            key, value = line.split()[:2]
+            config[key[1:]] = value
+    words = [
+        w for w in materials.read_text(encoding="utf-8").splitlines()
+        if w.strip() and not w.strip().startswith("#")
+    ]
+    conductivity = {}
+    for index, word in enumerate(words):
+        if word.strip() in {"silicon", "copper", "aluminum"} and index + 2 < len(words):
+            conductivity[word.strip()] = float(words[index + 2])
+    expected = {
+        "t_chip": DIE_THICKNESS_M, "k_interface": TIM_K_W_PER_M_K,
+        "silicon": SILICON_K_W_PER_M_K, "copper": COPPER_K_W_PER_M_K,
+    }
+    found = {
+        "t_chip": float(config["t_chip"]), "k_interface": float(config["k_interface"]),
+        "silicon": conductivity["silicon"], "copper": conductivity["copper"],
+    }
+    drifted = {k: (found[k], v) for k, v in expected.items() if found[k] != v}
+    if drifted:
+        raise SystemExit(
+            f"the HotSpot inputs no longer match this adapter's constants: {drifted}; the two "
+            "solvers would describe different stacks and the difference would be read as model form"
+        )
+    if config.get("model_secondary", "0") != "0":
+        raise SystemExit(
+            "the HotSpot template enables the secondary heat path, but this adapter models an "
+            "adiabatic bottom; the comparison would be between different boundary conditions"
+        )
+    return found
 
 
 def _snap(value: float) -> float:
@@ -198,6 +247,10 @@ def main() -> None:
     t_interface = float(package["t_interface"])
     ambient_k = float(package["ambient"])
 
+    hotspot_inputs = _assert_matches_hotspot_inputs(
+        TEMPLATE / "example.config", TEMPLATE / "example.materials"
+    )
+
     _space, block_ids, placed, floorplan_text = _power_space(capture)
     blocks = _floorplan_blocks(floorplan_text)
     if [name for name, *_ in blocks] != list(block_ids):
@@ -249,28 +302,26 @@ def main() -> None:
     die_volume = DIE_THICKNESS_M
     # THE REGIONS ARE DISJOINT AND TILE THE BOX. `SteadyHeatBox` validates both, so the void is the
     # exact complement of each plate rather than a slab the plates are laid on top of.
+    die_box = (_snap(die_x0), _snap(die_y0), _snap(die_x0 + die_width), _snap(die_y0 + die_height))
+    spr_box = (_snap(spr_x0), _snap(spr_y0), _snap(spr_x0 + s_spreader), _snap(spr_y0 + s_spreader))
     void = tuple(
+        # The die AND the TIM share the die footprint, so their voids are one slab. THE TIM FOLLOWS
+        # THE DIE, NOT THE SPREADER: `temperature_block.c` builds one interface node per floorplan
+        # unit from `flp->units[i].width/height`, so HotSpot's interface layer is exactly the die
+        # footprint. Sizing it to the spreader would lay a 20 um k=4 sheet under the whole overhang,
+        # changing the spreading path -- and that difference would have been read as HotSpot's
+        # model-form error, which is the one thing this comparison must not manufacture.
         BoxRegion(f"void_die_{name}", lower, upper, AIR_K_W_PER_M_K)
-        for name, lower, upper in _frame(
-            box_x, box_y,
-            (_snap(die_x0), _snap(die_y0), _snap(die_x0 + die_width), _snap(die_y0 + die_height)),
-            z_die[0], z_die[1],
-        )
+        for name, lower, upper in _frame(box_x, box_y, die_box, z_die[0], z_tim[1])
     ) + tuple(
-        # One slab spanning TIM and spreader together: outside the spreader footprint both layers
-        # are the same void, so splitting it in z would add regions without adding geometry.
-        BoxRegion(f"void_package_{name}", lower, upper, AIR_K_W_PER_M_K)
-        for name, lower, upper in _frame(
-            box_x, box_y,
-            (_snap(spr_x0), _snap(spr_y0), _snap(spr_x0 + s_spreader), _snap(spr_y0 + s_spreader)),
-            z_tim[0], z_spr[1],
-        )
+        BoxRegion(f"void_spreader_{name}", lower, upper, AIR_K_W_PER_M_K)
+        for name, lower, upper in _frame(box_x, box_y, spr_box, z_spr[0], z_spr[1])
     )
     passive = (
-        BoxRegion("tim", (_snap(spr_x0), _snap(spr_y0), z_tim[0]),
-                  (_snap(spr_x0 + s_spreader), _snap(spr_y0 + s_spreader), z_tim[1]), TIM_K_W_PER_M_K),
-        BoxRegion("spreader", (_snap(spr_x0), _snap(spr_y0), z_spr[0]),
-                  (_snap(spr_x0 + s_spreader), _snap(spr_y0 + s_spreader), z_spr[1]), COPPER_K_W_PER_M_K),
+        BoxRegion("tim", (die_box[0], die_box[1], z_tim[0]), (die_box[2], die_box[3], z_tim[1]),
+                  TIM_K_W_PER_M_K),
+        BoxRegion("spreader", (spr_box[0], spr_box[1], z_spr[0]),
+                  (spr_box[2], spr_box[3], z_spr[1]), COPPER_K_W_PER_M_K),
         BoxRegion("sink", (0.0, 0.0, z_sink[0]), (box_x, box_y, z_sink[1]), COPPER_K_W_PER_M_K),
     )
 
@@ -370,6 +421,11 @@ def main() -> None:
     # one fact, which is a policing problem rather than a check. The zero-power solve is
     # excluded because its relative residual has no denominator.
     worst_balance = float(np.max([r.relative_energy_imbalance for r in results[1:]]))
+    # What the columns MEAN, checked rather than assumed: each impulse must actually dissipate
+    # one watt, and the zero solve must actually sit at ambient. Either failing would leave the
+    # response matrix scaled or offset wrongly while every other diagnostic looked healthy.
+    worst_impulse_w = float(np.max([abs(r.generated_power_w - 1.0) for r in results[1:]]))
+    zero_offset_k = float(np.max(np.abs(ambient_row - ambient_k)))
 
     ledger = {
         "capture": capture.name, "package": package_id, "blocks": len(blocks),
@@ -398,17 +454,37 @@ def main() -> None:
             "over identical supports",
         ],
         "energy_balance_worst_relative_residual": worst_balance,
-        "nominal_peak_k": float(np.max(response @ np.asarray(placed, dtype=float) + ambient_row)),
+        "worst_impulse_power_error_w": worst_impulse_w,
+        "zero_solve_offset_from_ambient_k": zero_offset_k,
+        "hotspot_inputs_checked": hotspot_inputs,
+        # The FEM's OWN block-average-versus-continuum gap, which is the independent-solver
+        # analogue of the 0.18 K understatement measured inside HotSpot. Reported, not folded in:
+        # a certificate over block averages does not imply one over the physical peak.
+        "nominal_peak_over_block_averages_k": float(
+            np.max(response @ np.asarray(placed, dtype=float) + ambient_row)
+        ),
+        "impulse_max_anywhere_minus_block_average_k": float(np.max([
+            r.maximum_temperature_k - max(v for n, v in r.region_average_temperature_k
+                                          if n.startswith("die::"))
+            for r in results[1:]
+        ])),
         "thermal_limit_k": THERMAL_LIMIT_K,
     }
     print(json.dumps(ledger, indent=1), flush=True)
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger_path.write_text(json.dumps(ledger, indent=1))
-    if not np.isfinite(worst_balance) or worst_balance > 1e-6:
-        raise SystemExit(
-            f"energy balance is off by {worst_balance:.3e}; the stack does not conserve power, so "
-            "any temperature difference against HotSpot would measure the geometry, not the model"
-        )
+    for name, value, limit in (
+        ("energy balance", worst_balance, 1e-6),
+        ("impulse power error (W)", worst_impulse_w, 1e-6),
+        ("zero-solve offset from ambient (K)", zero_offset_k, 1e-6),
+    ):
+        # `math.isfinite` first and separately: `NaN > limit` is False, so a single inequality
+        # would let a NaN pass the guard AND get recorded.
+        if not np.isfinite(value) or value > limit:
+            raise SystemExit(
+                f"{name} is {value:.3e} against a {limit:.0e} tolerance; the solve is not sound "
+                "enough for its response matrix to mean what the columns claim"
+            )
 
     np.savez_compressed(
         out_path,
@@ -417,7 +493,12 @@ def main() -> None:
         ambient_k=ambient_row[None, :],
         limit_k=np.asarray(THERMAL_LIMIT_K),
         provenance_sha256=np.asarray(["fem-dolfinx"]),
-        error_k=np.zeros((1, len(blocks))),
+        # NOT ZERO. FEM discretisation, source placement and boundary realisation are all
+        # unmeasured here, and a zero would let the containment machinery treat this as a
+        # certified reference. NaN is the fail-closed value: every guard in this project checks
+        # `isfinite` first, so a consumer that tries to certify against it refuses instead of
+        # quietly succeeding.
+        error_k=np.full((1, len(blocks)), np.nan),
         block_ids=np.asarray([name for name, *_ in blocks]),
     )
     print(f"wrote {out_path} in {elapsed:.0f} s", flush=True)
