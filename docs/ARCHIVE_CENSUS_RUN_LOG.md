@@ -53,10 +53,34 @@ unchanged.** The alternative was not "a valid GPU operator" -- the GPU refused -
 and UNRESOLVED designs stay in the fixed denominator. So omitting the fallback would have capped X at
 95.3 %. Relative to a hypothetical valid GPU build the substitution could move a design either way.
 
-*Evidence limit, stated because peer review was right to press it:* the recorded bit-identical parity
-was measured at `grid128` and `grid256`, **not at `grid512`**, and not on these three designs. A
-direct `grid512` CPU-versus-GPU comparison on a design the GPU did accept is reported separately; the
-three fallback designs themselves cannot be compared, because the GPU has no answer for them.
+*Superseded by Decision 5.* `arxv047` completed on the CPU. `arxv052` and `arxv054` did not -- they
+hit the hard-coded 300 s per-solve timeout, which is a wall-clock guard against a hung process and
+not a physical bound. Rather than raise it and wait an hour per design, the underlying refusal was
+repaired; see below.
+
+**Decision 5 -- the CUDA solver now restarts on the exact residual, and that repaired the refusal.**
+The rejection was a known and documented failure mode of the solver's own stopping rule: PCG halts on
+the *recurrence* residual, which drifts optimistic after hundreds of updates -- the source comment
+says so and carries a 0.5x safety margin for it -- and the freshly computed `b - Gx` residual then
+landed 0.9 % over tolerance. **The tolerance was not relaxed.** Instead the solver re-anchors the
+recurrence on the exactly computed residual and continues from the current iterate, which is the
+standard restart cure and costs one extra sparse product per pass.
+
+*Result:* both designs solve in **32-33 s on the GPU**, against a CPU attempt that had not finished
+after an hour.
+
+*Parity, measured rather than argued:* rebuilding `arxv008` -- a design the pinned solver **accepted**
+-- with the refined solver gives `max|dResponse| = 0.000e+00 K/W` and `max|dAmbient| = 0.000e+00 K`.
+**Bit-identical.** The restart only fires where the pinned solver would have failed, so the two
+designs built with it are not a different operator from the other 62.
+
+*Direction:* it converts two UNRESOLVED designs into real verdicts, which may be CERTIFIED or
+REFUSED. Not directional.
+
+*Protocol status:* the preregistration fixes the reference model (`grid512-avg`), not the
+implementation that computes it, and the parity above shows the implementation is the same map. The
+pinned build is untouched; the refined solver lives in a parallel GPU build root whose receipt covers
+it, so a new binary can never be paired with the pinned build's `GPU_SHA256SUMS`.
 
 **Decision 3 — the class-total constraints are now honoured.** Peer review found that
 `peak_over_polytope` and `one_sided_containment_bounds` received only the box, dropping the
