@@ -122,6 +122,29 @@ def _snap(value: float) -> float:
     return round(float(value) / EDGE_QUANTUM_M) * EDGE_QUANTUM_M
 
 
+def _frame(box_x: float, box_y: float, inner, z0: float, z1: float):
+    """The complement of a centred rectangle, as up to four DISJOINT rectangles.
+
+    `SteadyHeatBox` validates that no two regions share a cell, so the "lay a slab down and let the
+    real plates overwrite it" trick that `_region_indices` would have tolerated is rejected before
+    the mesh is ever built. The complement of a rectangle in a rectangle is a frame, and a frame
+    splits exactly into two full-height side strips plus two strips between them.
+    """
+
+    x0, y0, x1, y1 = inner
+    pieces = (
+        ("west", 0.0, 0.0, x0, box_y),
+        ("east", x1, 0.0, box_x, box_y),
+        ("south", x0, 0.0, x1, y0),
+        ("north", x0, y1, x1, box_y),
+    )
+    return tuple(
+        (name, (a, b, z0), (c, d, z1))
+        for name, a, b, c, d in pieces
+        if c - a > EDGE_QUANTUM_M and d - b > EDGE_QUANTUM_M
+    )
+
+
 def _axis_nodes(edges, extent: float, minimum_cells: int):
     """Every block edge is a mesh node, then subdivide until the cell count is reached.
 
@@ -224,13 +247,24 @@ def main() -> None:
     z_nodes = tuple(z_nodes) + (box_z,)
 
     die_volume = DIE_THICKNESS_M
-    # ORDER IS LOAD-BEARING: `_region_indices` assigns cell ownership region by region and a later
-    # region overwrites an earlier one. The two air slabs are laid down first over the whole box, so
-    # whatever the real plates cover is taken back and only the genuine void keeps air.
-    void = (
-        BoxRegion("void_die_level", (0.0, 0.0, z_die[0]), (box_x, box_y, z_die[1]), AIR_K_W_PER_M_K),
-        BoxRegion("void_package_level", (0.0, 0.0, z_tim[0]), (box_x, box_y, z_spr[1]),
-                  AIR_K_W_PER_M_K),
+    # THE REGIONS ARE DISJOINT AND TILE THE BOX. `SteadyHeatBox` validates both, so the void is the
+    # exact complement of each plate rather than a slab the plates are laid on top of.
+    void = tuple(
+        BoxRegion(f"void_die_{name}", lower, upper, AIR_K_W_PER_M_K)
+        for name, lower, upper in _frame(
+            box_x, box_y,
+            (_snap(die_x0), _snap(die_y0), _snap(die_x0 + die_width), _snap(die_y0 + die_height)),
+            z_die[0], z_die[1],
+        )
+    ) + tuple(
+        # One slab spanning TIM and spreader together: outside the spreader footprint both layers
+        # are the same void, so splitting it in z would add regions without adding geometry.
+        BoxRegion(f"void_package_{name}", lower, upper, AIR_K_W_PER_M_K)
+        for name, lower, upper in _frame(
+            box_x, box_y,
+            (_snap(spr_x0), _snap(spr_y0), _snap(spr_x0 + s_spreader), _snap(spr_y0 + s_spreader)),
+            z_tim[0], z_spr[1],
+        )
     )
     passive = (
         BoxRegion("tim", (_snap(spr_x0), _snap(spr_y0), z_tim[0]),
