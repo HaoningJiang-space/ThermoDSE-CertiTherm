@@ -79,7 +79,7 @@ def main() -> None:
                     float(data["latency_ms"]) * float(data["energy_mj"]) / float(data["die_yield"])
                 )
 
-            bands = {}
+            bands, nominal_bands = {}, {}
             for name, coarse_id, fine_id in (
                 ("cross_grid_64_128", "grid64-avg", "grid128-avg"),
                 ("cross_model_block_128", "block", "grid128-avg"),
@@ -92,7 +92,18 @@ def main() -> None:
                     family.ambient_k[ci], family.ambient_k[fi],
                     lower, upper, total,
                 )
+                # The supremum is attained at an adversarial vertex of a deliberately permissive
+                # set -- `content_upper_bounds` gives every block its whole content class's power.
+                # Reporting it alone would pass off a worst case as a typical disagreement, so the
+                # value AT THE NOMINAL MAP is reported beside it and the gap between them is the
+                # honest measure of how much of the band is the uncertainty set rather than the
+                # models.
+                at_nominal = float(np.max(
+                    (family.response_k_per_w[ci] - family.response_k_per_w[fi]) @ power
+                    + (family.ambient_k[ci] - family.ambient_k[fi])
+                ))
                 bands[name] = float(np.max(hotter))
+                nominal_bands[name] = at_nominal
 
             # Certifiability at nominal power with each band folded in one-sidedly, on the FINEST
             # available operator -- the coarse one is what the band corrects toward it.
@@ -107,6 +118,7 @@ def main() -> None:
                 "headroom_to_limit_k": headroom,
                 "frozen_band_k": MODEL_ERROR_LIMIT_K,
                 "bands_k": bands,
+                "bands_at_nominal_map_k": nominal_bands,
                 "certifiable_under": {
                     name: bool(headroom - band > 0.0) for name, band in bands.items()
                 },
@@ -119,7 +131,10 @@ def main() -> None:
                 "%-8s %-12s peak %7.2f K  headroom %6.3f K  bands %s  worst/frozen %6.0fx  %s"
                 % (
                     arch, workload, nominal_peak, headroom,
-                    " ".join("%s=%.3f" % (n.split("_")[-1], b) for n, b in bands.items()),
+                    " ".join(
+                        "%s=%.2f(nom %.2f)" % (n.split("_")[-1], b, nominal_bands[n])
+                        for n, b in bands.items()
+                    ),
                     worst / MODEL_ERROR_LIMIT_K,
                     "ROBUST-FEASIBLE" if headroom - worst > 0 else "NOT certifiable",
                 ),
