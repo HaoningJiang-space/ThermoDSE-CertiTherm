@@ -30,27 +30,57 @@ Two consequences.
   The model resolves the quantity nothing depends on and fails to resolve the one the decision
   depends on, which is why this went unnoticed through a whole method freeze.
 
-## 2. The underlying field converges well. The BLOCK-AVERAGE mapping triples the error.
+## 2. REFUTED, and what replaces it is worse: the block average HIDES the subcell peak
 
-Per-cell, comparing each `grid64` location against the mean of its children:
+This section originally claimed the block-average mapping amplifies the discrepancy 3.4x, from a
+0.0444 K per-cell residual to 0.1491 K per block, and concluded that cell-level rows would remove
+that amplification. **Both halves are wrong, and peer review predicted the error exactly**: "you may
+have removed the block mapping error while simultaneously averaging away the subcell peak you need
+to certify."
 
-| comparison | max over cells | median |
+Two mistakes compounded.
+
+**The 0.0444 K was the wrong object twice over.** It compared `grid64` locations against `grid128`
+and `grid256` fields BOTH coarsened to 64x64 -- so it averaged the fine field down before comparing,
+and then compared against a MEAN of children rather than against each child. Peak certification
+needs every fine child controlled, because one child can be far hotter than the mean of four. The
+free check on the same fields, at the honest 128 level:
+
+| quantity | max over cells | median |
 | --- | --- | --- |
-| `｜64 − 128｜` | 0.2150 K | 0.00500 K |
-| `｜128 − 256｜` | **0.0444 K** | 0.00187 K |
+| `｜mean(children) − parent｜` — what was measured | 0.1500 K | 0.00500 K |
+| `max_k [child_k − parent]` — what peak certification needs | **0.2700 K** | 0.01000 K |
 
-The change shrinks by 4.8x on the maximum for a 2x refinement -- consistent with second order -- and
-**78.4 % of cells shrink monotonically**. That is a well-behaved field.
+1.8x between those two, and **6.1x** against the 0.0444 K that was quoted.
 
-Now the same architecture, same power map, at BLOCK level, which is what the certified operator uses:
+**And the comparison inverts the conclusion.** Against the per-block discrepancy on the same
+architecture and power map:
 
-    per-CELL   |128 - 256|  max  0.0444 K
-    per-BLOCK  |128 - 256|  max  0.1491 K      3.4x worse
+    per-BLOCK  |128 - 256|            0.1491 K
+    per-CELL   max_k[child - parent]  0.2700 K      the CELL level is 1.8x WORSE
 
-Averaging normally suppresses error. It amplifies here because the block average at `gridN` and at
-`grid2N` is **not the same functional**: which cells fall inside a block's footprint changes with the
-grid, so the two averages are taken over different supports. The mapping, not the physics,
-contributes most of the error the certificate was charged for.
+Averaging suppresses local extremes, as it must. The block average is smoother than the cell peak,
+so cell-level rows do not remove an amplification -- they expose a subcell hotspot the block average
+was hiding. The "3.4x amplification" was an artefact of comparing a block drift against a
+doubly-coarsened cell mean, which are not the same object.
+
+### The finding that replaces it, and it is a soundness defect rather than a precision one
+
+The block-average mapping **understates the peak the 330 K limit refers to**. On the same run at
+`grid128`:
+
+    block-averaged peak   322.31 K
+    raw cell peak         322.49 K       0.18 K higher
+
+The limit constrains a physical peak temperature. The certified family evaluates a block average,
+which is systematically below it. So the block-level certificate was not merely imprecise about the
+peak -- it was **optimistic** about it, in the direction that makes certification easier. That is a
+worse defect than the convergence one and it is independent of grid resolution: it does not shrink
+as the grid is refined, because it is a property of the mapping, not of the discretisation.
+
+Cell-level rows are therefore still the right formulation -- `SAFE` as a conjunction over cells,
+`REJECT` as a disjunction, both LP-representable -- but for correctness of the QUANTITY, not for a
+cheaper error. They cost more discretisation error, not less.
 
 ## 3. The max oscillates because the ARGMAX moves
 
@@ -70,8 +100,14 @@ the decision set and its witnesses, not of the optimum value.
 
 ## The method this prescribes
 
-**Never verify a maximum, and never verify an average.** Verify each row, then bound the maximum by
-the maximum of the per-row bounds:
+**Compare the same functional on the same physical domain.** An earlier version of this section said
+"never verify a maximum and never verify an average", which is too strong: on a common domain
+`|max f - max g| <= ||f - g||_inf`, so a moving argmax is harmless once a genuine uniform field bound
+exists. The real failure above was comparing DIFFERENT functionals -- a block average against a
+coarsened cell mean -- not the taking of a maximum. Peer review supplied the correction.
+
+What remains true is the construction: verify each row, then bound the maximum by the maximum of the
+per-row bounds:
 
     max_j T_j(p)  <=  max_j [ T_j^coarse(p) + u_j ],      u_j = max_{p in P} [ T_j^fine(p) - T_j^coarse(p) ]
 
@@ -84,8 +120,9 @@ fill -- and `one_sided_containment_bounds` returns the signed version that set c
 What this buys is **one measured factor and one open question**, and an earlier version of this
 section conflated them.
 
-Measured: dropping the block-average mapping in favour of cell rows removes a **3.4x**
-amplification, on this architecture and this power map.
+Measured, and it is the opposite of what this section first claimed: cell rows carry **1.8x MORE**
+discretisation discrepancy than block rows, because they expose the subcell peak the average hides.
+What they buy is the correct quantity, not a smaller error.
 
 **NOT established, and the correction matters.** This section first argued that the 0.044 K per-cell
 residual against a 2–8 K margin makes the thermal half recoverable. That compares a SAMPLE against a
