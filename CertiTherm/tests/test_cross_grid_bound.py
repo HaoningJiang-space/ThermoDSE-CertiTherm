@@ -14,6 +14,7 @@ import pytest
 
 from CertiTherm.cross_grid_bound import (
     one_sided_containment_bounds,
+    peak_over_polytope,
     reference_model_id,
     refined_model_id,
     row_discrepancy_bounds,
@@ -215,3 +216,48 @@ def test_a_uniformly_colder_fine_operator_gives_a_NEGATIVE_u_which_tightens_noth
     assert np.all(u < 0.0)
     assert np.all(lo > 0.0)
     assert np.all(_bounds() >= 0.0), "the symmetric bound must stay nonnegative"
+
+
+def test_the_polytope_peak_dominates_every_admissible_map_and_is_attained() -> None:
+    """The certifying quantity. A discrepancy bound is NOT a temperature bound.
+
+    The frontier used to evaluate the peak at the nominal power map and then subtract a
+    polytope-wide DISCREPANCY supremum from the resulting headroom. That certifies nothing: the two
+    maxima are taken over different things, so a different admissible map can be hotter under the
+    very same operator and no cross-model correction detects it. This pins the replacement.
+    """
+
+    peak = peak_over_polytope(_COARSE, _AMB, _LOWER, _UPPER, _TOTAL)
+    rng = np.random.default_rng(11)
+    attained = False
+    for _ in range(400):
+        p = _LOWER.copy()
+        spare = _TOTAL - float(p.sum())
+        for index in rng.permutation(p.size):
+            take = min(_UPPER[index] - p[index], spare)
+            p[index] += take
+            spare -= take
+        assert abs(float(p.sum()) - _TOTAL) < 1e-9
+        sampled = float(np.max(_COARSE @ p + _AMB))
+        assert sampled <= peak + 1e-9, f"a sample {sampled} exceeded the bound {peak}"
+        attained = attained or sampled > peak - 1e-9
+    assert attained, "the supremum was never reached, so the bound is not tight at a vertex"
+
+
+def test_the_polytope_peak_rejects_a_NaN_rather_than_passing_it_through() -> None:
+    """`NaN <= limit` is False and `NaN > limit` is also False, so an unchecked NaN both fails the
+    guard and gets recorded. Finiteness is checked separately, before any comparison."""
+
+    poisoned = _COARSE.copy()
+    poisoned[0, 0] = np.nan
+    with pytest.raises(ValueError, match="finite"):
+        peak_over_polytope(poisoned, _AMB, _LOWER, _UPPER, _TOTAL)
+    with pytest.raises(ValueError, match="finite"):
+        peak_over_polytope(_COARSE, _AMB, _LOWER, _UPPER, float("nan"))
+
+
+def test_the_polytope_peak_refuses_a_polytope_that_cannot_hold_the_total_power() -> None:
+    """An empty feasible set has no supremum; returning one would be a fabricated certificate."""
+
+    with pytest.raises(ValueError, match="cannot absorb|exceed"):
+        peak_over_polytope(_COARSE, _AMB, _LOWER, _LOWER, _TOTAL + 1.0)
