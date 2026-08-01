@@ -37,6 +37,8 @@ CURVE_SPANS = (0.05, 0.10, 0.20, 0.30, 0.50, 0.80, 1.20)
 X_THRESHOLD_PCT = 20.0
 Y_THRESHOLD_PCT = 30.0
 EDYP_INDISTINGUISHABLE_FRACTION = 0.05
+# Fixed by the protocol. Asserted against the manifest rather than taken from it.
+DECLARED_DENOMINATOR = 64
 # The FEM mesh resolution is NOT fixed by the preregistration -- only the tolerances are -- so it was
 # raised after a convergence check showed the band still climbing: on the smallest archive die the
 # n=64 mesh gave 0.6093 K against 0.6673 K at n=128 and 0.6905 K at n=192. A coarse mesh UNDERstates
@@ -96,8 +98,29 @@ def main() -> None:
     manifest = json.loads((census / "work" / "candidate_set.json").read_text())
     designs = manifest["designs"]
     denominator = manifest["denominator"]
+    # THE MANIFEST IS AUTHENTICATED, not just counted. `len(designs) == denominator` alone accepts a
+    # truncated or duplicated list under the frozen protocol's name, which would put a verdict on a
+    # population nobody declared. Peer review named this; every invariant the protocol fixes is
+    # checked here.
+    identifiers = [d["architecture_id"] for d in designs]
+    problems = []
+    if manifest.get("protocol") != "archive-census-v1":
+        problems.append(f"protocol is {manifest.get('protocol')!r}")
+    if denominator != DECLARED_DENOMINATOR or manifest.get("declared_count") != DECLARED_DENOMINATOR:
+        problems.append(f"denominator {denominator} / declared {manifest.get('declared_count')}")
     if len(designs) != denominator:
-        raise SystemExit("the manifest's design list does not match its declared denominator")
+        problems.append(f"{len(designs)} designs against a denominator of {denominator}")
+    if len(set(identifiers)) != len(identifiers):
+        problems.append("architecture ids are not unique")
+    if len(set(d["sys_info"] for d in designs)) != len(designs):
+        problems.append("sys_info values are not unique, so a design is counted twice")
+    if identifiers != [f"arxv{i:03d}" for i in range(len(designs))]:
+        problems.append("architecture ids are not the declared positional sequence")
+    if problems:
+        raise SystemExit(
+            "the candidate manifest does not satisfy `archive-census-v1`: " + "; ".join(problems)
+            + ". No verdict is issued for a population the protocol did not declare."
+        )
 
     rows = []
     for design in designs:
@@ -134,11 +157,24 @@ def main() -> None:
                     raise ValueError(f"the FEM ledger does not report {key}")
                 value = float(ledger[key])
                 # `isfinite` first and separately: `NaN > limit` is False, so one inequality would
-                # let a NaN pass the guard and be recorded as compliant.
-                if not np.isfinite(value) or value > limit:
+                # let a NaN pass the guard and be recorded as compliant. And the lower end is
+                # checked too: these are magnitudes, so a negative one means the producer computed
+                # something other than what the name says, and `value > limit` would wave it through.
+                if not np.isfinite(value) or not 0.0 <= value <= limit:
                     raise ValueError(
-                        f"{key} is {value:.3e} against the preregistered {limit:.0e} tolerance"
+                        f"{key} is {value:.3e}, outside [0, {limit:.0e}]"
                     )
+            # BIND THE LEDGER TO THIS DESIGN. The ledger sits beside the operator by filename alone,
+            # so a stale one from a previous build would pass every tolerance while describing a
+            # different solve. The capture name and block count are what it already records.
+            if ledger.get("capture") != f"resnet50--{arch}.npz":
+                raise ValueError(
+                    f"the FEM ledger describes {ledger.get('capture')!r}, not this design's capture"
+                )
+            if int(ledger.get("blocks", -1)) != len(blocks):
+                raise ValueError(
+                    f"the FEM ledger reports {ledger.get('blocks')} blocks against {len(blocks)}"
+                )
             with np.load(capture, allow_pickle=False) as data:
                 record["edyp_rederived"] = (
                     float(data["latency_ms"]) * float(data["energy_mj"]) / float(data["die_yield"])
