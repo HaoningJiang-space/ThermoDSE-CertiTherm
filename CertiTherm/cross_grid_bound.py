@@ -123,10 +123,12 @@ def _extreme_lp(
     # largest coefficient leaves the argmax untouched and removes the conditioning problem; the
     # optimum is scaled back at the end.
     scale = float(np.max(np.abs(objective)))
+    # A CONSTANT OBJECTIVE STILL GOES THROUGH THE SOLVER. Returning 0.0 early looked obviously
+    # right -- every feasible point attains it -- but it skipped the feasibility question, so an
+    # EMPTY polytope would have produced a number instead of a refusal. Solving with a zero
+    # objective costs the same and lets HiGHS answer that question, which is the one that matters.
     if scale == 0.0:
-        # A constant objective. Every feasible point attains it, and the feasible set is non-empty
-        # whenever the box admits the total, which `_validated` has already checked.
-        return 0.0
+        objective, scale = np.zeros_like(objective), 1.0
     bounds = list(zip(lower.tolist(), upper.tolist()))
     failures = []
     for method in ("highs", "highs-ds", "highs-ipm"):

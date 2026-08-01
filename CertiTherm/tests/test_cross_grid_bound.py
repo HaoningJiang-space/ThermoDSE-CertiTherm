@@ -306,3 +306,19 @@ def test_an_infeasible_class_constraint_refuses_rather_than_returning_the_greedy
     members = np.ones((1, _COARSE.shape[1]))
     with pytest.raises(ValueError, match="did not solve"):
         _extreme(_COARSE[0], _LOWER, _UPPER, _TOTAL, members, np.array([_TOTAL * 0.5]))
+
+
+def test_a_constant_objective_on_an_EMPTY_polytope_refuses_rather_than_returning_zero() -> None:
+    """The early return for `max|c| == 0` skipped the feasibility question entirely.
+
+    Every feasible point attains a constant objective, so returning 0.0 looked obviously right --
+    but it is only right if a feasible point exists. On an empty set the supremum is not a number,
+    and the guard that catches that lives in the solver, which the early return bypassed.
+    """
+
+    members = np.ones((1, _COARSE.shape[1]))
+    with pytest.raises(ValueError, match="did not solve"):
+        _extreme(
+            np.zeros(_COARSE.shape[1]), _LOWER, _UPPER, _TOTAL, members,
+            np.array([_TOTAL * 0.5]),
+        )
