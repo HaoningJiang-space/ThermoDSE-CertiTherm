@@ -110,6 +110,11 @@ SINK_K_SCALE = float(os.environ.get("CERTITHERM_FEM_SINK_K_SCALE", "1.0"))
 # an unrefined node list gives -- would put the entire 6.9 mm sink in one element and resolve none of
 # the spreading this comparison exists to measure.
 Z_CELLS_PER_LAYER = {"die": 2, "tim": 1, "spreader": 4, "sink": 8}
+# The sink is where a high-conductivity sensitivity run loses its energy balance: driving it towards
+# the isothermal limit raises the material contrast against the void to 1e6-1e7 and 8 cells stop
+# resolving the through-thickness gradient. Refining only the sink is the targeted fix, and it is a
+# knob rather than a new default because the default is not the case that needs it.
+Z_CELLS_PER_LAYER["sink"] = int(os.environ.get("CERTITHERM_FEM_SINK_Z_CELLS", "8"))
 
 
 def _floorplan_blocks(text: str):
