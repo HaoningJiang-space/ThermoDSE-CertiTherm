@@ -103,9 +103,14 @@ from .run_report import (
 from .tabular import read_rows as _rows, write_rows as _write_tsv
 
 
-GPU_HOTSPOT_BUILD = ROOT / ".build" / "hotspot-gpu-export"
+# ONE ROOT, so the exporter, the solver and the receipt cannot be mixed from different builds. They
+# were three independent constants, which meant a rebuilt solver could only be tested by editing the
+# source -- and any override of just one of them would have paired a new binary with an old receipt,
+# which is exactly the false-hit direction `_verified_binary_digest` exists to prevent.
+GPU_BUILD_ROOT = Path(os.environ.get("CERTITHERM_GPU_BUILD_ROOT", str(ROOT / ".build")))
+GPU_HOTSPOT_BUILD = GPU_BUILD_ROOT / "hotspot-gpu-export"
 GPU_HOTSPOT_EXPORTER = GPU_HOTSPOT_BUILD / "hotspot"
-GPU_HOTSPOT_SOLVER = ROOT / ".build" / "hotspot-cuda" / "certitherm_hotspot_cuda"
+GPU_HOTSPOT_SOLVER = GPU_BUILD_ROOT / "hotspot-cuda" / "certitherm_hotspot_cuda"
 MODELS = ("block", "grid64-avg", "grid128-avg")
 RESULT_ARTIFACT_NAMES = frozenset(
     {

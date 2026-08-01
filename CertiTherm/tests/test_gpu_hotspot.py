@@ -71,3 +71,26 @@ def test_gpu_decision_gate_is_conservative_and_fail_closed():
     assert _thermal_state(329.0) == "SAFE"
     assert _thermal_state(331.0) == "REJECT"
     assert _thermal_state(330.0 - 0.01) == "NUMERICAL_GAP"
+
+
+def test_the_gpu_build_root_moves_the_solver_the_exporter_and_the_receipt_together(monkeypatch, tmp_path) -> None:
+    """A rebuilt solver must not be pairable with the pinned build's receipt.
+
+    The three paths were independent constants, so testing a rebuilt CUDA solver meant editing the
+    source -- and overriding only the solver path would have verified a new binary against an old
+    `GPU_SHA256SUMS`, which is the false-hit direction the digest check exists to prevent. One root
+    makes that combination unrepresentable.
+    """
+
+    import importlib
+
+    monkeypatch.setenv("CERTITHERM_GPU_BUILD_ROOT", str(tmp_path))
+    module = importlib.reload(importlib.import_module("CertiTherm.experiments"))
+    try:
+        assert module.GPU_BUILD_ROOT == tmp_path
+        assert module.GPU_HOTSPOT_SOLVER.is_relative_to(tmp_path)
+        assert module.GPU_HOTSPOT_EXPORTER.is_relative_to(tmp_path)
+        assert module.GPU_HOTSPOT_BUILD.is_relative_to(tmp_path)
+    finally:
+        monkeypatch.delenv("CERTITHERM_GPU_BUILD_ROOT")
+        importlib.reload(module)
