@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from pathlib import Path
+import math
+import os
 import subprocess
 from typing import Iterable, List, Optional, Sequence, Tuple
 
@@ -49,6 +51,25 @@ def _floorplan_units(path: Path) -> List[str]:
     if not units or len(units) != len(set(units)):
         raise ValueError("floorplan must contain unique nonempty units")
     return units
+
+
+def _solve_timeout_s() -> float:
+    """How long one HotSpot solve may take before it is a timeout, not a result.
+
+    Hard-coded at 300 s until a `grid512` build on the CPU reference implementation exceeded it for
+    a 43-block design. The number was never a physical bound -- it is a guard against a hung solve --
+    and a finer grid legitimately takes longer, so the guard has to move with the grid. A timeout is
+    still fail-closed: it raises, the design becomes UNRESOLVED, and it stays in the denominator.
+    """
+
+    raw = os.environ.get("CERTITHERM_HOTSPOT_TIMEOUT_S", "300")
+    try:
+        timeout = float(raw)
+    except ValueError:
+        raise ValueError(f"CERTITHERM_HOTSPOT_TIMEOUT_S must be a number, got {raw!r}")
+    if not math.isfinite(timeout) or timeout <= 0.0:
+        raise ValueError(f"CERTITHERM_HOTSPOT_TIMEOUT_S must be finite and positive, got {timeout}")
+    return timeout
 
 
 def _parse_steady(path: Path, units: Sequence[str]) -> np.ndarray:
@@ -117,7 +138,7 @@ def _run(
             "-grid_map_mode",
             model.grid_map_mode,
         ]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=_solve_timeout_s())
     if result.returncode != 0:
         raise RuntimeError(
             f"HotSpot {model.model_id} failed ({result.returncode}): {result.stderr[-500:]}"
