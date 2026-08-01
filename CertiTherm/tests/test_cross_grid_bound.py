@@ -17,6 +17,7 @@ from CertiTherm.reanchored_certificate import certify_over_polytope
 from CertiTherm.cross_grid_bound import (
     _extreme,
     _extreme_lp,
+    _extreme_rows,
     one_sided_containment_bounds,
     peak_over_polytope,
     reference_model_id,
@@ -363,3 +364,32 @@ def test_the_shared_certificate_certifies_at_exactly_zero_slack() -> None:
         _COARSE, _AMB, space, _TOTAL, limit_k=peak + 0.06, margin_k=0.05, linearisation_k=0.01
     )
     assert abs(exact.slack_k) < 1e-9 and exact.certified
+
+
+def test_the_vectorised_greedy_agrees_with_the_scalar_one() -> None:
+    """One row at a time does not survive 262 144 cells, so the same answer has to come out faster.
+
+    A cell-level certificate has one row per grid cell. The greedy is a sort plus a prefix sum, so it
+    vectorises exactly rather than approximately -- and this test is what makes "exactly" checkable
+    rather than asserted.
+    """
+
+    rng = np.random.default_rng(3)
+    for _ in range(50):
+        size = int(rng.integers(3, 40))
+        lower = rng.random(size) * 0.2
+        upper = lower + rng.random(size) * 2.0
+        total = float(lower.sum() + rng.random() * float((upper - lower).sum()))
+        rows = rng.normal(size=(int(rng.integers(1, 25)), size))
+        fast = _extreme_rows(rows, lower, upper, total)
+        slow = np.array([_extreme(row, lower, upper, total) for row in rows])
+        assert np.allclose(fast, slow, atol=1e-9), np.abs(fast - slow).max()
+
+
+def test_the_vectorised_greedy_refuses_an_empty_polytope() -> None:
+    """Fail closed on the batch path too, or a cell certificate could be built on an empty set."""
+
+    with pytest.raises(ValueError, match="empty"):
+        _extreme_rows(_COARSE, _LOWER, _UPPER, float(_LOWER.sum()) - 1.0)
+    with pytest.raises(ValueError, match="empty"):
+        _extreme_rows(_COARSE, _LOWER, _UPPER, float(_UPPER.sum()) + 1.0)

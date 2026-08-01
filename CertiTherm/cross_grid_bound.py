@@ -239,6 +239,42 @@ def one_sided_containment_bounds(
     return u, lo
 
 
+def _extreme_rows(rows: np.ndarray, lower: np.ndarray, upper: np.ndarray, total: float):
+    """The greedy fill for EVERY row at once. Same answer as `_extreme`, vectorised.
+
+    A cell-level certificate has one row per grid cell -- 262 144 at `grid512` -- and the per-row
+    Python loop that serves a 200-block operator does not survive that. The greedy is a sort followed
+    by a prefix sum, so it vectorises exactly: sort each row's coefficients descending, walk the
+    remaining budget along the cumulative headroom, and take what is left at each position.
+
+    Only valid where the box-with-total polytope IS the feasible set. That is the case for
+    `activity_bounded_power_space`, whose class-total caps are implied by its box (proved, and pinned
+    by a test), and the caller is responsible for not using this where an inequality actually binds.
+    """
+
+    coefficients = np.atleast_2d(np.asarray(rows, dtype=float))
+    spare = float(total) - float(lower.sum())
+    if spare < -1e-9:
+        raise ValueError(
+            f"the lower bounds already exceed the total power by {-spare}; the polytope is empty "
+            "and a supremum over it is not a number"
+        )
+    room = np.asarray(upper, dtype=float) - np.asarray(lower, dtype=float)
+    order = np.argsort(-coefficients, axis=1)
+    room_sorted = np.take(room, order)
+    # Budget still unspent when position k is reached, then clipped to that position's headroom.
+    before = np.cumsum(room_sorted, axis=1) - room_sorted
+    take = np.clip(spare - before, 0.0, room_sorted)
+    if float(np.max(before[:, -1] + room_sorted[:, -1])) + 1e-9 < spare:
+        raise ValueError(
+            "the upper bounds cannot absorb the total power; the polytope is empty and a supremum "
+            "over it is not a number"
+        )
+    return (coefficients * np.asarray(lower)).sum(axis=1) + (
+        np.take_along_axis(coefficients, order, axis=1) * take
+    ).sum(axis=1)
+
+
 def peak_over_polytope(
     rows: np.ndarray,
     ambient: np.ndarray,
