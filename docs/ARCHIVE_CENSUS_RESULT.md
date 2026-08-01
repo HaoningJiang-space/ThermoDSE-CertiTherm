@@ -62,11 +62,42 @@ EDYP is `energy x delay / yield`, so ranking the archive by EDYP selects small, 
 and those draw 3-5x less power. At 4.8 W through this package the rise over a 318.15 K ambient is a
 few kelvin, which is exactly what the pipeline reports.
 
-For the archive's 329 K on the same design the implied total thermal resistance is about 2.3 K/W --
-roughly five times what this package model gives. **The hypothesis is therefore that ThermoDSE's
-archive was searched under a different package than `packages.tsv:default`**, which is consistent
-with its 348 K design constraint being a different convention entirely. This is checkable and is not
-claimed as established here.
+For the archive's 329.7 K on `arxv017` the implied total thermal resistance is 2.3 K/W against this
+pipeline's 0.76 K/W on the same design -- a factor of **3**.
+
+### What has been ruled out, by measurement
+
+* **The package is NOT the explanation.** `ThermoDSE/test/test.config` and `packages.tsv:default`
+  agree item for item: `r_convec` 0.1, `s_sink` 0.06, `t_sink` 0.0069, `s_spreader` 0.05,
+  `t_spreader` 0.001, `t_interface` 2.0e-05, `ambient` 318.15, `t_chip` 1.5e-4. An earlier revision
+  of this document proposed a package mismatch as the leading hypothesis; **that is withdrawn.**
+* **The power map is NOT obviously under-counted.** On `arxv017` the capture's own
+  `energy_mj / latency_ms` is 4.73 W against a placed-map total of 5.633 W -- a 19 % peak-versus-mean
+  spread, not a missing component.
+* **The grid mapping is NOT the explanation.** ThermoDSE runs `model_type block` with
+  `grid_map_mode avg`, the same convention this pipeline certifies against.
+
+### What is left, and it is geometric
+
+The floorplan this pipeline receives is **mostly zero-power filler**:
+
+| | blocks | powered area | zero-power filler |
+| --- | --- | --- | --- |
+| `arxv017` | 23 (18 powered) | 17.33 mm^2 (42 %) | **24.29 mm^2 (58 %)** |
+| `arxv008` | 23 (10 powered) | 18.91 mm^2 (28 %) | **49.04 mm^2 (72 %)** |
+| `arch_b` (development) | 227 (180 powered) | 152.33 mm^2 (54 %) | 128.05 mm^2 (46 %) |
+
+The filler is `eblk*`, `blockX`, `blockY`. It conducts and spreads but generates nothing, and the
+census designs carry proportionally far more of it than the development registry -- their floorplan
+bounding box is **2.2 - 2.4x the chiplet area** recorded in the capture's own `die_w_list_m` /
+`die_h_list_m`. The same watts over more silicon run cooler, which is the sign and roughly the
+magnitude of the gap.
+
+**This is a narrowing, not a closure.** The capture's floorplan *is* ThermoDSE's own, so the filler
+is present on both sides, and the remaining candidates are the evaluator settings the bridge fixes
+(`thermal_map=False`, `wkld_idpdt=False`) and which quantity the archive line reports. The capture
+does **not** currently record ThermoDSE's own peak temperature, so the two numbers have never been
+compared on a single run -- that is the decisive check and it is one field away.
 
 ## What this does and does not license
 
