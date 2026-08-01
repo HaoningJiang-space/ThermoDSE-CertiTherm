@@ -103,6 +103,25 @@ def _floorplan_blocks(text: str):
     return blocks
 
 
+# Two block edges closer than this are THE SAME edge. Floorplans are written at 1 um resolution, so
+# a 1 nm grid is three orders below any real feature; what it removes is the 1-ulp spread produced by
+# computing a mathematically identical edge two ways (`die_x0 + x0` for adjoining blocks). Left in,
+# those near-duplicates survive the node set and then bisect to an interval of zero width, which the
+# solver rejects as a non-increasing node list -- the symptom is far from the cause.
+EDGE_QUANTUM_M = 1.0e-9
+
+
+def _snap(value: float) -> float:
+    """One quantisation, used by BOTH the node list and the region bounds.
+
+    If only the nodes were snapped, a region bound would sit up to a quantum away from the node
+    it is matched to by `argmin`, and the geometry and the mesh would each be self-consistent
+    while describing slightly different solids.
+    """
+
+    return round(float(value) / EDGE_QUANTUM_M) * EDGE_QUANTUM_M
+
+
 def _axis_nodes(edges, extent: float, minimum_cells: int):
     """Every block edge is a mesh node, then subdivide until the cell count is reached.
 
@@ -111,11 +130,21 @@ def _axis_nodes(edges, extent: float, minimum_cells: int):
     than making it small.
     """
 
-    nodes = sorted({0.0, extent} | {float(e) for e in edges if 0.0 < e < extent})
+    interior = {_snap(e) for e in edges if EDGE_QUANTUM_M < _snap(e) < extent - EDGE_QUANTUM_M}
+    nodes = sorted({0.0, float(extent)} | interior)
     while len(nodes) - 1 < minimum_cells:
         refined = [nodes[0]]
         for left, right in zip(nodes, nodes[1:]):
-            refined.extend((0.5 * (left + right), right))
+            # Only split what is still wide enough to split. Bisecting an interval already at the
+            # quantum would reintroduce exactly the zero-width pair this function exists to avoid.
+            if right - left > 2.0 * EDGE_QUANTUM_M:
+                refined.append(0.5 * (left + right))
+            refined.append(right)
+        if len(refined) == len(nodes):
+            raise SystemExit(
+                f"the node list cannot reach {minimum_cells} cells without intervals below the "
+                f"{EDGE_QUANTUM_M} m edge quantum; the floorplan is finer than the mesh model allows"
+            )
         nodes = refined
     return tuple(nodes)
 
@@ -204,10 +233,10 @@ def main() -> None:
                   AIR_K_W_PER_M_K),
     )
     passive = (
-        BoxRegion("tim", (spr_x0, spr_y0, z_tim[0]),
-                  (spr_x0 + s_spreader, spr_y0 + s_spreader, z_tim[1]), TIM_K_W_PER_M_K),
-        BoxRegion("spreader", (spr_x0, spr_y0, z_spr[0]),
-                  (spr_x0 + s_spreader, spr_y0 + s_spreader, z_spr[1]), COPPER_K_W_PER_M_K),
+        BoxRegion("tim", (_snap(spr_x0), _snap(spr_y0), z_tim[0]),
+                  (_snap(spr_x0 + s_spreader), _snap(spr_y0 + s_spreader), z_tim[1]), TIM_K_W_PER_M_K),
+        BoxRegion("spreader", (_snap(spr_x0), _snap(spr_y0), z_spr[0]),
+                  (_snap(spr_x0 + s_spreader), _snap(spr_y0 + s_spreader), z_spr[1]), COPPER_K_W_PER_M_K),
         BoxRegion("sink", (0.0, 0.0, z_sink[0]), (box_x, box_y, z_sink[1]), COPPER_K_W_PER_M_K),
     )
 
@@ -217,8 +246,8 @@ def main() -> None:
             area = (x1 - x0) * (y1 - y0)
             die_regions.append(BoxRegion(
                 f"die::{name}",
-                (die_x0 + x0, die_y0 + y0, z_die[0]),
-                (die_x0 + x1, die_y0 + y1, z_die[1]),
+                (_snap(die_x0 + x0), _snap(die_y0 + y0), z_die[0]),
+                (_snap(die_x0 + x1), _snap(die_y0 + y1), z_die[1]),
                 SILICON_K_W_PER_M_K,
                 float(power_w[index]) / (area * die_volume),
             ))
