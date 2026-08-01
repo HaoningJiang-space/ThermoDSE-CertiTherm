@@ -115,6 +115,20 @@ Z_CELLS_PER_LAYER = {"die": 2, "tim": 1, "spreader": 4, "sink": 8}
 # resolving the through-thickness gradient. Refining only the sink is the targeted fix, and it is a
 # knob rather than a new default because the default is not the case that needs it.
 Z_CELLS_PER_LAYER["sink"] = int(os.environ.get("CERTITHERM_FEM_SINK_Z_CELLS", "8"))
+# Split the top slab of the sink into a centre and a frame, so the run reports the sink-top
+# temperature SPREAD instead of only its mean.
+#
+# Why that is the quantity: with a uniform Robin coefficient `h = 1/(r A)` the total flux is
+# `h * integral(u - T_inf) = (mean(u) - T_inf) / r`, which is already HotSpot's lumped
+# sink-to-ambient relation with `mean(u)` in place of the node temperature. **The only thing the
+# lumped node adds is that the top is ISOTHERMAL.** So the gap between the two realisations is
+# governed by how far from isothermal the top actually is, and that is measurable from a solve
+# that already exists rather than from a boundary condition that does not.
+#
+# Scaling the sink conductivity was the wrong way to reach the same answer: x100 and x1000 were
+# refused by the energy-balance gate at both 8 and 24-32 z-cells, so the failure is the material
+# contrast degrading coercivity, not the mesh.
+PROBE_SINK_TOP = os.environ.get("CERTITHERM_FEM_PROBE_SINK_TOP") == "1"
 
 
 def _floorplan_blocks(text: str):
@@ -310,12 +324,14 @@ def main() -> None:
 
     x_nodes = _axis_nodes(
         [die_x0 + e for _n, x0, _y0, x1, _y1 in blocks for e in (x0, x1)]
-        + [spr_x0, spr_x0 + s_spreader],
+        + [spr_x0, spr_x0 + s_spreader]
+        + ([0.25 * box_x, 0.75 * box_x] if PROBE_SINK_TOP else []),
         box_x, lateral_cells,
     )
     y_nodes = _axis_nodes(
         [die_y0 + e for _n, _x0, y0, _x1, y1 in blocks for e in (y0, y1)]
-        + [spr_y0, spr_y0 + s_spreader],
+        + [spr_y0, spr_y0 + s_spreader]
+        + ([0.25 * box_y, 0.75 * box_y] if PROBE_SINK_TOP else []),
         box_y, lateral_cells,
     )
     z_nodes = []
@@ -351,13 +367,32 @@ def main() -> None:
                    (die_box[2], die_box[3], source_z0), SILICON_K_W_PER_M_K),)
         if SOURCE_FRACTION < 1.0 else ()
     )
+    sink_probe_z = z_sink[1] - (z_sink[1] - z_sink[0]) / Z_CELLS_PER_LAYER["sink"]
     passive = bulk + (
         BoxRegion("tim", (die_box[0], die_box[1], z_tim[0]), (die_box[2], die_box[3], z_tim[1]),
                   TIM_K_W_PER_M_K),
         BoxRegion("spreader", (spr_box[0], spr_box[1], z_spr[0]),
                   (spr_box[2], spr_box[3], z_spr[1]), COPPER_K_W_PER_M_K),
-        BoxRegion("sink", (0.0, 0.0, z_sink[0]), (box_x, box_y, z_sink[1]),
-                  COPPER_K_W_PER_M_K * SINK_K_SCALE),
+    ) + (
+        (BoxRegion("sink", (0.0, 0.0, z_sink[0]), (box_x, box_y, z_sink[1]),
+                   COPPER_K_W_PER_M_K * SINK_K_SCALE),)
+        if not PROBE_SINK_TOP else
+        # The bulk, then a thin top slab cut into a centre and a frame. Same material, same total
+        # geometry -- only the region labelling changes, so the solution is unaffected and the extra
+        # regions are pure instrumentation.
+        (BoxRegion("sink", (0.0, 0.0, z_sink[0]), (box_x, box_y, sink_probe_z), 
+                   COPPER_K_W_PER_M_K * SINK_K_SCALE),
+         BoxRegion("sink_top_centre", (_snap(0.25 * box_x), _snap(0.25 * box_y), sink_probe_z),
+                   (_snap(0.75 * box_x), _snap(0.75 * box_y), z_sink[1]),
+                   COPPER_K_W_PER_M_K * SINK_K_SCALE))
+        + tuple(
+            BoxRegion(f"sink_top_{name}", lower, upper, COPPER_K_W_PER_M_K * SINK_K_SCALE)
+            for name, lower, upper in _frame(
+                box_x, box_y,
+                (_snap(0.25 * box_x), _snap(0.25 * box_y), _snap(0.75 * box_x), _snap(0.75 * box_y)),
+                sink_probe_z, z_sink[1],
+            )
+        )
     )
 
     def problem(power_w: np.ndarray) -> "SteadyHeatBox":
@@ -494,6 +529,16 @@ def main() -> None:
         "worst_impulse_power_error_w": worst_impulse_w,
         "zero_solve_offset_from_ambient_k": zero_offset_k,
         "hotspot_inputs_checked": hotspot_inputs,
+        # THE QUANTITY THAT BOUNDS THE LUMPED-VERSUS-DISTRIBUTED GAP. A uniform Robin coefficient
+        # already reproduces the lumped total-flux relation with the MEAN top temperature; the only
+        # thing the lumped node adds is that the top is isothermal. So the spread across the top is
+        # what separates the two realisations, and it is read off a solve that already exists.
+        "sink_top_region_means_k": (
+            {name: value for name, value in results[0].region_average_temperature_k
+             if name.startswith("sink_top_")}
+            if PROBE_SINK_TOP else None
+        ),
+        "sink_top_spread_at_nominal_k": None,
         # The FEM's OWN block-average-versus-continuum gap, which is the independent-solver
         # analogue of the 0.18 K understatement measured inside HotSpot. Reported, not folded in:
         # a certificate over block averages does not imply one over the physical peak.
