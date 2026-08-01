@@ -1,6 +1,22 @@
 # The model-form error, measured against an independent solver
 
-> **THE BAND IS PARTLY THE BOUNDARY REALISATION, NOT MODEL FORM.** Measured 2026-08-02: driving the
+> **THE BOUNDARY-REALISATION TERM IS BOUNDED AT ~0.35 K, NOT 0.73 K.** Measured directly rather
+> than inferred: with a uniform Robin coefficient the total flux is already
+> `h * integral(u - T_inf) = (mean(u) - T_inf) / r`, which IS HotSpot's lumped sink-to-ambient
+> relation with the mean top temperature. **The only thing the lumped node adds is that the top is
+> isothermal**, so the gap between the two realisations is the sink-top temperature SPREAD. On
+> `arch_c`/resnet50 at n=192 that spread is **0.345 K** across a 3.578 K total rise (9.7 %):
+> centre 319.763 K, south 319.531, east 319.433, north 319.420, west 319.417.
+>
+> **This also shows the conductivity-scaling experiment does not isolate the term.** Its -0.734 K
+> exceeds the entire top non-uniformity, so it is changing lateral spreading inside the sink as well
+> -- exactly what peer review warned about. The scaling number is therefore not a measurement of the
+> boundary realisation, and the spread is.
+>
+> Consequence: **at most about a third** of the 0.251-1.061 K band is boundary realisation, not most
+> of it. The band remains an upper bound on model form, but a much tighter one.
+>
+> **Superseded framing, kept for the record.** Measured 2026-08-02: driving the
 > sink towards the isothermal limit -- which is what HotSpot's *lumped* sink-to-ambient node is --
 > moves the FEM peak **-0.734 K** (sink conductivity x10, energy balance 2.07e-07, admissible; x100
 > and x1000 were refused by the gate). **Refining the sink mesh does not rescue them**: x100 at 24

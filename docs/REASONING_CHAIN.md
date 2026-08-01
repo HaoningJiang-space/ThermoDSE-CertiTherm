@@ -77,8 +77,12 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
 3. **The three declared-equivalent FEM assumptions -- MEASURED, and one of them is not safe.**
    On `arch_c`/resnet50 at n=192 against a 321.7263 K baseline: source in the top 10 % of the die
    moves the peak **+0.0201 K**; a near-adiabatic void instead of still air moves it **+0.0000 K**.
-   Those two are safe. **The Robin realisation is not**: driving the sink towards the isothermal
-   limit -- HotSpot's lumped node -- moves it **-0.7340 K** (x10, energy balance 2.07e-07, the ONLY
+   Those two are safe. **The Robin realisation is bounded at ~0.35 K.** The uniform Robin already
+   reproduces the lumped total-flux relation with the MEAN top temperature, so the two realisations
+   differ only by the sink-top SPREAD, measured at **0.345 K** across a 3.578 K rise. The
+   conductivity-scaling run's -0.7340 K exceeds that and therefore also changes lateral sink
+   spreading -- it is not an isolation of the term. Historical figure: driving the sink towards the
+   isothermal limit moved the peak **-0.7340 K** (x10, energy balance 2.07e-07, the ONLY
    admissible point; x100 and x1000 were refused by the gate and their numbers are inadmissible and
    must not be quoted). That is the same sign and comparable magnitude to the entire
    model-form band, so **the band is an upper bound on model form rather than a measurement of it**,
