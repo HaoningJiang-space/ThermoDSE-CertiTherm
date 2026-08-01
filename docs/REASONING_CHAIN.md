@@ -60,10 +60,15 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
 
 ## Open, ranked
 
-1. **The mechanism of the 8 K.** Five hypotheses refuted; what remains is provenance-level -- a
-   different HotSpot build, a different generated config at the time the archive was written, or a
-   stale value. The **decision** it gated is answered: the archive supplies design vectors, not a
-   thermal screen. The mechanism is not.
+1. **The mechanism of the 8 K -- NAMED, not closed.** Five hypotheses refuted (package, power map,
+   functional, workload set, evaluator flags). What remains is a **code-revision** difference, and
+   this project's own `install_compatibility_layer` is the evidence: the pinned submodule needs three
+   runtime patches to run the archive's workload set at all, two of which change numerics (a lost
+   `word_bytes=1` default feeding buffer sizing and energy; a traversal that stalls on recurrent
+   networks, and `transformer` is one of the six). **The pinned revision is demonstrably not the one
+   that produced the archive.** The producing revision is not in this repository, so it cannot be
+   closed further here. The **decision** it gated is answered: the archive supplies design vectors,
+   not a thermal screen.
 2. ~~**The cell-level certificate's verdict.**~~ **CLOSED.** `arch_b`/transformer is refused at the
    cell endpoint by **-0.36 K with no band folded in** (cell peak 330.30 K, above the limit
    itself); `arch_c`/transformer certifies with +4.03 K. The `arch_b -> arch_c` switch and the

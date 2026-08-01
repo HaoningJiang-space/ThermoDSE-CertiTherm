@@ -111,10 +111,25 @@ temperature one open.
 
 ### The temperature gap is UNEXPLAINED, and that is the operative conclusion
 
-Every reproducible knob has been tried. What remains are provenance-level candidates that the
-current tree cannot settle -- a different HotSpot build, a different generated config or floorplan
-revision at the time the archive was produced, or a stale stored value. Peer review is right that
-source reading cannot establish the provenance of numbers stored months ago.
+Every reproducible knob has been tried. What remains is a **code-revision** difference, and it can
+now be named rather than gestured at: **this project's own bridge patches the pinned submodule at
+runtime in order to make it run at all.** `install_compatibility_layer` repairs three upstream API
+drifts, and two of them are behaviour-bearing rather than cosmetic:
+
+* `GemmLayer.total_filter_size` lost its `word_bytes=1` default in the pinned revision. That value
+  feeds buffer sizing and therefore energy and power.
+* the pinned breadth-first traversal omits external inputs from its initially satisfied dependency
+  set, so **recurrent networks stall** -- and `transformer` is one of the six workloads whose maximum
+  the archive reports.
+
+So the pinned submodule is demonstrably **not** the revision that produced the archive: it cannot
+execute the archive's own workload set without being patched, and the patches change numerics. That
+is consistent with the residual EDYP discrepancy as well -- re-running with the six-workload default
+gives 971.22 against the archive's 810.66, a 20 % gap that the workload set alone does not explain.
+
+The producing revision is not in this repository, so the mechanism cannot be closed further here.
+What has changed is its status: not "an unexplained 8 K" but "a code-revision difference whose
+behaviour-bearing components are documented in our own compatibility layer".
 
 **So the decision-relevant answer is not the mechanism, it is this: the archive's reported peak
 temperatures are not reproducible from the pinned submodule at its current revision, to within 7 K.**
