@@ -81,14 +81,32 @@ argmax may move freely without breaking anything. `CertiTherm/cross_grid_bound.p
 exactly -- the discrepancy is affine in `p`, so its extremes over the power polytope are a greedy
 fill -- and `one_sided_containment_bounds` returns the signed version that set containment needs.
 
-The measurements above say what this buys:
+What this buys is **one measured factor and one open question**, and an earlier version of this
+section conflated them.
 
-* dropping the block-average mapping in favour of cell rows removes a **3.4x** amplification;
-* the residual per-cell discrepancy at `128 -> 256` is **0.044 K** against a decision margin of
-  2–8 K, which is 0.5–2 % rather than the 15–140 % the block-level five-vector estimate implied.
+Measured: dropping the block-average mapping in favour of cell rows removes a **3.4x**
+amplification, on this architecture and this power map.
 
-**That is the first quantitative reason to think the thermal half is recoverable**, and it was not
-visible until the raw cell field was looked at instead of the pipeline's block output.
+**NOT established, and the correction matters.** This section first argued that the 0.044 K per-cell
+residual against a 2–8 K margin makes the thermal half recoverable. That compares a SAMPLE against a
+margin, which is the exact error corrected in `cross_grid_bound.py` -- and running the polytope-wide
+bound the moment the claim was written showed how far off it is:
+
+| architecture | five-vector sample | polytope-wide `u` | ratio |
+| --- | --- | --- | --- |
+| `heldout_radii_09` | 1.4090 K | **3.5087 K** | 2.5x |
+| `heldout_radii_11` | 0.5514 K | **2.9225 K** | 5.3x |
+
+(block level, `grid64 -> grid128`.) The honest bound is **2.5 to 5.3 times** the sample, and at
+2.9–3.5 K it covers most of a 2–8 K margin on its own. So at block level, with `grid64` in the
+family, the certificate really is hopeless -- which is what the withdrawn registry sweep found.
+
+What is genuinely open is the number that would decide recoverability: the **polytope-wide** bound at
+**cell** level between `grid128` and `grid256`. Both changes push the same way -- cell rows remove a
+3.4x mapping amplification, and dropping `grid64` removes the worst-resolved member of the family --
+but neither has been measured over the polytope, and the sample-to-bound ratio above is exactly why
+the per-cell sample cannot stand in for it. Building cell-level operators is the experiment; until
+it runs, "recoverable" is a hypothesis with one supporting factor and one unmeasured term.
 
 ## What this does NOT establish
 
