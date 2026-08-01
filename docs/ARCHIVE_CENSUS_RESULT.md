@@ -93,11 +93,35 @@ bounding box is **2.2 - 2.4x the chiplet area** recorded in the capture's own `d
 `die_h_list_m`. The same watts over more silicon run cooler, which is the sign and roughly the
 magnitude of the gap.
 
-**This is a narrowing, not a closure.** The capture's floorplan *is* ThermoDSE's own, so the filler
-is present on both sides, and the remaining candidates are the evaluator settings the bridge fixes
-(`thermal_map=False`, `wkld_idpdt=False`) and which quantity the archive line reports. The capture
-does **not** currently record ThermoDSE's own peak temperature, so the two numbers have never been
-compared on a single run -- that is the decisive check and it is one field away.
+### Five hypotheses, all refuted by measurement
+
+`arxv000`, archive line: **329.9 K**, EDYP **810.7**.
+
+| hypothesis | test | result |
+| --- | --- | --- |
+| different package | item-by-item config comparison | **refuted**, identical |
+| under-counted power map | `energy/latency` 4.73 W vs placed 5.633 W | **refuted**, 19 % peak-vs-mean |
+| different functional (cell max vs block average) | both read off the **same retained run**, 64 designs | **refuted**: +0.21 K median, +0.76 K max -- 40x too small |
+| six-workload set vs one | run with `nets` set to the six `chiplet_eva` defaults | **peak 322.20 K**, only +0.30 K. Refuted for temperature |
+| `thermal_map` / `wkld_idpdt` flags | all four combinations, six workloads | 322.2 - 323.0 K. Refuted |
+
+**The EDYP scale IS explained by the workload set**: six workloads give EDYP **971.22** against the
+archive's **810.7**, while one gives 15.95. That closes the ~51x EDYP discrepancy and leaves the
+temperature one open.
+
+### The temperature gap is UNEXPLAINED, and that is the operative conclusion
+
+Every reproducible knob has been tried. What remains are provenance-level candidates that the
+current tree cannot settle -- a different HotSpot build, a different generated config or floorplan
+revision at the time the archive was produced, or a stale stored value. Peer review is right that
+source reading cannot establish the provenance of numbers stored months ago.
+
+**So the decision-relevant answer is not the mechanism, it is this: the archive's reported peak
+temperatures are not reproducible from the pinned submodule at its current revision, to within 7 K.**
+The archive remains usable as a source of *design vectors* -- the design under test reproduces
+exactly, area `5.7887e-05` to the digit -- but **its thermal column cannot be used to select or screen
+a population**, which is precisely what `archive-census-v1` did and precisely why the census was
+non-informative.
 
 ## What this does and does not license
 
