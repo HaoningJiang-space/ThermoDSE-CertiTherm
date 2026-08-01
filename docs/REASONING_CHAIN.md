@@ -30,6 +30,7 @@ because linearity is a property of the PDE and not of HotSpot.
 | HotSpot underestimates, one-signed | `T_FEM - T_grid512` is **+0.20 to +0.86 K on all six points** | same | same |
 | the refinement tail is bounded | successive ratios 1.8-2.8 per doubling, observed order `p ~ 1`, so the tail past `grid512` is no larger than the last measured step | same | `ROBUST_FEASIBLE_FRONTIER.md` |
 | GPU and CPU operators are the same map | parity **exactly 0.0 K/W** at `grid128`, `grid256`, `grid512` | 3 designs | `ARCHIVE_CENSUS_RUN_LOG.md` |
+| `gridN-avg` breaks thermal reciprocity | **2.50 % at grid512, 4.54 % at grid256, 7.90 % at grid128**, shrinking with refinement; FEM and `block` are 0.00 % | dev arch_c + census | `CertiTherm/reciprocity.py` |
 | the class-total constraints are redundant here | `b_ub - a_ub @ upper >= 0` always, and 0 to machine precision on every instance tried; LP agrees with greedy to **1.07e-9 K** | dev + proof | `ARCHIVE_CENSUS_RUN_LOG.md` |
 | an operator can be amortised across a design class | exact reuse band **0.69-2.44 K**; class is a function of `(xx,yy,cx,cy)`; **14x** archive-wide | 64 archive designs | `CAN_THE_OPERATOR_BE_AMORTISED.md` |
 | the archive's thermal column is not reproducible | **+5.9 to +10.1 K**, one-signed, five hypotheses refuted | 64 archive designs | `ARCHIVE_CENSUS_RESULT.md` |
@@ -62,11 +63,24 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
    thermal screen. The mechanism is not.
 2. **The cell-level certificate's verdict.** Implemented and tested; the dev runs decide whether the
    frontier survives its own endpoint.
-3. **The three declared-equivalent FEM assumptions.** Source depth, void filler, and the Robin
-   realisation of `r_convec`. Each is now one environment variable and all three are running.
+3. **The three declared-equivalent FEM assumptions.** Measured on `arch_c`/resnet50 at n=192:
+   source in the top 10 % of the die rather than the full thickness moves the peak **+0.0201 K**;
+   a near-adiabatic void instead of still air moves it **+0.0000 K**. Both assumptions are safe.
+   The Robin realisation is **not yet measured**: driving the sink to the isothermal limit at
+   `k x 1000` pushed the material contrast to 1.5e7 and the solve lost its energy balance
+   (5.34e-06 against a 1e-06 tolerance), so the gate refused it. Milder scales are running.
 4. **Scale.** Everything above rests on 3 architectures x 2 workloads x 1 package.
 5. **The uncertainty set is declared, not measured.** The certificate is a supremum over `P`; if `P`
    is wrong, everything is. `activity_span` is currently a knob.
+
+## Direction, decided 2026-08-01
+
+Architecture-level DSE with an internalised thermal constraint is **demoted to future work with a
+named obstruction**: a small geometric displacement does not give a small coefficient perturbation
+once a material interface moves, and 64 archive designs induce 64 distinct geometries with zero
+shared. The direction is now **thermal-constrained scheduling and mapping on a FIXED geometry**,
+where `R` is built once and the constraint really is linear in the decision variable.
+See `DIRECTION_FIXED_GEOMETRY.md`.
 
 ## What would make this a contribution rather than a verifier
 
