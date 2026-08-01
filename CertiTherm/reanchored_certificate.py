@@ -75,6 +75,36 @@ class ReanchoredCertificate:
         return self.slack_k >= 0.0
 
 
+def _assert_single_total_equality(space: PowerPolytope, total_w: float) -> None:
+    """The bound below understands ONE equality: `sum(p) = total_w`. Anything else must refuse.
+
+    `PowerPolytope` accepts an arbitrary `a_eq`, while every maximiser here builds `A_eq = ones` and
+    `b_eq = [total_w]`. So a polytope carrying a different equality -- a per-chiplet power budget, a
+    fixed leakage floor -- would have that constraint **silently dropped**, exactly as the class-total
+    inequalities were before peer review found them. Dropping an equality enlarges the feasible set
+    in one direction and shrinks it in none, so the bound stays sound; but it stops being a bound
+    over the DECLARED set, which is the thing the certificate names.
+
+    Refusing is the fix, not accommodating: a maximiser that handled a general `a_eq` would be an LP
+    with equality rows, and that is a change to the bound, not to its guard.
+    """
+
+    a_eq = np.atleast_2d(np.asarray(space.a_eq, dtype=float))
+    b_eq = np.atleast_1d(np.asarray(space.b_eq, dtype=float))
+    expected = np.ones((1, a_eq.shape[1]))
+    if a_eq.shape[0] != 1 or not np.allclose(a_eq, expected):
+        raise ValueError(
+            "this bound understands exactly one equality, `sum(p) = total`, and the polytope "
+            f"declares {a_eq.shape[0]} equality row(s) that are not all-ones; the extra constraint "
+            "would be silently dropped and the bound would describe a larger set than the declared one"
+        )
+    if not np.allclose(b_eq, [total_w]):
+        raise ValueError(
+            f"the polytope's total is {b_eq.tolist()} but the caller passed {total_w}; two "
+            "descriptions of one quantity that disagree is a policing problem, not a check"
+        )
+
+
 def certify_over_polytope(
     reference_rows: np.ndarray,
     reference_ambient: np.ndarray,
@@ -95,6 +125,7 @@ def certify_over_polytope(
     independent solver.
     """
 
+    _assert_single_total_equality(space, total_w)
     lower = np.asarray(space.lower_w, dtype=float)
     upper = np.asarray(space.upper_w, dtype=float)
     a_ub = np.asarray(space.a_ub, dtype=float)

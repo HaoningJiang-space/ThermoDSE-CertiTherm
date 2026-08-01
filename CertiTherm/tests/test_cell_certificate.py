@@ -88,3 +88,34 @@ def test_a_non_finite_operator_entry_refuses() -> None:
             poisoned, _AMB, _LABELS, _SPACE, _TOTAL, endpoint="active_silicon",
             limit_k=330.0, margin_k=0.05, linearisation_k=0.01,
         )
+
+
+def test_a_polytope_carrying_an_equality_this_bound_cannot_see_refuses() -> None:
+    """The same defect class as the dropped class-total rows, on the equality side.
+
+    `PowerPolytope` accepts an arbitrary `a_eq`; every maximiser here builds `sum(p) = total`. A
+    per-chiplet budget row would be silently dropped and the bound would describe a larger set than
+    the one the certificate names. The `a_ub` version of this was found by peer review and fixed;
+    this is its twin.
+    """
+
+    extra = PowerPolytope(
+        lower_w=_LOWER, upper_w=_UPPER,
+        a_eq=np.array([[1.0, 1.0, 1.0], [1.0, 0.0, 0.0]]), b_eq=np.array([_TOTAL, 2.0]),
+        a_ub=np.empty((0, 3)), b_ub=np.empty(0),
+    )
+    with pytest.raises(ValueError, match="exactly one equality"):
+        certify_cells(
+            _ROWS, _AMB, _LABELS, extra, _TOTAL, endpoint="active_silicon",
+            limit_k=330.0, margin_k=0.05, linearisation_k=0.01,
+        )
+
+
+def test_a_total_that_disagrees_with_the_polytope_refuses() -> None:
+    """Two descriptions of one quantity that disagree is a policing problem, not a check."""
+
+    with pytest.raises(ValueError, match="but the caller passed"):
+        certify_cells(
+            _ROWS, _AMB, _LABELS, _SPACE, _TOTAL + 1.0, endpoint="active_silicon",
+            limit_k=330.0, margin_k=0.05, linearisation_k=0.01,
+        )
