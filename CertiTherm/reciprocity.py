@@ -26,10 +26,30 @@ identifies it as a discretisation artefact of the mapping rather than a solver e
 cells to blocks by cell membership is not the adjoint-consistent `L^2` projection, so `B_N T` is not
 a self-adjoint observation.
 
-It is not negligible. At `grid512`, 2.5 % of 6.5 K/W over a 14 W map is about 2.3 K -- the same order
-as the model-form band measured against the independent solver. **So part of any `gridN-avg`-versus-
-FEM band is this mapping artefact and not model form**, and a band that does not separate them
-attributes to HotSpot's physics an error introduced by how its output was read.
+## How much it actually costs, which is far less than the relative figure suggests
+
+A first estimate multiplied the relative asymmetry by the operator scale and the total power --
+"2.5 % of 6.5 K/W over 14 W is 2.3 K" -- and concluded the artefact was comparable to the model-form
+band. **That was a misuse of a relative figure and is withdrawn.** The certifying quantity is
+`max_j sup_p T_j(p)`, and symmetrising the operator (the nearest reciprocal one) moves it by:
+
+| case | asymmetry | shift in `sup_p T` |
+| --- | --- | --- |
+| `arch_a`/transformer, `grid128-avg` | 12.03 % | **+0.0711 K** |
+| `arch_b`/transformer, `grid128-avg` | 9.94 % | +0.0534 K |
+| `arch_c`/resnet50, `grid128-avg` | 7.90 % | +0.0142 K |
+| `arch_a`/transformer, `grid512-avg` | 6.35 % | **+0.0020 K** |
+| `arch_b`/transformer, `grid512-avg` | 3.08 % | +0.0199 K |
+| `arch_c`/resnet50, `grid512-avg` | 2.50 % | +0.0107 K |
+
+**Two orders of magnitude below the first estimate.** The asymmetry is entrywise and relative to the
+largest entry, while the certificate is a maximum over rows of a weighted sum; the asymmetric parts
+neither align with the argmax row nor with the extremal power vector, so they largely cancel.
+
+So the invariant earns its place as a **defect detector** -- it is exact, it costs one subtraction,
+and it identified a real inconsistency in how HotSpot's grid output is read -- and not as an error
+term. A `gridN-avg` band carries at most a few hundredths of a kelvin of this artefact, not a few
+kelvin.
 
 This module reports; it does not refuse. A tolerance would have to be a modelling decision about how
 much mapping artefact is acceptable, and that decision belongs to the caller.

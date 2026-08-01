@@ -30,7 +30,7 @@ because linearity is a property of the PDE and not of HotSpot.
 | HotSpot underestimates, one-signed | `T_FEM - T_grid512` is **+0.20 to +0.86 K on all six points** | same | same |
 | the refinement tail is bounded | successive ratios 1.8-2.8 per doubling, observed order `p ~ 1`, so the tail past `grid512` is no larger than the last measured step | same | `ROBUST_FEASIBLE_FRONTIER.md` |
 | GPU and CPU operators are the same map | parity **exactly 0.0 K/W** at `grid128`, `grid256`, `grid512` | 3 designs | `ARCHIVE_CENSUS_RUN_LOG.md` |
-| `gridN-avg` breaks thermal reciprocity | **2.50 % at grid512, 4.54 % at grid256, 7.90 % at grid128**, shrinking with refinement; FEM and `block` are 0.00 % | dev arch_c + census | `CertiTherm/reciprocity.py` |
+| `gridN-avg` breaks thermal reciprocity | **2.5 - 12.0 %**, shrinking with refinement; FEM and `block` are 0.00 %. Effect on `sup_p T`: **+0.002 to +0.071 K** | dev + census | `CertiTherm/reciprocity.py` |
 | the class-total constraints are redundant here | `b_ub - a_ub @ upper >= 0` always, and 0 to machine precision on every instance tried; LP agrees with greedy to **1.07e-9 K** | dev + proof | `ARCHIVE_CENSUS_RUN_LOG.md` |
 | an operator can be amortised across a design class | exact reuse band **0.69-2.44 K**; class is a function of `(xx,yy,cx,cy)`; **14x** archive-wide | 64 archive designs | `CAN_THE_OPERATOR_BE_AMORTISED.md` |
 | the archive's thermal column is not reproducible | **+5.9 to +10.1 K**, one-signed, five hypotheses refuted | 64 archive designs | `ARCHIVE_CENSUS_RESULT.md` |
@@ -46,6 +46,7 @@ because linearity is a property of the PDE and not of HotSpot.
 | "the 8 K gap is a package mismatch" | refuted, configs identical | — |
 | "the 8 K gap is cell-max vs block-average" | refuted, the same-run gap is **+0.21 K median** | 40x too small |
 | "the 8 K gap is the six-workload set" | refuted for temperature (+0.30 K); **confirmed for EDYP** (971 vs 811) | — |
+| "the reciprocity break costs ~2.3 K, comparable to the model-form band" | **+0.002 to +0.071 K**, measured by symmetrising | a relative entrywise figure times a scale is not an effect on a max of weighted sums |
 
 ## Provisional -- do not quote outside this repository
 
