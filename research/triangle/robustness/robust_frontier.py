@@ -44,7 +44,7 @@ from CertiTherm.cross_grid_bound import one_sided_containment_bounds
 from CertiTherm.experiments import _power_space, _rows, ROOT
 from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
 from CertiTherm.hotspot import load_family
-from CertiTherm.measurements import content_upper_bounds
+from CertiTherm.measurements import activity_bounded_power_space, content_upper_bounds
 
 MARGIN_K = 0.05
 
@@ -70,9 +70,19 @@ def main() -> None:
             if capture_blocks != blocks:
                 raise SystemExit(f"{arch}/{workload}: block identity mismatch")
             power = np.asarray(placed, dtype=float)
-            upper = content_upper_bounds(blocks, power)
             total = float(np.sum(power))
-            lower = np.zeros(len(blocks))
+            # THE UNCERTAINTY SET IS THE DOMINANT TERM, not the models. Measured: the polytope
+            # supremum runs 4-133x the value at the nominal map, because `content_upper_bounds`
+            # hands every block its whole content class's power -- a deliberately permissive set
+            # whose adversarial vertices no workload phase produces. So the frontier is computed
+            # under BOTH: the registered coarse set, and the activity-bounded set the project
+            # already provides for exactly this objection.
+            sets = {"coarse_content_bound": (np.zeros(len(blocks)), content_upper_bounds(blocks, power))}
+            for span in (float(sys.argv[4]) if len(sys.argv) > 4 else 0.30,):
+                space = activity_bounded_power_space(blocks, power, activity_span=span)
+                sets["activity_span_%.2f" % span] = (
+                    np.asarray(space.lower_w, dtype=float), np.asarray(space.upper_w, dtype=float)
+                )
 
             with np.load(capture, allow_pickle=False) as data:
                 edyp = (
@@ -80,12 +90,17 @@ def main() -> None:
                 )
 
             bands, nominal_bands = {}, {}
-            for name, coarse_id, fine_id in (
-                ("cross_grid_64_128", "grid64-avg", "grid128-avg"),
-                ("cross_model_block_128", "block", "grid128-avg"),
-            ):
+            for (set_name, (lower, upper)), (name, coarse_id, fine_id) in [
+                (s_item, p_item)
+                for s_item in sets.items()
+                for p_item in (
+                    ("cross_grid_64_128", "grid64-avg", "grid128-avg"),
+                    ("cross_model_block_128", "block", "grid128-avg"),
+                )
+            ]:
                 if coarse_id not in ids or fine_id not in ids:
                     continue
+                key = f"{set_name}|{name}"
                 ci, fi = ids.index(coarse_id), ids.index(fine_id)
                 hotter, _colder = one_sided_containment_bounds(
                     family.response_k_per_w[ci], family.response_k_per_w[fi],
@@ -102,8 +117,8 @@ def main() -> None:
                     (family.response_k_per_w[ci] - family.response_k_per_w[fi]) @ power
                     + (family.ambient_k[ci] - family.ambient_k[fi])
                 ))
-                bands[name] = float(np.max(hotter))
-                nominal_bands[name] = at_nominal
+                bands[key] = float(np.max(hotter))
+                nominal_bands[key] = at_nominal
 
             # Certifiability at nominal power with each band folded in one-sidedly, on the FINEST
             # available operator -- the coarse one is what the band corrects toward it.
@@ -124,19 +139,27 @@ def main() -> None:
                 },
                 "certifiable_under_frozen_band": bool(headroom - MODEL_ERROR_LIMIT_K > 0.0),
                 "slack_after_worst_band_k": headroom - max(bands.values()) if bands else None,
+                "slack_per_uncertainty_set_k": {
+                    name: headroom - max(b for k, b in bands.items() if k.startswith(name + "|"))
+                    for name in sets if any(k.startswith(name + "|") for k in bands)
+                },
                 "edyp": edyp,
             })
-            worst = max(bands.values()) if bands else float("nan")
+            per_set = {}
+            for key, band in bands.items():
+                per_set.setdefault(key.split("|")[0], []).append(band)
             print(
-                "%-8s %-12s peak %7.2f K  headroom %6.3f K  bands %s  worst/frozen %6.0fx  %s"
+                "%-8s %-12s headroom %6.3f K  %s"
                 % (
-                    arch, workload, nominal_peak, headroom,
-                    " ".join(
-                        "%s=%.2f(nom %.2f)" % (n.split("_")[-1], b, nominal_bands[n])
-                        for n, b in bands.items()
+                    arch, workload, headroom,
+                    "  ".join(
+                        "%s: band %5.2f K -> %s" % (
+                            name.replace("coarse_content_bound", "content").replace("activity_span_", "act"),
+                            max(vals),
+                            "FEASIBLE" if headroom - max(vals) > 0 else "refused",
+                        )
+                        for name, vals in sorted(per_set.items())
                     ),
-                    worst / MODEL_ERROR_LIMIT_K,
-                    "ROBUST-FEASIBLE" if headroom - worst > 0 else "NOT certifiable",
                 ),
                 flush=True,
             )
@@ -147,8 +170,25 @@ def main() -> None:
         by_workload.setdefault(row["workload"], []).append(row)
     prices = {}
     for workload, group in by_workload.items():
-        robust = [r for r in group if r["slack_after_worst_band_k"] and r["slack_after_worst_band_k"] > 0]
         best_any = min(group, key=lambda r: r["edyp"])
+        for set_name in sorted(group[0]["slack_per_uncertainty_set_k"]):
+            feasible = [r for r in group if r["slack_per_uncertainty_set_k"][set_name] > 0]
+            print(
+                "  %-12s under %-22s: %d of %d feasible%s"
+                % (
+                    workload, set_name, len(feasible), len(group),
+                    (
+                        ", cheapest %s at %+.1f%% EDYP"
+                        % (
+                            min(feasible, key=lambda r: r["edyp"])["architecture"],
+                            100.0 * (min(r["edyp"] for r in feasible) / best_any["edyp"] - 1.0),
+                        )
+                        if feasible else "  -- EMPTY"
+                    ),
+                ),
+                flush=True,
+            )
+        robust = [r for r in group if r["slack_after_worst_band_k"] and r["slack_after_worst_band_k"] > 0]
         prices[workload] = {
             "edyp_optimal": best_any["architecture"], "edyp_optimal_value": best_any["edyp"],
             "robust_count": len(robust),
