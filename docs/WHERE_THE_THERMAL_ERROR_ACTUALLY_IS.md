@@ -22,10 +22,21 @@ significant figures.
 
 Two consequences.
 
-* **Power conservation and source rasterisation are NOT the problem.** Peer review raised the
-  possibility that refining the grid changes how block power is rasterised onto cells, in which case
-  a convergence study would be conflating source-representation error with discretisation error.
-  A 0.010 % stable mean rules that out: the source is stable and the power is conserved.
+* **Power conservation and source rasterisation are NOT the problem** -- but a stable mean does not
+  show that, and peer review was right to say so: many redistributions preserve the total and nearly
+  preserve the mean while moving the peak. The stronger test, cell by cell rather than in aggregate:
+
+  | quantity | `grid128` vs `grid256` |
+  | --- | --- |
+  | integrated rise over the die, proportional to injected heat | relative difference **2.09e-06** |
+  | per-coarse-cell rise difference | max 0.1500 K, median 0.0050 K |
+  | as a fraction of that cell's own rise | max **3.7 %**, median 0.14 % |
+  | area-weighted L1 mismatch of the rise field | **0.234 %** |
+
+  The response is conserved to six decimal places, which requires both a conserved source and
+  consistent boundary handling, and the field is stable cell by cell and not merely in total. The
+  redistribution channel peer review named is closed: no coarse cell moves by more than 3.7 % of its
+  own rise.
 * **Every cheap sanity check passes.** Total power, mean temperature, package balance -- all exact.
   The model resolves the quantity nothing depends on and fails to resolve the one the decision
   depends on, which is why this went unnoticed through a whole method freeze.
