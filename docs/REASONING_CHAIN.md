@@ -89,6 +89,8 @@ usable shape is the opposite: because the band here is **computed** (0.25-1.06 K
 (the field's 3-5 K guard bands, and ThermoDSE's own unsupported 348 K), a search constrained by it
 can reach designs a guessed margin rejects. That number does not exist yet and is the missing piece.
 
-The amortisation probe is what makes it reachable: thermal feasibility is a set of **linear rows**,
-so it can be a constraint inside a search rather than an oracle called per candidate -- at
-`n + 1` solves per design class, 14x fewer than per candidate.
+**On a fixed geometry that shape is reachable and the obstruction is gone**: `R` is built once, the
+decision variable *is* the power allocation, and the constraint is genuinely linear in it, so a
+schedule search performs **zero thermal solves online** against one HotSpot call per candidate for
+the incumbent. Across *architectures* it is not reachable -- see `DIRECTION_FIXED_GEOMETRY.md` for
+why the 14x class amortisation does not rescue it.
