@@ -50,7 +50,9 @@ because linearity is a property of the PDE and not of HotSpot.
 
 ## Provisional -- do not quote outside this repository
 
-**`+32.1 %` and "5 of 6 certify".** Both are computed on **block-average rows**, and the 330 K limit
+**`+32.1 %`, "5 of 6 certify", and the 0.25-1.06 K model-form band.** The band contains an
+unseparated boundary-realisation term of about -0.73 K (see item 3 below), so it bounds model form
+rather than measuring it. The frontier numbers are computed on **block-average rows**, and the 330 K limit
 is not about block averages. Three independent routes agree on +32.1 %, but all three share that
 endpoint, so their agreement is not evidence about it. The tightest point has **0.31 K** of slack
 against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at risk.
@@ -64,12 +66,14 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
    thermal screen. The mechanism is not.
 2. **The cell-level certificate's verdict.** Implemented and tested; the dev runs decide whether the
    frontier survives its own endpoint.
-3. **The three declared-equivalent FEM assumptions.** Measured on `arch_c`/resnet50 at n=192:
-   source in the top 10 % of the die rather than the full thickness moves the peak **+0.0201 K**;
-   a near-adiabatic void instead of still air moves it **+0.0000 K**. Both assumptions are safe.
-   The Robin realisation is **not yet measured**: driving the sink to the isothermal limit at
-   `k x 1000` pushed the material contrast to 1.5e7 and the solve lost its energy balance
-   (5.34e-06 against a 1e-06 tolerance), so the gate refused it. Milder scales are running.
+3. **The three declared-equivalent FEM assumptions -- MEASURED, and one of them is not safe.**
+   On `arch_c`/resnet50 at n=192 against a 321.7263 K baseline: source in the top 10 % of the die
+   moves the peak **+0.0201 K**; a near-adiabatic void instead of still air moves it **+0.0000 K**.
+   Those two are safe. **The Robin realisation is not**: driving the sink towards the isothermal
+   limit -- HotSpot's lumped node -- moves it **-0.7340 K** (x10, admissible; x100 and x1000 refused
+   by the energy-balance gate). That is the same sign and comparable magnitude to the entire
+   model-form band, so **the band is an upper bound on model form rather than a measurement of it**,
+   and separating the two is now the first thing the FEM reference owes.
 4. **Scale.** Everything above rests on 3 architectures x 2 workloads x 1 package.
 5. **The uncertainty set is declared, not measured.** The certificate is a supremum over `P`; if `P`
    is wrong, everything is. `activity_span` is currently a knob.

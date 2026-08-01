@@ -1,5 +1,14 @@
 # The model-form error, measured against an independent solver
 
+> **THE BAND IS PARTLY THE BOUNDARY REALISATION, NOT MODEL FORM.** Measured 2026-08-02: driving the
+> sink towards the isothermal limit -- which is what HotSpot's *lumped* sink-to-ambient node is --
+> moves the FEM peak **-0.734 K** (sink conductivity x10, energy balance 2.07e-07, admissible; x100
+> and x1000 were refused by the gate at 2.4e-06 and 5.3e-06, with x1000 reading -0.834 K before it
+> was refused). The measured model-form band is 0.251-1.061 K in the direction "FEM hotter than
+> HotSpot". **A boundary-realisation term of the same sign and comparable magnitude sits inside it**,
+> so the band as reported is an upper bound on model form and not an estimate of it. The other two
+> declared equivalences are safe: source depth moves the peak +0.0201 K and the void filler +0.0000 K.
+>
 > **PROVISIONAL pending the cell-level certificate.** Every number below is computed on
 > **block-average rows**, and on this same FEM a unit impulse puts the domain maximum **2.06 K** above
 > the hottest block average (0.18 K inside HotSpot). That term is reported here and **not** folded
