@@ -40,6 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 
+from CertiTherm.digest import sha256_file
 from CertiTherm.experiments import ROOT, _capture, _rows
 
 # Transcribed from `ChipletOrchestrationRegret/eval/k0_ranking_margin.py` (`SYS_INFO_RE`,
@@ -50,7 +51,18 @@ METRIC_RE = re.compile(
     r"area:\s*([0-9.eE+-]+),\s*peak temperature is\s*([0-9.eE+-]+)\s*K,"
     r"\s*Yield:\s*([0-9.eE+-]+),\s*EDYP:\s*([0-9.eE+-]+)"
 )
-ARCHIVE_GLOB = "ThermoDSE/tools/results_new/archs_348_300_*.txt"
+# THE FOUR PINNED FILES, BY NAME AND BY CONTENT. A glob admitted any matching file, so an extra
+# `archs_348_300_*.txt` appearing in the tree would silently change the declared candidate set, and
+# no digest was checked at all. Both are now refusals rather than surprises.
+ARCHIVE_FILES = {
+    "archs_348_300_2.txt": "2c36a68ca28ca678",
+    "archs_348_300_200.txt": "57fb92d290e38d79",
+    "archs_348_300_300.txt": "164c2f69fa6fdbb3",
+    "archs_348_300_400.txt": "3e85ef30bf834127",
+}
+ARCHIVE_DIR = "ThermoDSE/tools/results_new"
+# Fixed by the protocol. A different count is a different census and must not run under this name.
+DECLARED_COUNT = 64
 # Fixed by the protocol, not by a flag: one workload and one package, declared in
 # `docs/ARCHIVE_CENSUS_PREREGISTRATION.md` before the run.
 WORKLOAD_ID = "resnet50"
@@ -65,8 +77,22 @@ FIELDS = (
 def candidate_set(count: int):
     """The declared set: reported peak <= 330 K, ascending EDYP, top `count`, ties by sys_info."""
 
+    if count != DECLARED_COUNT:
+        raise SystemExit(
+            f"`archive-census-v1` declares {DECLARED_COUNT} designs; {count} is a different census "
+            "and must be run under a new freeze ID"
+        )
     designs = {}
-    for path in sorted(ROOT.glob(ARCHIVE_GLOB)):
+    for name, expected in sorted(ARCHIVE_FILES.items()):
+        path = ROOT / ARCHIVE_DIR / name
+        if not path.exists():
+            raise SystemExit(f"{path} is missing; the pinned candidate set cannot be rebuilt")
+        digest = sha256_file(path)[:16]
+        if digest != expected:
+            raise SystemExit(
+                f"{name} hashes to {digest}, not the pinned {expected}; the candidate set would "
+                "not be the one the preregistration froze"
+            )
         pending = None
         for line in path.read_text(errors="replace").splitlines():
             match = SYS_INFO_RE.search(line)
@@ -83,7 +109,7 @@ def candidate_set(count: int):
                     pending = None
     if not designs:
         raise SystemExit(
-            f"no designs parsed from {ARCHIVE_GLOB}; the archive format changed and the census "
+            "no designs parsed from the pinned archive files; the format changed and the census "
             "would silently certify an empty set"
         )
     pool = [

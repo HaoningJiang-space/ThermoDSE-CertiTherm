@@ -188,11 +188,18 @@ def main() -> None:
             # whose adversarial vertices no workload phase produces. So the frontier is computed
             # under BOTH: the registered coarse set, and the activity-bounded set the project
             # already provides for exactly this objection.
-            sets = {"coarse_content_bound": (np.zeros(len(blocks)), content_upper_bounds(blocks, power))}
+            sets = {"coarse_content_bound": (
+                np.zeros(len(blocks)), content_upper_bounds(blocks, power),
+                np.empty((0, len(blocks))), np.empty(0),
+            )}
             for span in (float(sys.argv[4]) if len(sys.argv) > 4 else 0.30,):
                 space = activity_bounded_power_space(blocks, power, activity_span=span)
+                # THE FULL POLYTOPE, class-total inequalities included. Passing only the box
+                # dropped `a_ub` and bounded a LARGER set: sound, but it turned certifiable
+                # designs into refusals and inflated every band. Peer review found it.
                 sets["activity_span_%.2f" % span] = (
-                    np.asarray(space.lower_w, dtype=float), np.asarray(space.upper_w, dtype=float)
+                    np.asarray(space.lower_w, dtype=float), np.asarray(space.upper_w, dtype=float),
+                    np.asarray(space.a_ub, dtype=float), np.asarray(space.b_ub, dtype=float),
                 )
 
             with np.load(capture, allow_pickle=False) as data:
@@ -201,7 +208,7 @@ def main() -> None:
                 )
 
             bands, nominal_bands = {}, {}
-            for (set_name, (lower, upper)), (name, coarse_id, fine_id) in [
+            for (set_name, (lower, upper, a_ub, b_ub)), (name, coarse_id, fine_id) in [
                 (s_item, p_item)
                 for s_item in sets.items()
                 for p_item in (
@@ -233,6 +240,7 @@ def main() -> None:
                 fine_rows, fine_ambient = models[fine_id]
                 hotter, _colder = one_sided_containment_bounds(
                     coarse_rows, fine_rows, coarse_ambient, fine_ambient, lower, upper, total,
+                    a_ub, b_ub,
                 )
                 # The supremum is attained at an adversarial vertex of a deliberately permissive
                 # set -- `content_upper_bounds` gives every block its whole content class's power.
@@ -264,9 +272,9 @@ def main() -> None:
             nominal_peak = float(np.max(reference_rows @ power + reference_ambient))
             worst_peaks = {
                 set_name: peak_over_polytope(
-                    reference_rows, reference_ambient, lower, upper, total
+                    reference_rows, reference_ambient, lower, upper, total, a_ub, b_ub
                 )
-                for set_name, (lower, upper) in sets.items()
+                for set_name, (lower, upper, a_ub, b_ub) in sets.items()
             }
             # Headroom is reported against the nominal map for continuity with the earlier tables,
             # but FEASIBILITY below is decided on `worst_peaks`, which is the certifying quantity.

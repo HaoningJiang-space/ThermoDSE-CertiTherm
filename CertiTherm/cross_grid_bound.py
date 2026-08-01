@@ -92,13 +92,65 @@ def refined_model_id(model_id: str) -> str:
 
 
 
-def _extreme(coefficients: np.ndarray, lower: np.ndarray, upper: np.ndarray, total: float) -> float:
-    """`max c.p` over `{lower <= p <= upper, 1.p = total}`, exactly, by greedy fill.
+def _extreme_lp(
+    coefficients: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    total: float,
+    a_ub: np.ndarray,
+    b_ub: np.ndarray,
+) -> float:
+    """`max c.p` over the FULL polytope, including the class-total inequalities.
 
-    The single equality makes the feasible set a transportation polytope whose vertices are reached
-    by starting at `lower` and pushing the remaining budget into the largest coefficients first.
+    **The greedy fill below is exact only for a box with one equality.** `activity_bounded_power_
+    space` also caps each content class's aggregate, and those rows were being dropped at the call
+    site: the callers passed `space.lower_w` and `space.upper_w` and nothing else. Dropping
+    constraints ENLARGES the feasible set, so every bound computed that way was valid but loose --
+    sound, never a false certificate, but it turned certifiable designs into refusals and inflated
+    every reported band. Peer review found it.
+
+    With disjoint class caps and a global equality the structure is a polymatroid and a nested
+    greedy would also be exact, but an LP is the construction that stays correct if the declared set
+    ever grows another inequality, and at this size it costs under a millisecond.
     """
 
+    from scipy.optimize import linprog
+
+    result = linprog(
+        -np.asarray(coefficients, dtype=float),
+        A_ub=a_ub, b_ub=b_ub,
+        A_eq=np.ones((1, coefficients.size)), b_eq=np.array([total]),
+        bounds=list(zip(lower.tolist(), upper.tolist())),
+        method="highs",
+    )
+    if not result.success:
+        # FAIL CLOSED. An infeasible or unbounded relaxation has no supremum, and returning the
+        # greedy's answer instead would silently substitute a bound over a LARGER set.
+        raise ValueError(
+            f"the polytope maximisation did not solve ({result.message.strip()}); a supremum over "
+            "a set the solver could not certify as feasible is not a number"
+        )
+    return float(-result.fun)
+
+
+def _extreme(
+    coefficients: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    total: float,
+    a_ub: np.ndarray = None,
+    b_ub: np.ndarray = None,
+) -> float:
+    """`max c.p` over `{lower <= p <= upper, 1.p = total, A_ub p <= b_ub}`, exactly.
+
+    With no `A_ub` the single equality makes the feasible set a transportation polytope whose
+    vertices are reached by starting at `lower` and pushing the remaining budget into the largest
+    coefficients first -- a greedy fill, exact and solver-free. With `A_ub` present that is no
+    longer true and the work goes to `_extreme_lp`.
+    """
+
+    if a_ub is not None and np.asarray(a_ub).size:
+        return _extreme_lp(coefficients, lower, upper, total, np.asarray(a_ub), np.asarray(b_ub))
     p = lower.copy()
     spare = total - float(p.sum())
     if spare < -1e-9:
@@ -131,6 +183,8 @@ def one_sided_containment_bounds(
     lower_w: np.ndarray,
     upper_w: np.ndarray,
     total_w: float,
+    a_ub: np.ndarray = None,
+    b_ub: np.ndarray = None,
 ):
     """The two SIGNED extrema, which is what set containment actually needs.
 
@@ -164,8 +218,8 @@ def one_sided_containment_bounds(
     u = np.empty(coarse.shape[0], dtype=float)
     lo = np.empty(coarse.shape[0], dtype=float)
     for j in range(coarse.shape[0]):
-        u[j] = _extreme(delta[j], lower, upper, total_w) + offset[j]
-        lo[j] = _extreme(-delta[j], lower, upper, total_w) - offset[j]
+        u[j] = _extreme(delta[j], lower, upper, total_w, a_ub, b_ub) + offset[j]
+        lo[j] = _extreme(-delta[j], lower, upper, total_w, a_ub, b_ub) - offset[j]
     return u, lo
 
 
@@ -175,6 +229,8 @@ def peak_over_polytope(
     lower_w: np.ndarray,
     upper_w: np.ndarray,
     total_w: float,
+    a_ub: np.ndarray = None,
+    b_ub: np.ndarray = None,
 ) -> float:
     """`max over rows j, over admissible p, of T_j(p)` -- the temperature itself, not a discrepancy.
 
@@ -208,7 +264,7 @@ def peak_over_polytope(
     if not np.isfinite(total_w) or total_w <= 0.0:
         raise ValueError(f"the total power must be finite and positive, got {total_w}")
     return max(
-        _extreme(response[j], lower, upper, total_w) + float(ambient_k[j])
+        _extreme(response[j], lower, upper, total_w, a_ub, b_ub) + float(ambient_k[j])
         for j in range(response.shape[0])
     )
 

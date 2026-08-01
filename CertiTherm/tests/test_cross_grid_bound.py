@@ -13,6 +13,8 @@ import numpy as np
 import pytest
 
 from CertiTherm.cross_grid_bound import (
+    _extreme,
+    _extreme_lp,
     one_sided_containment_bounds,
     peak_over_polytope,
     reference_model_id,
@@ -261,3 +263,46 @@ def test_the_polytope_peak_refuses_a_polytope_that_cannot_hold_the_total_power()
 
     with pytest.raises(ValueError, match="cannot absorb|exceed"):
         peak_over_polytope(_COARSE, _AMB, _LOWER, _LOWER, _TOTAL + 1.0)
+
+
+def test_the_LP_reproduces_the_greedy_when_there_are_no_class_constraints() -> None:
+    """Two constructions of one quantity must agree, or one of them is wrong.
+
+    The greedy is exact for a box with one equality; the LP is exact for that plus inequalities.
+    Where both apply they must give the same number, which is what makes it safe to dispatch on
+    whether `a_ub` is empty rather than always paying for a solver.
+    """
+
+    empty = np.empty((0, _COARSE.shape[1]))
+    for row in _COARSE:
+        greedy = _extreme(row, _LOWER, _UPPER, _TOTAL)
+        lp = _extreme_lp(row, _LOWER, _UPPER, _TOTAL, empty, np.empty(0))
+        assert abs(greedy - lp) < 1e-9, f"greedy {greedy} against LP {lp}"
+
+
+def test_a_class_constraint_can_only_LOWER_the_supremum() -> None:
+    """Adding a constraint shrinks the set, so the supremum falls or stays put -- never rises.
+
+    This is the direction that made the dropped `a_ub` rows a real defect rather than a cosmetic
+    one: computing without them bounds a LARGER set, which is sound but turns certifiable designs
+    into refusals. A test that only checked "the LP runs" would not have caught the sign of that.
+    """
+
+    half = _COARSE.shape[1] // 2
+    members = np.zeros((1, _COARSE.shape[1]))
+    members[0, :half] = 1.0
+    cap = np.array([float(np.sum(_UPPER[:half])) * 0.5])
+    for row in _COARSE:
+        unconstrained = _extreme(row, _LOWER, _UPPER, _TOTAL)
+        constrained = _extreme(row, _LOWER, _UPPER, _TOTAL, members, cap)
+        assert constrained <= unconstrained + 1e-9, (
+            f"a class cap raised the supremum from {unconstrained} to {constrained}"
+        )
+
+
+def test_an_infeasible_class_constraint_refuses_rather_than_returning_the_greedy() -> None:
+    """Fail closed. Falling back to the greedy would silently bound a larger set instead."""
+
+    members = np.ones((1, _COARSE.shape[1]))
+    with pytest.raises(ValueError, match="did not solve"):
+        _extreme(_COARSE[0], _LOWER, _UPPER, _TOTAL, members, np.array([_TOTAL * 0.5]))

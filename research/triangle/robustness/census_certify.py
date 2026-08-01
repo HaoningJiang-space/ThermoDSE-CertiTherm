@@ -37,6 +37,42 @@ CURVE_SPANS = (0.05, 0.10, 0.20, 0.30, 0.50, 0.80, 1.20)
 X_THRESHOLD_PCT = 20.0
 Y_THRESHOLD_PCT = 30.0
 EDYP_INDISTINGUISHABLE_FRACTION = 0.05
+# The FEM mesh resolution is NOT fixed by the preregistration -- only the tolerances are -- so it was
+# raised after a convergence check showed the band still climbing: on the smallest archive die the
+# n=64 mesh gave 0.6093 K against 0.6673 K at n=128 and 0.6905 K at n=192. A coarse mesh UNDERstates
+# the band, which makes certification easier, so the correction can only lower X and could never be a
+# rescue. `fem192` is the refined build; the coarse one stays on disk as the convergence evidence.
+_FEM_DIR = "fem192"
+# Fixed by the protocol. Read from the ledger and enforced before an operator is used at all.
+_FEM_TOLERANCES = {
+    "energy_balance_worst_relative_residual": 1e-6,
+    "worst_impulse_power_error_w": 1e-6,
+    "zero_solve_offset_from_ambient_k": 1e-6,
+}
+
+
+def _assert_frozen_constants() -> None:
+    """The protocol's numbers, checked against what the code actually imports.
+
+    `THERMAL_LIMIT_K` and `MODEL_ERROR_LIMIT_K` were imported and used without ever being compared
+    with the values the frozen document names. A later configuration change would then silently
+    alter the test the verdict is judged by, and nothing would look wrong.
+    """
+
+    frozen = {
+        "THERMAL_LIMIT_K": (THERMAL_LIMIT_K, 330.0),
+        "MODEL_ERROR_LIMIT_K": (MODEL_ERROR_LIMIT_K, 0.01),
+        "MARGIN_K": (MARGIN_K, 0.05),
+        "PRIMARY_SPAN": (PRIMARY_SPAN, 0.30),
+        "X_THRESHOLD_PCT": (X_THRESHOLD_PCT, 20.0),
+        "Y_THRESHOLD_PCT": (Y_THRESHOLD_PCT, 30.0),
+    }
+    drifted = {k: v for k, (v, expected) in frozen.items() if v != expected}
+    if drifted:
+        raise SystemExit(
+            f"these constants no longer match `archive-census-v1`: {drifted}; the verdict would be "
+            "judged against a different test than the one that was frozen"
+        )
 
 
 def _operator(path: Path, model_id: str, blocks):
@@ -54,6 +90,7 @@ def _operator(path: Path, model_id: str, blocks):
 
 
 def main() -> None:
+    _assert_frozen_constants()
     census = Path(sys.argv[1])
     out_path = Path(sys.argv[2])
     manifest = json.loads((census / "work" / "candidate_set.json").read_text())
@@ -79,8 +116,29 @@ def main() -> None:
                 census / "g512" / f"{arch}--default.npz", "grid512-avg", blocks
             )
             fem, fem_ambient = _operator(
-                census / "fem" / f"{arch}--default.npz", "fem-dolfinx", blocks
+                census / _FEM_DIR / f"{arch}--default.npz", "fem-dolfinx", blocks
             )
+            # THE PREREGISTERED GATES, CHECKED. The protocol fixes energy balance, per-impulse
+            # power error and zero-solve offset at <= 1e-6 each, and the earlier version of this
+            # script never read them: a successful `np.load` was treated as compliance, so an
+            # invalid operator could produce an ordinary-looking CERTIFIED. Missing diagnostics
+            # are a breach, not a pass.
+            ledger = json.loads(
+                (census / _FEM_DIR / f"{arch}-ledger.json").read_text()
+            )
+            record["fem_diagnostics"] = {
+                key: ledger[key] for key in _FEM_TOLERANCES if key in ledger
+            }
+            for key, limit in _FEM_TOLERANCES.items():
+                if key not in ledger:
+                    raise ValueError(f"the FEM ledger does not report {key}")
+                value = float(ledger[key])
+                # `isfinite` first and separately: `NaN > limit` is False, so one inequality would
+                # let a NaN pass the guard and be recorded as compliant.
+                if not np.isfinite(value) or value > limit:
+                    raise ValueError(
+                        f"{key} is {value:.3e} against the preregistered {limit:.0e} tolerance"
+                    )
             with np.load(capture, allow_pickle=False) as data:
                 record["edyp_rederived"] = (
                     float(data["latency_ms"]) * float(data["energy_mj"]) / float(data["die_yield"])
@@ -91,9 +149,16 @@ def main() -> None:
                 space = activity_bounded_power_space(blocks, power, activity_span=span)
                 lower = np.asarray(space.lower_w, dtype=float)
                 upper = np.asarray(space.upper_w, dtype=float)
-                peak = peak_over_polytope(reference, reference_ambient, lower, upper, total)
+                # THE FULL POLYTOPE. The class-total inequalities are part of the declared set;
+                # dropping them bounds a LARGER one, which is sound but depresses the certified
+                # fraction and inflates the band. Peer review found this before the verdict ran.
+                a_ub = np.asarray(space.a_ub, dtype=float)
+                b_ub = np.asarray(space.b_ub, dtype=float)
+                peak = peak_over_polytope(
+                    reference, reference_ambient, lower, upper, total, a_ub, b_ub
+                )
                 hotter, _colder = one_sided_containment_bounds(
-                    reference, fem, reference_ambient, fem_ambient, lower, upper, total
+                    reference, fem, reference_ambient, fem_ambient, lower, upper, total, a_ub, b_ub
                 )
                 band = max(float(np.max(hotter)), 0.0)
                 per_span["%.2f" % span] = {
@@ -101,8 +166,11 @@ def main() -> None:
                     "slack_k": THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K - peak - band,
                 }
             record["per_span"] = per_span
+            # `>= 0.0`, because the frozen rule is `<= limit - margin - linearisation`: zero slack
+            # certifies. The earlier `> 0.0` was conservative but it was not the preregistered
+            # comparison, and inventing an epsilon here would be a second unregistered choice.
             record["status"] = "CERTIFIED" if (
-                per_span["%.2f" % PRIMARY_SPAN]["slack_k"] > 0.0
+                per_span["%.2f" % PRIMARY_SPAN]["slack_k"] >= 0.0
             ) else "REFUSED"
         except Exception as error:  # noqa: BLE001
             # UNRESOLVED STAYS IN THE DENOMINATOR. A missing or broken operator is exactly a hard
@@ -135,11 +203,16 @@ def main() -> None:
         key = "%.2f" % span
         curve[key] = sum(
             1 for r in rows
-            if r["status"] != "UNRESOLVED" and r["per_span"][key]["slack_k"] > 0.0
+            if r["status"] != "UNRESOLVED" and r["per_span"][key]["slack_k"] >= 0.0
         )
 
     verdict = {
         "protocol": "archive-census-v1",
+        "fem_operator_dir": _FEM_DIR,
+        "frozen_constants": {
+            "thermal_limit_k": THERMAL_LIMIT_K, "linearisation_k": MODEL_ERROR_LIMIT_K,
+            "margin_k": MARGIN_K, "primary_span": PRIMARY_SPAN,
+        },
         "denominator": denominator,
         "certified": len(certified), "refused": len(rows) - len(certified) - len(unresolved),
         "unresolved": len(unresolved),
