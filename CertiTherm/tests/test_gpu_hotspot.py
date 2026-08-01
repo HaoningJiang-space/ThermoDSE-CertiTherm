@@ -87,10 +87,12 @@ def test_the_gpu_build_root_moves_the_solver_the_exporter_and_the_receipt_togeth
     monkeypatch.setenv("CERTITHERM_GPU_BUILD_ROOT", str(tmp_path))
     module = importlib.reload(importlib.import_module("CertiTherm.experiments"))
     try:
+        # `is_relative_to` is 3.9+; the pinned interpreter is python3.8.
         assert module.GPU_BUILD_ROOT == tmp_path
-        assert module.GPU_HOTSPOT_SOLVER.is_relative_to(tmp_path)
-        assert module.GPU_HOTSPOT_EXPORTER.is_relative_to(tmp_path)
-        assert module.GPU_HOTSPOT_BUILD.is_relative_to(tmp_path)
+        for path in (
+            module.GPU_HOTSPOT_SOLVER, module.GPU_HOTSPOT_EXPORTER, module.GPU_HOTSPOT_BUILD
+        ):
+            assert str(path).startswith(str(tmp_path)), path
     finally:
         monkeypatch.delenv("CERTITHERM_GPU_BUILD_ROOT")
         importlib.reload(module)
