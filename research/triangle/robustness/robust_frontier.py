@@ -33,6 +33,7 @@ Usage (on moe-server, from the repo root):
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -49,10 +50,57 @@ from CertiTherm.measurements import activity_bounded_power_space, content_upper_
 MARGIN_K = 0.05
 
 
+BACKEND_PARITY_TOL_K_PER_W = 1e-6
+
+
+def _merged_models(families):
+    """`model_id -> (response rows, ambient)` across several families over the SAME block list.
+
+    The finer operators are built separately (`fine_operator.py`, on GPU) because `grid256` and
+    `grid512` are far too slow to sit in the pipeline's registry. Merging them here is only sound if
+    every family resolves the same blocks in the same ORDER -- a band between two response matrices
+    whose columns mean different blocks is a difference between different quantities and would look
+    entirely plausible. The caller checks the block tuples; this function assumes it.
+
+    **A model present in two families is a free cross-backend check, so it is not silently
+    deduplicated.** The registry's `grid128` was built on the CPU and the fine operator's `grid128`
+    on the GPU, from the same config and floorplan. If they disagree, then every band computed
+    against `grid128` is partly measuring the backend rather than the grid -- which is exactly the
+    false-hit direction `GpuSelection` exists to prevent, and it would be invisible if the first
+    entry simply won. Returns the merged mapping and the observed disagreements.
+    """
+
+    merged, parity = {}, {}
+    for family in families:
+        for index, model_id in enumerate(family.model_ids):
+            rows = family.response_k_per_w[index]
+            ambient = family.ambient_k[index]
+            if model_id in merged:
+                previous_rows, previous_ambient = merged[model_id]
+                gap = max(
+                    float(np.max(np.abs(previous_rows - rows))),
+                    float(np.max(np.abs(previous_ambient - ambient))),
+                )
+                parity[model_id] = max(parity.get(model_id, 0.0), gap)
+                if not math.isfinite(gap) or gap > BACKEND_PARITY_TOL_K_PER_W:
+                    raise SystemExit(
+                        f"{model_id} differs by {gap:.3e} between the operators supplied for it; "
+                        "a band computed against it would be measuring the backend, not the grid"
+                    )
+                continue
+            merged[model_id] = (rows, ambient)
+    return merged, parity
+
+
 def main() -> None:
     artifacts = Path(sys.argv[1])
     out_path = Path(sys.argv[2])
     package = sys.argv[3] if len(sys.argv) > 3 else "default"
+    # Several directories, because the fine operators are built in overlapping pairs -- `128,256`
+    # and `256,512` -- so that each build re-measures the grid the previous one ended on. The
+    # overlap is deliberate: it is a second independent run of the same model, and `_merged_models`
+    # turns it into a parity check instead of a silent preference for whichever loaded first.
+    fine_dirs = [Path(p) for p in sys.argv[5].split(",")] if len(sys.argv) > 5 else []
 
     architectures = [row["architecture_id"] for row in _rows(ROOT / "experiments" / "architectures.tsv")]
     rows = []
@@ -61,7 +109,20 @@ def main() -> None:
         if not operator.exists():
             continue
         family, blocks = load_family(operator)
-        ids = list(family.model_ids)
+        extra = []
+        for fine_dir in fine_dirs:
+            fine_path = fine_dir / f"{arch}--{package}.npz"
+            if not fine_path.exists():
+                continue
+            fine_family, fine_blocks = load_family(fine_path)
+            if tuple(fine_blocks) != tuple(blocks):
+                raise SystemExit(
+                    f"{arch}: the fine operator in {fine_dir} resolves a different block list than "
+                    "the registry operator, so no band between them is a grid difference"
+                )
+            extra.append(fine_family)
+        models, backend_parity = _merged_models([family] + extra)
+        ids = list(models)
         for workload in ("resnet50", "transformer"):
             capture = artifacts / "captures" / f"{workload}--{arch}.npz"
             if not capture.exists():
@@ -96,16 +157,25 @@ def main() -> None:
                 for p_item in (
                     ("cross_grid_64_128", "grid64-avg", "grid128-avg"),
                     ("cross_model_block_128", "block", "grid128-avg"),
+                    # The refinement tail. `docs/ROBUST_FEASIBLE_FRONTIER.md` listed this as not
+                    # included and noted it would ADD to the bands: `grid128` is treated as the
+                    # reference and is not itself converged, so every band measured against it was a
+                    # lower bound. Present only when a fine operator directory is supplied.
+                    ("cross_grid_128_256", "grid128-avg", "grid256-avg"),
+                    ("cross_grid_256_512", "grid256-avg", "grid512-avg"),
+                    # The COMPOSED tail, measured directly rather than summed: the
+                    # sum of successive one-sided suprema is attained at possibly
+                    # different vertices and is therefore loose.
+                    ("refinement_tail_128_512", "grid128-avg", "grid512-avg"),
                 )
             ]:
                 if coarse_id not in ids or fine_id not in ids:
                     continue
                 key = f"{set_name}|{name}"
-                ci, fi = ids.index(coarse_id), ids.index(fine_id)
+                coarse_rows, coarse_ambient = models[coarse_id]
+                fine_rows, fine_ambient = models[fine_id]
                 hotter, _colder = one_sided_containment_bounds(
-                    family.response_k_per_w[ci], family.response_k_per_w[fi],
-                    family.ambient_k[ci], family.ambient_k[fi],
-                    lower, upper, total,
+                    coarse_rows, fine_rows, coarse_ambient, fine_ambient, lower, upper, total,
                 )
                 # The supremum is attained at an adversarial vertex of a deliberately permissive
                 # set -- `content_upper_bounds` gives every block its whole content class's power.
@@ -114,21 +184,23 @@ def main() -> None:
                 # honest measure of how much of the band is the uncertainty set rather than the
                 # models.
                 at_nominal = float(np.max(
-                    (family.response_k_per_w[ci] - family.response_k_per_w[fi]) @ power
-                    + (family.ambient_k[ci] - family.ambient_k[fi])
+                    (coarse_rows - fine_rows) @ power + (coarse_ambient - fine_ambient)
                 ))
                 bands[key] = float(np.max(hotter))
                 nominal_bands[key] = at_nominal
 
             # Certifiability at nominal power with each band folded in one-sidedly, on the FINEST
             # available operator -- the coarse one is what the band corrects toward it.
-            fine = ids.index("grid128-avg") if "grid128-avg" in ids else 0
-            nominal_peak = float(
-                np.max(family.response_k_per_w[fine] @ power + family.ambient_k[fine])
+            reference_id = next(
+                (m for m in ("grid512-avg", "grid256-avg", "grid128-avg") if m in ids), ids[0]
             )
+            reference_rows, reference_ambient = models[reference_id]
+            nominal_peak = float(np.max(reference_rows @ power + reference_ambient))
             headroom = THERMAL_LIMIT_K - MARGIN_K - nominal_peak
             rows.append({
                 "architecture": arch, "workload": workload,
+                "reference_model_id": reference_id,
+                "backend_parity_k_per_w": backend_parity,
                 "nominal_peak_k": nominal_peak,
                 "headroom_to_limit_k": headroom,
                 "frozen_band_k": MODEL_ERROR_LIMIT_K,
