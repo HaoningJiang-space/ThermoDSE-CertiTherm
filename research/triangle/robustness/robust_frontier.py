@@ -41,13 +41,17 @@ import numpy as np
 
 sys.path.insert(0, ".")
 
-from CertiTherm.cross_grid_bound import one_sided_containment_bounds
+from CertiTherm.cross_grid_bound import one_sided_containment_bounds, peak_over_polytope
 from CertiTherm.experiments import _power_space, _rows, ROOT
 from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K
 from CertiTherm.hotspot import load_family
 from CertiTherm.measurements import activity_bounded_power_space, content_upper_bounds
 
 MARGIN_K = 0.05
+# The EDYP spread inside which two archived designs are not distinguishable by the evaluator.
+# Measured, not assumed: `k0_ranking_margin.py` puts the top of ThermoDSE's space at a 0.5-5 %
+# plateau, and the rank-2 gaps in the submitted archive are 2.5-6.2 %.
+EDYP_INDISTINGUISHABLE_FRACTION = 0.05
 
 
 BACKEND_PARITY_TOL_K_PER_W = 1e-6
@@ -103,10 +107,14 @@ def main() -> None:
     fine_dirs = [Path(p) for p in sys.argv[5].split(",")] if len(sys.argv) > 5 else []
 
     architectures = [row["architecture_id"] for row in _rows(ROOT / "experiments" / "architectures.tsv")]
-    rows = []
+    # Missing inputs are counted, never silently dropped: skipping a candidate whose operator
+    # failed to build removes exactly the hard cases from the denominator and inflates the
+    # certified fraction. They are UNRESOLVED, which is a verdict this project already has.
+    rows, skipped = [], []
     for arch in architectures:
         operator = artifacts / "operators" / f"{arch}--{package}.npz"
         if not operator.exists():
+            skipped.append(f"{arch}: no operator")
             continue
         family, blocks = load_family(operator)
         extra = []
@@ -126,6 +134,7 @@ def main() -> None:
         for workload in ("resnet50", "transformer"):
             capture = artifacts / "captures" / f"{workload}--{arch}.npz"
             if not capture.exists():
+                skipped.append(f"{arch}/{workload}: no capture")
                 continue
             _space, capture_blocks, placed, _flp = _power_space(capture)
             if capture_blocks != blocks:
@@ -183,111 +192,154 @@ def main() -> None:
                 # value AT THE NOMINAL MAP is reported beside it and the gap between them is the
                 # honest measure of how much of the band is the uncertainty set rather than the
                 # models.
+                # SAME DIRECTION AS THE POLYTOPE BOUND. `one_sided_containment_bounds` returns
+                # `sup(T_fine - T_coarse)`; this column used to compute `coarse - fine`, so the two
+                # numbers reported side by side were opposite containment directions and their ratio
+                # compared different quantities. Peer review caught it; the ratio quoted in
+                # `docs/ROBUST_FEASIBLE_FRONTIER.md` was derived from the wrong sign.
                 at_nominal = float(np.max(
-                    (coarse_rows - fine_rows) @ power + (coarse_ambient - fine_ambient)
+                    (fine_rows - coarse_rows) @ power + (fine_ambient - coarse_ambient)
                 ))
                 bands[key] = float(np.max(hotter))
                 nominal_bands[key] = at_nominal
 
-            # Certifiability at nominal power with each band folded in one-sidedly, on the FINEST
-            # available operator -- the coarse one is what the band corrects toward it.
+            # THE CERTIFICATE IS OVER THE POLYTOPE, not at the nominal map. The earlier version
+            # evaluated the peak at `power` and then subtracted a polytope-wide DISCREPANCY
+            # supremum from the resulting headroom, which certifies nothing: a different admissible
+            # map can be hotter under the very same reference operator, and the two maxima are taken
+            # over different things. Peer review named this as the largest logical gap. The fix is
+            # the same greedy fill, so it is exact and costs one pass per row.
             reference_id = next(
                 (m for m in ("grid512-avg", "grid256-avg", "grid128-avg") if m in ids), ids[0]
             )
             reference_rows, reference_ambient = models[reference_id]
             nominal_peak = float(np.max(reference_rows @ power + reference_ambient))
+            worst_peaks = {
+                set_name: peak_over_polytope(
+                    reference_rows, reference_ambient, lower, upper, total
+                )
+                for set_name, (lower, upper) in sets.items()
+            }
+            # Headroom is reported against the nominal map for continuity with the earlier tables,
+            # but FEASIBILITY below is decided on `worst_peaks`, which is the certifying quantity.
             headroom = THERMAL_LIMIT_K - MARGIN_K - nominal_peak
+            # THE ERROR LEDGER, kept as separate terms rather than one replacing another. The frozen
+            # 0.01 K measures direct HotSpot replay against impulse superposition -- a linearisation
+            # residual of ONE operator. The cross-grid and cross-model bands measure differences
+            # BETWEEN affine operators. Re-anchoring by deleting the first would leave superposition
+            # unbudgeted, so the certificate keeps it and adds nothing else: the reference operator
+            # is what is being certified, so there is no source-to-reference correction to make.
+            certified_slack = {
+                set_name: THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K - peak
+                for set_name, peak in worst_peaks.items()
+            }
+            # What certifying from a COARSE model instead would have cost. This is a different
+            # question from the one above -- it is the price of a cheap thermal surrogate, not the
+            # feasibility of the design -- and it is reported as such rather than folded in.
+            surrogate_slack = {
+                set_name: certified_slack[set_name]
+                - max(b for k, b in bands.items() if k.startswith(set_name + "|"))
+                for set_name in sets
+                if any(k.startswith(set_name + "|") for k in bands)
+            }
             rows.append({
                 "architecture": arch, "workload": workload,
                 "reference_model_id": reference_id,
                 "backend_parity_k_per_w": backend_parity,
                 "nominal_peak_k": nominal_peak,
-                "headroom_to_limit_k": headroom,
-                "frozen_band_k": MODEL_ERROR_LIMIT_K,
+                "worst_peak_over_polytope_k": worst_peaks,
+                "headroom_to_limit_at_nominal_map_k": headroom,
+                "linearisation_band_k": MODEL_ERROR_LIMIT_K,
                 "bands_k": bands,
                 "bands_at_nominal_map_k": nominal_bands,
-                "certifiable_under": {
-                    name: bool(headroom - band > 0.0) for name, band in bands.items()
-                },
-                "certifiable_under_frozen_band": bool(headroom - MODEL_ERROR_LIMIT_K > 0.0),
-                "slack_after_worst_band_k": headroom - max(bands.values()) if bands else None,
-                "slack_per_uncertainty_set_k": {
-                    name: headroom - max(b for k, b in bands.items() if k.startswith(name + "|"))
-                    for name in sets if any(k.startswith(name + "|") for k in bands)
-                },
+                "certified_slack_k": certified_slack,
+                "certified": {n: bool(s > 0.0) for n, s in certified_slack.items()},
+                "surrogate_slack_k": surrogate_slack,
+                "certified_from_coarse_model": {n: bool(s > 0.0) for n, s in surrogate_slack.items()},
                 "edyp": edyp,
             })
-            per_set = {}
-            for key, band in bands.items():
-                per_set.setdefault(key.split("|")[0], []).append(band)
             print(
-                "%-8s %-12s headroom %6.3f K  %s"
+                "%-8s %-12s nominal %7.3f K  %s"
                 % (
-                    arch, workload, headroom,
+                    arch, workload, nominal_peak,
                     "  ".join(
-                        "%s: band %5.2f K -> %s" % (
+                        "%s: sup_P %7.3f K -> %s" % (
                             name.replace("coarse_content_bound", "content").replace("activity_span_", "act"),
-                            max(vals),
-                            "FEASIBLE" if headroom - max(vals) > 0 else "refused",
+                            worst_peaks[name],
+                            "CERTIFIED" if certified_slack[name] > 0 else "refused",
                         )
-                        for name, vals in sorted(per_set.items())
+                        for name in sorted(sets)
                     ),
                 ),
                 flush=True,
             )
 
-    frontier = [r for r in rows if r["slack_after_worst_band_k"] and r["slack_after_worst_band_k"] > 0]
     by_workload = {}
     for row in rows:
         by_workload.setdefault(row["workload"], []).append(row)
     prices = {}
-    for workload, group in by_workload.items():
-        best_any = min(group, key=lambda r: r["edyp"])
-        for set_name in sorted(group[0]["slack_per_uncertainty_set_k"]):
-            feasible = [r for r in group if r["slack_per_uncertainty_set_k"][set_name] > 0]
+    for workload, group in sorted(by_workload.items()):
+        # THE NOMINAL OPTIMUM IS A SET, not a point. `k0_ranking_margin` measures the top of
+        # ThermoDSE's space as a 0.5-5 % EDYP plateau, inside the evaluator's own error band, so a
+        # price quoted against a single argmin can move because of evaluator noise rather than
+        # robustness. The denominator is therefore the whole indistinguishable set, which turns the
+        # price into a RANGE: cheapest-robust against the best and against the worst member.
+        best_value = min(r["edyp"] for r in group)
+        indistinguishable = [
+            r for r in group if r["edyp"] <= best_value * (1.0 + EDYP_INDISTINGUISHABLE_FRACTION)
+        ]
+        worst_indistinguishable = max(r["edyp"] for r in indistinguishable)
+        per_set = {}
+        for set_name in sorted(group[0]["certified_slack_k"]):
+            certified = [r for r in group if r["certified_slack_k"][set_name] > 0.0]
+            entry = {
+                "certified_count": len(certified), "point_count": len(group),
+                "unresolved_count": len(skipped),
+                "cheapest_certified": (
+                    min(certified, key=lambda r: r["edyp"])["architecture"] if certified else None
+                ),
+                "price_vs_best_pct": (
+                    100.0 * (min(r["edyp"] for r in certified) / best_value - 1.0)
+                    if certified else None
+                ),
+                "price_vs_worst_indistinguishable_pct": (
+                    100.0 * (min(r["edyp"] for r in certified) / worst_indistinguishable - 1.0)
+                    if certified else None
+                ),
+            }
+            per_set[set_name] = entry
             print(
-                "  %-12s under %-22s: %d of %d feasible%s"
+                "  %-12s under %-22s: %d of %d certified%s"
                 % (
-                    workload, set_name, len(feasible), len(group),
+                    workload, set_name, len(certified), len(group),
                     (
-                        ", cheapest %s at %+.1f%% EDYP"
+                        ", cheapest %s at %+.1f%% to %+.1f%% EDYP"
                         % (
-                            min(feasible, key=lambda r: r["edyp"])["architecture"],
-                            100.0 * (min(r["edyp"] for r in feasible) / best_any["edyp"] - 1.0),
+                            entry["cheapest_certified"],
+                            entry["price_vs_worst_indistinguishable_pct"],
+                            entry["price_vs_best_pct"],
                         )
-                        if feasible else "  -- EMPTY"
+                        if certified else "  -- EMPTY"
                     ),
                 ),
                 flush=True,
             )
-        robust = [r for r in group if r["slack_after_worst_band_k"] and r["slack_after_worst_band_k"] > 0]
         prices[workload] = {
-            "edyp_optimal": best_any["architecture"], "edyp_optimal_value": best_any["edyp"],
-            "robust_count": len(robust),
-            "cheapest_robust": min(robust, key=lambda r: r["edyp"])["architecture"] if robust else None,
-            "price_of_robustness_pct": (
-                100.0 * (min(r["edyp"] for r in robust) / best_any["edyp"] - 1.0) if robust else None
-            ),
+            "edyp_best": best_value,
+            "edyp_indistinguishable_set": [r["architecture"] for r in indistinguishable],
+            "edyp_indistinguishable_fraction": EDYP_INDISTINGUISHABLE_FRACTION,
+            "per_uncertainty_set": per_set,
         }
+
+    if skipped:
         print(
-            "\n%-12s EDYP-optimal %s (%.3f); robust-feasible %d of %d; %s"
-            % (
-                workload, best_any["architecture"], best_any["edyp"], len(robust), len(group),
-                (
-                    "cheapest robust %s at %+.1f%% EDYP"
-                    % (prices[workload]["cheapest_robust"], prices[workload]["price_of_robustness_pct"])
-                    if robust else "THE FRONTIER IS EMPTY"
-                ),
-            ),
+            "\nUNRESOLVED (missing operator or capture, counted, not silently dropped): %s"
+            % ", ".join(skipped),
             flush=True,
         )
-
-    print(
-        "\nrobust-feasible points: %d of %d. The frontier is what T3 would publish; an empty one "
-        "means the proposal needs reformulating before it is worth weeks." % (len(frontier), len(rows)),
-        flush=True,
-    )
-    out_path.write_text(json.dumps({"points": rows, "price_of_robustness": prices}, indent=1))
+    out_path.write_text(json.dumps(
+        {"points": rows, "unresolved": skipped, "price_of_robustness": prices}, indent=1
+    ))
 
 
 if __name__ == "__main__":

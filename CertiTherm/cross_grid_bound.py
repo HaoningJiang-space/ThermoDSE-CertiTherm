@@ -169,6 +169,50 @@ def one_sided_containment_bounds(
     return u, lo
 
 
+def peak_over_polytope(
+    rows: np.ndarray,
+    ambient: np.ndarray,
+    lower_w: np.ndarray,
+    upper_w: np.ndarray,
+    total_w: float,
+) -> float:
+    """`max over rows j, over admissible p, of T_j(p)` -- the temperature itself, not a discrepancy.
+
+    **A discrepancy bound is not a temperature bound.** Peer review named this as the largest logical
+    gap in the frontier: it evaluated the peak at the NOMINAL power map and then subtracted a
+    polytope-wide discrepancy supremum from the resulting headroom. That certifies nothing about the
+    polytope, because a different admissible map can be hotter under the very same operator, and no
+    amount of cross-model correction detects it -- the two quantities are maximised independently and
+    over different things.
+
+    The construction is the same greedy as every other bound here, because `T_j(p) = r_j . p + a_j`
+    is affine in `p` and the admissible set is the same box-with-total polytope. So the fix costs one
+    pass per row and is exact rather than sampled.
+    """
+
+    response = np.atleast_2d(np.asarray(rows, dtype=float))
+    ambient_k = np.atleast_1d(np.asarray(ambient, dtype=float))
+    lower = np.asarray(lower_w, dtype=float)
+    upper = np.asarray(upper_w, dtype=float)
+    if ambient_k.shape != (response.shape[0],):
+        raise ValueError("one ambient per row is required")
+    if lower.shape != (response.shape[1],) or upper.shape != (response.shape[1],):
+        raise ValueError("the polytope bounds must have one entry per block")
+    for name, array in (
+        ("response", response), ("ambient", ambient_k), ("lower", lower), ("upper", upper)
+    ):
+        if not np.all(np.isfinite(array)):
+            raise ValueError(f"the {name} array must be finite to bound a peak temperature")
+    if np.any(upper < lower):
+        raise ValueError("the polytope has an upper bound below its lower bound")
+    if not np.isfinite(total_w) or total_w <= 0.0:
+        raise ValueError(f"the total power must be finite and positive, got {total_w}")
+    return max(
+        _extreme(response[j], lower, upper, total_w) + float(ambient_k[j])
+        for j in range(response.shape[0])
+    )
+
+
 def _validated(coarse_rows, fine_rows, coarse_ambient, fine_ambient, lower_w, upper_w, total_w):
     """Shared shape and finiteness checks for both bound flavours."""
 
