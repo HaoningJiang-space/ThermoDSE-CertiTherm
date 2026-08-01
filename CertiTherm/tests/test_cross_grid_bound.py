@@ -12,6 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from CertiTherm.core import PowerPolytope
+from CertiTherm.reanchored_certificate import certify_over_polytope
 from CertiTherm.cross_grid_bound import (
     _extreme,
     _extreme_lp,
@@ -322,3 +324,42 @@ def test_a_constant_objective_on_an_EMPTY_polytope_refuses_rather_than_returning
             np.zeros(_COARSE.shape[1]), _LOWER, _UPPER, _TOTAL, members,
             np.array([_TOTAL * 0.5]),
         )
+
+
+def test_the_shared_certificate_cannot_be_helped_by_a_colder_comparison_operator() -> None:
+    """A one-sided band. Disagreement may make certification harder; it must never make it easier.
+
+    `one_sided_containment_bounds` returns a NEGATIVE number when the comparison operator is
+    uniformly cooler, which is real information. Subtracting a negative would ADD slack -- a
+    certificate improved by the fact that two models disagree. It is clamped at zero instead.
+    """
+
+    space = PowerPolytope(
+        lower_w=_LOWER, upper_w=_UPPER,
+        a_eq=np.ones((1, _LOWER.size)), b_eq=np.array([_TOTAL]),
+        a_ub=np.empty((0, _LOWER.size)), b_ub=np.empty(0),
+    )
+    alone = certify_over_polytope(
+        _COARSE, _AMB, space, _TOTAL, limit_k=400.0, margin_k=0.05, linearisation_k=0.01
+    )
+    colder = certify_over_polytope(
+        _COARSE, _AMB, space, _TOTAL, limit_k=400.0, margin_k=0.05, linearisation_k=0.01,
+        comparison_rows=_COARSE - 0.05, comparison_ambient=_AMB,
+    )
+    assert colder.model_form_band_k == 0.0
+    assert colder.slack_k == alone.slack_k, "a colder comparison operator added slack"
+
+
+def test_the_shared_certificate_certifies_at_exactly_zero_slack() -> None:
+    """`<=` is the frozen comparison, so a design sitting exactly on the limit certifies."""
+
+    space = PowerPolytope(
+        lower_w=_LOWER, upper_w=_UPPER,
+        a_eq=np.ones((1, _LOWER.size)), b_eq=np.array([_TOTAL]),
+        a_ub=np.empty((0, _LOWER.size)), b_ub=np.empty(0),
+    )
+    peak = peak_over_polytope(_COARSE, _AMB, _LOWER, _UPPER, _TOTAL)
+    exact = certify_over_polytope(
+        _COARSE, _AMB, space, _TOTAL, limit_k=peak + 0.06, margin_k=0.05, linearisation_k=0.01
+    )
+    assert abs(exact.slack_k) < 1e-9 and exact.certified
