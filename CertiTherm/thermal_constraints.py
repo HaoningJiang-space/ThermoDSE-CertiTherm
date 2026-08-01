@@ -74,42 +74,25 @@ def robust_safe_cell_rows(
     return rows, rhs
 
 
-def reject_cell_floor(
-    thermal: ThermalFamily, margin_k: float, model: int, point: int
-) -> float:
-    """The temperature at which a power map stops being certifiably safe at one (model, point).
-
-    **What REJECT means here, precisely, because the name overstates it.** With a model error
-    bounded by `e`, a GUARANTEED-safe verdict needs `T_model <= limit - e` and a GUARANTEED-unsafe
-    one needs `T_model >= limit + e`. This floor SUBTRACTS `e`, so crossing it proves only that the
-    true temperature COULD exceed the limit -- "not certifiably safe", or "possibly unsafe", not
-    "proven unsafe". That is the correct predicate for a fail-closed acceptance policy, which must
-    refuse anything it cannot certify, and it is what the whole pipeline decides. It is NOT a proof
-    that the design fails, and prose that reads "REJECT" as a physical rejection is overstating it.
-    Peer review found the conflation.
-
-    `response . p >= limit + margin - error - ambient`. The mirror of
-    `robust_safe_cell_rows`, and deliberately next to it: the two differ only in the sign of
-    the margin, and that sign is what keeps the SAFE and REJECT cells from overlapping. A
-    copy of this expression that drifted by one sign would silently merge them.
-
-    Written twice before this: once per (model, point) inside the collision LP, and once as
-    a full matrix while verifying a thermal kernel. `reject_cell_rows` below is the matrix
-    form of exactly this scalar, so the two cannot disagree.
-    """
-
-    return float(
-        thermal.limit_k
-        + margin_k
-        - thermal.error_k[model]
-        - thermal.ambient_k[model, point]
-    )
-
-
 def reject_cell_rows(
     thermal: ThermalFamily, margin_k: float
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Every (model, point) REJECT row and its floor, one row per cell.
+
+    **What REJECT means here, precisely, because the name overstates it.** With a model error
+    bounded by `e`, a GUARANTEED-safe verdict needs `T_model <= limit - e` and a GUARANTEED-unsafe
+    one needs `T_model >= limit + e`. This floor SUBTRACTS `e`, so crossing it proves only that the
+    true temperature COULD exceed the limit -- "not certifiably safe", not "proven unsafe". That is
+    the correct predicate for a fail-closed acceptance policy, which must refuse anything it cannot
+    certify, and it is what the whole pipeline decides. Prose reading REJECT as a physical rejection
+    overstates it; peer review found the conflation.
+
+    The sign of `margin_k` is what keeps the SAFE and REJECT cells from overlapping -- this adds it
+    where `robust_safe_cell_rows` subtracts it -- and the two are written next to each other so a
+    drift in one is visible against the other. A scalar `reject_cell_floor` used to sit here as a
+    third statement of the same expression; it had no callers and no test tying it to this matrix,
+    so its claim that the two "cannot disagree" was unchecked. Deleted rather than left as an
+    unverified duplicate.
 
     Row order is `reshape(-1)` over (models, points), matching `robust_safe_cell_rows`, so
     a flat index `i` refers to model `i // points` and point `i % points`. Kernel artifacts

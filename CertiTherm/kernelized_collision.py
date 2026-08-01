@@ -40,24 +40,6 @@ from .synthesis import (
 from .thermal_kernel import ThermalKernelError
 
 
-def reset_kernel_oracle_stats() -> None:
-    """Zero the counters.
-
-    Restored after peer review pointed out that deleting it was an incomplete cleanup:
-    the counters are process-global and cumulative, so a caller invoking a driver twice in
-    one interpreter contaminated the second reading. A single CLI run gets a fresh process
-    and does not need this; anything that runs the search more than once per process does.
-    """
-
-    for key in _KERNEL_ORACLE_STATS:
-        _KERNEL_ORACLE_STATS[key] = 0
-
-
-# Instrumentation for the item-2 gate: how many kernelized queries reach the pool
-# (a NEGATIVE first-cell probe) vs resolve at the probe. Persistence only helps the
-# pool-reaching ones. Additive; does not affect the frozen oracle or any verdict.
-_KERNEL_ORACLE_STATS = {"queries": 0, "probe_resolved": 0, "pool_reached": 0, "sequential": 0}
-
 
 def kernel_oracle_stats() -> dict:
     return dict(_KERNEL_ORACLE_STATS)
