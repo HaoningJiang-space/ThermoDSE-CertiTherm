@@ -64,8 +64,11 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
    different HotSpot build, a different generated config at the time the archive was written, or a
    stale value. The **decision** it gated is answered: the archive supplies design vectors, not a
    thermal screen. The mechanism is not.
-2. **The cell-level certificate's verdict.** Implemented and tested; the dev runs decide whether the
-   frontier survives its own endpoint.
+2. ~~**The cell-level certificate's verdict.**~~ **CLOSED.** `arch_b`/transformer is refused at the
+   cell endpoint by **-0.36 K with no band folded in** (cell peak 330.30 K, above the limit
+   itself); `arch_c`/transformer certifies with +4.03 K. The `arch_b -> arch_c` switch and the
+   +32.1 % price therefore **survive without the block-average assumption**. Four of six dev
+   points; `arch_a` pending. `CELL_ENDPOINT_RESULT.md`.
 3. **The three declared-equivalent FEM assumptions -- MEASURED, and one of them is not safe.**
    On `arch_c`/resnet50 at n=192 against a 321.7263 K baseline: source in the top 10 % of the die
    moves the peak **+0.0201 K**; a near-adiabatic void instead of still air moves it **+0.0000 K**.

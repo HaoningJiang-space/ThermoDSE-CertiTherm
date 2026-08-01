@@ -9,7 +9,12 @@
 > so the band as reported is an upper bound on model form and not an estimate of it. The other two
 > declared equivalences are safe: source depth moves the peak +0.0201 K and the void filler +0.0000 K.
 >
-> **PROVISIONAL pending the cell-level certificate.** Every number below is computed on
+> **THE CELL ENDPOINT HAS LANDED AND THE CONCLUSION SURVIVED IT** (`CELL_ENDPOINT_RESULT.md`):
+> `arch_b`/transformer is refused at the cell endpoint by -0.36 K **without any band folded in**,
+> so the `arch_b -> arch_c` switch and its +32.1 % price no longer rest on the block-average
+> assumption. What remains provisional is the band's composition, not the frontier.
+>
+> **Superseded warning, kept for the record.** Every number below is computed on
 > **block-average rows**, and on this same FEM a unit impulse puts the domain maximum **2.06 K** above
 > the hottest block average (0.18 K inside HotSpot). That term is reported here and **not** folded
 > into the certificate. The tightest point on the frontier has **0.31 K** of slack, so folding it in
