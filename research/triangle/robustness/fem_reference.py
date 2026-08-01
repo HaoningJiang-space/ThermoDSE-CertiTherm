@@ -479,6 +479,22 @@ def main() -> None:
             raise SystemExit(f"the solver returned no temperature for {len(missing)} die regions")
         return np.asarray([by_region[f"die::{name}"] for name, *_ in blocks], dtype=float)
 
+    def named_temperatures(result, prefix):
+        return {n: v for n, v in result.region_average_temperature_k if n.startswith(prefix)}
+
+    sink_top_nominal = {}
+    if PROBE_SINK_TOP:
+        # The probe regions are affine in `p` exactly like the die rows, so their nominal value is
+        # `ambient + sum_i placed_i * (impulse_i - ambient)`.
+        base = named_temperatures(results[0], "sink_top_")
+        placed_vector = np.asarray(placed, dtype=float)
+        for name in base:
+            column = np.asarray(
+                [named_temperatures(results[i + 1], "sink_top_")[name] - base[name]
+                 for i in range(len(blocks))], dtype=float
+            )
+            sink_top_nominal[name] = float(base[name] + column @ placed_vector)
+
     ambient_row = die_temperatures(results[0])
     response = np.empty((len(blocks), len(blocks)), dtype=float)
     for index in range(len(blocks)):
@@ -533,12 +549,16 @@ def main() -> None:
         # already reproduces the lumped total-flux relation with the MEAN top temperature; the only
         # thing the lumped node adds is that the top is isothermal. So the spread across the top is
         # what separates the two realisations, and it is read off a solve that already exists.
-        "sink_top_region_means_k": (
-            {name: value for name, value in results[0].region_average_temperature_k
-             if name.startswith("sink_top_")}
-            if PROBE_SINK_TOP else None
+        "sink_top_region_means_at_nominal_k": sink_top_nominal,
+        # Max minus min across the top's regions AT THE PLACED MAP. An earlier version read these
+        # from `results[0]`, which is the ZERO-POWER solve -- every region sits at ambient there, so
+        # the spread was identically zero and the probe would have "measured" isothermality by
+        # construction. The regions are affine in the power vector like everything else, so the
+        # nominal value is the impulse rows evaluated at the placed map.
+        "sink_top_spread_at_nominal_k": (
+            max(sink_top_nominal.values()) - min(sink_top_nominal.values())
+            if sink_top_nominal else None
         ),
-        "sink_top_spread_at_nominal_k": None,
         # The FEM's OWN block-average-versus-continuum gap, which is the independent-solver
         # analogue of the 0.18 K understatement measured inside HotSpot. Reported, not folded in:
         # a certificate over block averages does not imply one over the physical peak.
