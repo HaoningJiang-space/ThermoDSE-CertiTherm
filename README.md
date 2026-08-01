@@ -21,8 +21,20 @@ This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
 EDA stage is sufficient to justify the resulting architecture choice.
 
-> **2026-08-01 — the thermal instrument is not validated, and this qualifies everything below it
-> that uses it.** A grid-convergence gate, built after a held-out failure and wired into the
+> **2026-08-01 — the thermal half of this work is WITHDRAWN. `docs/BUDGETED_REGISTRY_DOES_NOT_CERTIFY.md`.**
+> With the operator's discretisation error budgeted the same fail-closed way the project budgets
+> linearisation, the development registry largely stops certifying: 4 of 18 architectures are refused
+> because the budget covers the whole headroom to 330 K, and of the 22 points that do certify **all 11
+> transformer points have `beta* = 0`** — the nominal power map already reaches the reject floor, so
+> the design is infeasible before any uncertainty is admitted. On `resnet50`, `tau*` falls from
+> 150–175 % to 0–44 % and `beta*` from 3–4 % to at best 1.72 %. The arithmetic is one line: the
+> peak-temperature margin on this registry is **2–8 K** and the operator's discretisation error is
+> **0.5–3 K**. The decision was being made at a resolution the model does not have. Every radius,
+> tier and certified observation bound below is withdrawn on this registry. **The composition and
+> cost results, which never touch the thermal operator, are unaffected and were validated 8-of-8 on
+> the preregistered held-out split.**
+>
+> How it was found: A grid-convergence gate, built after a held-out failure and wired into the
 > operator build, replays each calibration vector at `gridN` and `grid2N` and bounds the
 > disagreement. It **refused all four architectures tested, including both compact `4x4` controls
 > from the development regime**: measured drift 0.153–1.409 K against a frozen linearisation budget
