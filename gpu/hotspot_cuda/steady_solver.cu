@@ -141,6 +141,38 @@ __global__ void initialize_pcg(const double* __restrict__ b,
   }
 }
 
+// Re-anchor the PCG recurrence on an EXACTLY computed residual, keeping the current iterate.
+//
+// `mark_converged` stops on the recurrence residual, which drifts optimistic after hundreds of
+// updates -- the comment there says so, and the 0.5x safety margin is the concession. On some
+// systems even that is not enough and the freshly computed b-Gx residual lands just over the
+// caller's tolerance: a real solve was rejected at 1.1526e-8 against a 1.1422e-8 limit, 0.9 % over.
+//
+// Restarting is the standard cure and it is cheap here because `true_residual` has already written
+// the exact residual into the same buffer. Reseeding `z = r / diag`, `p = z` and recomputing
+// `rz_old` gives PCG an unpolluted recurrence from the current iterate, so each restart is a genuine
+// refinement step rather than a retry of the same computation.
+__global__ void reseed_pcg(const double* __restrict__ residual,
+                           const double* __restrict__ diagonal,
+                           double* __restrict__ preconditioned,
+                           double* __restrict__ direction,
+                           std::uint64_t nodes, std::uint64_t rhs) {
+  const std::uint64_t column =
+      static_cast<std::uint64_t>(blockIdx.y) * kRhsTile + threadIdx.x;
+  std::uint64_t row =
+      static_cast<std::uint64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const std::uint64_t stride =
+      static_cast<std::uint64_t>(gridDim.x) * blockDim.y;
+  if (column >= rhs)
+    return;
+  for (; row < nodes; row += stride) {
+    const std::uint64_t offset = row * rhs + column;
+    const double scaled = residual[offset] / diagonal[row];
+    preconditioned[offset] = scaled;
+    direction[offset] = scaled;
+  }
+}
+
 __global__ void dot_columns_partial(const double* __restrict__ left,
                                     const double* __restrict__ right,
                                     double* __restrict__ partial_result,
@@ -395,8 +427,10 @@ int main(int argc, char** argv) {
     const double rtol = argc > 5 ? std::stod(argv[5]) : 1e-11;
     const double atol = argc > 6 ? std::stod(argv[6]) : 1e-12;
     const int max_iterations = argc > 7 ? std::stoi(argv[7]) : 10000;
-    if (!(rtol > 0.0) || !(atol >= 0.0) || max_iterations <= 0)
-      throw std::runtime_error("invalid solver tolerance or iteration limit");
+    // Restarts, not retries: each one re-anchors the recurrence on an exactly computed residual.
+    const int max_refinements = argc > 8 ? std::stoi(argv[8]) : 4;
+    if (!(rtol > 0.0) || !(atol >= 0.0) || max_iterations <= 0 || max_refinements < 0)
+      throw std::runtime_error("invalid solver tolerance, iteration limit or refinement budget");
 
     const auto wall_start = std::chrono::steady_clock::now();
     std::ifstream stream(system_path, std::ios::binary);
@@ -491,7 +525,17 @@ int main(int argc, char** argv) {
     launch_dot(d_rhs, d_rhs, d_rhs_norm2, d_dot_partial,
                header.nodes, rhs, row_blocks);
 
+    // OUTER REFINEMENT LOOP. Each pass runs PCG to its recurrence-residual stopping rule, then
+    // checks the exactly computed b-Gx residual. A pass that misses re-anchors the recurrence on
+    // that exact residual and continues from the current iterate, which is what makes the next pass
+    // a refinement rather than a repeat. The budget is small because the miss is small: the observed
+    // failure was 0.9 % over tolerance.
     int iterations = 0;
+    int refinements = 0;
+    double max_relative_residual = 0.0;
+    std::vector<double> residual_norm2(rhs), rhs_norm2(rhs);
+    std::string residual_failure;
+    for (; refinements <= max_refinements; ++refinements) {
     for (; iterations < max_iterations; ++iterations) {
       launch_spmm(d_row_ptr, d_col_index, d_values, d_direction, d_product,
                    header.nodes, rhs, row_blocks);
@@ -537,27 +581,48 @@ int main(int argc, char** argv) {
                                                   header.nodes, rhs);
     launch_dot(d_residual, d_residual, d_residual_norm2, d_dot_partial,
                header.nodes, rhs, row_blocks);
-    std::vector<double> residual_norm2(rhs), rhs_norm2(rhs);
     cuda_check(cudaMemcpy(residual_norm2.data(), d_residual_norm2,
                           rhs * sizeof(double), cudaMemcpyDeviceToHost),
                "read true residual");
     cuda_check(cudaMemcpy(rhs_norm2.data(), d_rhs_norm2,
                           rhs * sizeof(double), cudaMemcpyDeviceToHost),
                "read rhs norm");
-    double max_relative_residual = 0.0;
+    max_relative_residual = 0.0;
+    residual_failure.clear();
+    std::vector<int> missed(rhs, 0);
     for (std::size_t column = 0; column < rhs; ++column) {
       const double residual = std::sqrt(std::max(0.0, residual_norm2[column]));
       const double scale = std::sqrt(std::max(0.0, rhs_norm2[column]));
       max_relative_residual =
           std::max(max_relative_residual, residual / std::max(scale, 1e-300));
       if (!std::isfinite(residual) || residual > atol + rtol * scale) {
-        std::ostringstream message;
-        message << std::setprecision(17)
-                << "true residual failed the declared tolerance at rhs "
-                << column << ": residual=" << residual
-                << ", limit=" << (atol + rtol * scale);
-        throw std::runtime_error(message.str());
+        missed[column] = 1;
+        if (residual_failure.empty()) {
+          std::ostringstream message;
+          message << std::setprecision(17)
+                  << "true residual failed the declared tolerance at rhs "
+                  << column << ": residual=" << residual
+                  << ", limit=" << (atol + rtol * scale);
+          residual_failure = message.str();
+        }
       }
+    }
+    // A non-finite residual is not a convergence miss and no restart can repair it.
+    if (residual_failure.empty())
+      break;
+    bool finite = true;
+    for (std::size_t column = 0; column < rhs; ++column)
+      finite = finite && std::isfinite(residual_norm2[column]);
+    if (!finite || refinements == max_refinements)
+      throw std::runtime_error(residual_failure);
+    cuda_check(cudaMemcpy(d_active, missed.data(), rhs * sizeof(int),
+                          cudaMemcpyHostToDevice),
+               "re-arm the columns that missed");
+    host_active = missed;
+    reseed_pcg<<<vector_grid, vector_block>>>(
+        d_residual, d_diagonal, d_preconditioned, d_direction, header.nodes, rhs);
+    launch_dot(d_residual, d_preconditioned, d_rz_old, d_dot_partial,
+               header.nodes, rhs, row_blocks);
     }
 
     auto d_block_temperature = device_alloc<double>(header.blocks * rhs);
