@@ -89,6 +89,32 @@ peak -- it was **optimistic** about it, in the direction that makes certificatio
 worse defect than the convergence one and it is independent of grid resolution: it does not shrink
 as the grid is refined, because it is a property of the mapping, not of the discretisation.
 
+### And this is a documented limitation, not a new discovery
+
+Fetis and Seznec, *An evaluation of HotSpot-3.0 block-based temperature model* (WDDD 2006), compared
+HotSpot's block model against a reference and reported, on their fixtures:
+
+* "Naive" floorplans giving errors **exceeding 200 %**;
+* an absolute error of **22 K for a 1 mm source**, a 180 % relative error;
+* HotSpot **underestimating** the slope of the temperature response and the amplitude of
+  time-varying oscillations;
+* floorplans with more, smaller blocks being more accurate, and a `21x21` grid beating a `3x3`
+  block floorplan while still carrying significant error.
+
+The controlling variable is the size of the heat source relative to the block. That is the same
+mechanism measured above -- a block average cannot see a hotspot smaller than the block -- at a
+scale two orders of magnitude larger than the 0.18 K found here.
+
+Two qualifications. That paper evaluates HotSpot 3.0 (2006) and this project pins a 6.x build, so
+the magnitudes are not transferable and are not transferred; and their fixtures are deliberately
+adversarial small sources. What does transfer is the structural point, because it is a property of
+the block-average mapping and not of any version: **block-level temperature is an unreliable proxy
+for peak temperature when the source is small relative to the block, and it errs low.**
+
+So the finding here is not that HotSpot has an unknown flaw. It is that a certification pipeline
+built on HotSpot inherited a **published** limitation of the block model, and its frozen 0.01 K
+error contract budgets nothing for it -- while the limit it certifies against is a physical peak.
+
 Cell-level rows are therefore still the right formulation -- `SAFE` as a conjunction over cells,
 `REJECT` as a disjunction, both LP-representable -- but for correctness of the QUANTITY, not for a
 cheaper error. They cost more discretisation error, not less.
