@@ -183,6 +183,13 @@ def main() -> None:
                     # sum of successive one-sided suprema is attained at possibly
                     # different vertices and is therefore loose.
                     ("refinement_tail_128_512", "grid128-avg", "grid512-avg"),
+                    # MODEL FORM, at last. Every pair above is within HotSpot and therefore
+                    # bounds only its discretisation; the whole family can agree while being
+                    # wrong together. `fem-dolfinx` solves the same PDE with an independent 3-D
+                    # discretisation, and because steady conduction is linear in the power
+                    # vector its operator is affine too -- so the SAME bound applies unchanged.
+                    ("model_form_block_fem", "block", "fem-dolfinx"),
+                    ("model_form_grid512_fem", "grid512-avg", "fem-dolfinx"),
                 )
             ]:
                 if coarse_id not in ids or fine_id not in ids:
