@@ -281,6 +281,22 @@ def main() -> None:
                 set_name: THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K - peak
                 for set_name, peak in worst_peaks.items()
             }
+            # THE RE-ANCHORED BUDGET. The certificate above is against HotSpot at its finest
+            # grid, so it budgets discretisation and linearisation and nothing else. Folding in
+            # `sup_p [T_FEM(p) - T_grid512(p)]` one-sidedly certifies against the INDEPENDENT
+            # solver instead: it is the amount the FEM can read hotter, so subtracting it can
+            # only make certification harder, never easier. Measured rather than declared, and
+            # it is the term the frozen 0.01 K contract never contained.
+            model_form = {
+                set_name: bands.get(f"{set_name}|model_form_grid512_fem")
+                for set_name in sets
+            }
+            reanchored_slack = {
+                set_name: (
+                    certified_slack[set_name] - max(term, 0.0) if term is not None else None
+                )
+                for set_name, term in model_form.items()
+            }
             # What certifying from a COARSE model instead would have cost. This is a different
             # question from the one above -- it is the price of a cheap thermal surrogate, not the
             # feasibility of the design -- and it is reported as such rather than folded in.
@@ -302,6 +318,11 @@ def main() -> None:
                 "bands_at_nominal_map_k": nominal_bands,
                 "certified_slack_k": certified_slack,
                 "certified": {n: bool(s > 0.0) for n, s in certified_slack.items()},
+                "model_form_band_k": model_form,
+                "reanchored_slack_k": reanchored_slack,
+                "certified_against_independent_solver": {
+                    n: (None if v is None else bool(v > 0.0)) for n, v in reanchored_slack.items()
+                },
                 "surrogate_slack_k": surrogate_slack,
                 "certified_from_coarse_model": {n: bool(s > 0.0) for n, s in surrogate_slack.items()},
                 "edyp": edyp,
@@ -340,6 +361,10 @@ def main() -> None:
         per_set = {}
         for set_name in sorted(group[0]["certified_slack_k"]):
             certified = [r for r in group if r["certified_slack_k"][set_name] > 0.0]
+            reanchored = [
+                r for r in group
+                if (r["reanchored_slack_k"].get(set_name) or -1.0) > 0.0
+            ]
             entry = {
                 "certified_count": len(certified), "point_count": len(group),
                 "unresolved_count": len(skipped),
@@ -353,6 +378,14 @@ def main() -> None:
                 "price_vs_worst_indistinguishable_pct": (
                     100.0 * (min(r["edyp"] for r in certified) / worst_indistinguishable - 1.0)
                     if certified else None
+                ),
+                "reanchored_certified_count": len(reanchored),
+                "reanchored_cheapest": (
+                    min(reanchored, key=lambda r: r["edyp"])["architecture"] if reanchored else None
+                ),
+                "reanchored_price_vs_best_pct": (
+                    100.0 * (min(r["edyp"] for r in reanchored) / best_value - 1.0)
+                    if reanchored else None
                 ),
             }
             per_set[set_name] = entry
@@ -368,6 +401,18 @@ def main() -> None:
                             entry["price_vs_best_pct"],
                         )
                         if certified else "  -- EMPTY"
+                    ),
+                ),
+                flush=True,
+            )
+            print(
+                "  %-12s   re-anchored on the FEM: %d of %d%s"
+                % (
+                    workload, len(reanchored), len(group),
+                    (
+                        ", cheapest %s at %+.1f%% EDYP"
+                        % (entry["reanchored_cheapest"], entry["reanchored_price_vs_best_pct"])
+                        if reanchored else "  -- EMPTY"
                     ),
                 ),
                 flush=True,
