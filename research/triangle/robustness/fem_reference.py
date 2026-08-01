@@ -299,6 +299,9 @@ def main() -> None:
     z_spr = (z_tim[1], z_tim[1] + t_spreader)
     z_sink = (z_spr[1], z_spr[1] + t_sink)
     box_z = z_sink[1]
+    # The source slab sits at the TOP of the die, which is where the active layer is. At
+    # SOURCE_FRACTION = 1 it is the whole thickness and the geometry is unchanged.
+    source_z0 = z_die[1] - SOURCE_FRACTION * DIE_THICKNESS_M
 
     x_nodes = _axis_nodes(
         [die_x0 + e for _n, x0, _y0, x1, _y1 in blocks for e in (x0, x1)]
@@ -318,9 +321,6 @@ def main() -> None:
         z_nodes.extend(z0 + (z1 - z0) * step / count for step in range(count))
     z_nodes = tuple(z_nodes) + (box_z,)
 
-    # The source slab sits at the TOP of the die, which is where the active layer is. At
-    # SOURCE_FRACTION = 1 it is the whole thickness and the geometry is unchanged.
-    source_z0 = z_die[1] - SOURCE_FRACTION * DIE_THICKNESS_M
     die_volume = SOURCE_FRACTION * DIE_THICKNESS_M
     # THE REGIONS ARE DISJOINT AND TILE THE BOX. `SteadyHeatBox` validates both, so the void is the
     # exact complement of each plate rather than a slab the plates are laid on top of.
