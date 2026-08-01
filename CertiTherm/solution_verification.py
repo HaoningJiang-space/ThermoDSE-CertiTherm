@@ -20,33 +20,41 @@ solutions at a constant refinement ratio `r`:
     observed order        p    = ln[(f_coarse - f_med) / (f_med - f_fine)] / ln(r)
     Richardson estimate   f_ex = f_fine + (f_fine - f_med) / (r^p - 1)
     uncertainty           GCI  = Fs * |(f_fine - f_med) / f_fine| / (r^p - 1),   Fs = 1.25
-    asymptotic check      GCI(coarse,med) / (r^p * GCI(med,fine))  ~=  1
+    (the textbook asymptotic check is tautological with three grids -- see below)
 
 `Fs = 1.25` is the three-grid value; the `Fs = 3` in the literature is for a two-grid study with an
 ASSUMED order, which is what the previous estimator effectively was.
 
 ## Why chip thermal work does not already do this
 
-The chip-thermal literature discusses grid resolution and "convergence" at length, but almost always
-means **iterative solver convergence** -- HotSpot iterates Kirchhoff's current law to a residual
-threshold and accelerates it with multigrid. That is convergence of the solve, not of the
-discretisation. Nothing in that pipeline compares a solution against a finer grid, and neither did
-this project: the frozen `0.01 K` contract checks LINEARITY at a fixed grid, HotSpot checks the
-ITERATION, and the discretisation error was measured by nobody.
+In the tools and papers surveyed for this work, "convergence" in chip-thermal simulation almost
+always means **iterative solver convergence** -- HotSpot iterates Kirchhoff's current law to a
+residual threshold and accelerates it with multigrid -- and no discretisation-convergence study for
+the thermal response quantities used in physical-design decisions was found. That is a scoped
+observation about what a survey turned up, not a claim about the whole field; peer review was right
+that two search results cannot support the stronger version.
 
-The gap is not small. Published guidance for thermal-aware physical design puts the required active
--layer resolution at `1024x1024` and beyond; this project's certified family stops at `128x128`.
+What is certain is local: the frozen `0.01 K` contract here checks LINEARITY at a fixed grid, HotSpot
+checks the ITERATION, and the discretisation error was measured by nobody until it was measured here.
+A grid-count comparison against published guidance (`1024x1024` for thermal-aware physical design
+against `128x128` here) is NOT evidence on its own -- resolution is meaningless without die
+dimensions, cell pitch, heat-source length scales and a target tolerance -- and is not relied on.
 
 ## What this module refuses to do
 
 Report an uncertainty for a solution outside the asymptotic range. Three verdicts:
 
-* `ASYMPTOTIC` -- monotone, observed order plausible, asymptotic ratio near one. A GCI is returned
-  and it is a defensible error bar.
+* `PLAUSIBLE_ORDER` -- monotone and the observed order sits in a plausible band. A GCI is returned.
+  The name is deliberate: with three grids and a one-term model `f_0 + C h^p` there are exactly as
+  many observations as parameters, so nothing is left over to TEST the model with. A plausible order
+  is consistent with asymptotic behaviour; it is not evidence of it, and calling the verdict
+  `ASYMPTOTIC` claimed evidence that three points cannot carry. Peer review named this.
 * `OSCILLATORY` -- the two differences have opposite signs. Richardson extrapolation does not apply;
   no uncertainty is returned.
-* `NOT_ASYMPTOTIC` -- monotone but the asymptotic ratio is far from one, or the observed order is
-  implausible. No uncertainty is returned.
+* `IMPLAUSIBLE_ORDER` -- monotone but the observed order is outside the band. No uncertainty. Note
+  what this does NOT establish: a high observed order may be cancellation, superconvergence, an
+  active-set change, or the solver noise floor rather than a failure to converge. Refusing is
+  conservative; the diagnosis is not a proof of non-convergence.
 
 The last two are `UNRESOLVED` in this project's vocabulary: the honest output is that the
 discretisation error is unknown, not that it is large.
@@ -68,8 +76,9 @@ SAFETY_FACTOR_THREE_GRID = 1.25
 # conservative choice here: `GCI` scales as `1 / (r^p - 1)`, so a smaller `p` gives a LARGER bar.
 FORMAL_ORDER = 2.0
 
-# Below this the sequence is barely converging and the extrapolation is not trustworthy; clamping
-# here rather than at zero keeps `r^p - 1` away from zero, where the GCI diverges.
+# The band's lower edge doubles as the floor: an order below it is REFUSED rather than clamped, so
+# the clamp only ever binds from above. Kept as a named constant because `r^p - 1` diverges as
+# `p -> 0` and a future widening of the band must not reintroduce that.
 ORDER_FLOOR = 0.5
 
 # The band of observed orders that counts as asymptotic behaviour for this discretisation. HotSpot's
@@ -78,8 +87,9 @@ ORDER_FLOOR = 0.5
 # evidence they are not.
 #
 # This replaces the textbook check `GCI(coarse,med) / (r^p * GCI(med,fine)) ~= 1`, which is
-# TAUTOLOGICAL with three grids: substituting the observed `p`, defined as
-# `ln(e_cm/e_mf)/ln(r)`, makes the error-ratio cancel exactly and leaves only `f_fine/f_med`. The
+# TAUTOLOGICAL with three grids WHENEVER THE OBSERVED ORDER IS USED UNCLAMPED: substituting
+# `p = ln(e_cm/e_mf)/ln(r)` makes the error ratio cancel exactly and leaves `|f_fine/f_med|`. It is
+# not tautological for a clamped order, which is why the reported ratio is still worth printing. The
 # first version of this module used it and refused a textbook-clean case -- `heldout_radii_09`,
 # monotone with `p = 1.45` -- purely because its solution had moved 15 % between grids. That check
 # is meaningful only with FOUR or more grids, or with an assumed formal order; with three and an
@@ -103,30 +113,46 @@ def verify(f_coarse: float, f_medium: float, f_fine: float, refinement_ratio: fl
         raise ValueError(f"all three grid solutions must be finite, got {values}")
     if not math.isfinite(refinement_ratio) or refinement_ratio <= 1.0:
         raise ValueError(f"the refinement ratio must be finite and above 1, got {refinement_ratio}")
-    if f_fine == 0.0:
-        raise ValueError(
-            "the fine-grid solution is exactly zero, so a relative error is undefined; a functional "
-            "that can vanish must be verified in absolute form instead"
-        )
+    # A vanishing fine-grid value is a CENTRAL case here, not a degenerate one: `beta* = 0` is what
+    # a nominally infeasible design returns, and this project produces those. The relative index is
+    # undefined there but the ABSOLUTE one, `Fs |f_f - f_m| / (r^p - 1)`, is perfectly well defined.
+    # Refusing zero would make the API unable to describe its own most important outcome. Peer
+    # review caught this.
+    relative_is_defined = f_fine != 0.0
 
     e_coarse_medium = f_medium - f_coarse
     e_medium_fine = f_fine - f_medium
 
     if e_medium_fine == 0.0 and e_coarse_medium == 0.0:
-        # Identical on all three grids. Converged to machine precision, not a degenerate input.
+        # Identical on all three grids. NOT reported as zero uncertainty: three equal floats can
+        # come from a solver tolerance, a quantised output, a duplicated input or a common bias, and
+        # none of those is evidence of a converged discretisation. Peer review objected to the
+        # earlier reading and was right.
         return {
-            "verdict": "ASYMPTOTIC", "observed_order": float("inf"), "order_used": FORMAL_ORDER,
-            "extrapolated": f_fine, "uncertainty": 0.0, "relative_uncertainty": 0.0,
-            "asymptotic_ratio": 1.0, "note": "identical on all three grids",
+            "verdict": "DEGENERATE", "observed_order": None, "order_used": None,
+            "extrapolated": None, "uncertainty": None, "relative_uncertainty": None,
+            "asymptotic_ratio": None,
+            "note": (
+                "identical on all three grids; that is consistent with convergence but equally with "
+                "a tolerance floor, a quantised output or a duplicated input, so no uncertainty is "
+                "claimed"
+            ),
         }
-    if e_medium_fine == 0.0:
-        raise ValueError(
-            "the medium and fine grids agree exactly while the coarse one differs; the observed "
-            "order is undefined and this is far more likely a duplicated input than a converged one"
-        )
+    if e_medium_fine == 0.0 or e_coarse_medium == 0.0:
+        # One difference vanishes and the other does not. The observed order is undefined -- and a
+        # zero difference is not "opposite signs", so calling it oscillatory was wrong.
+        return {
+            "verdict": "DEGENERATE", "observed_order": None, "order_used": None,
+            "extrapolated": None, "uncertainty": None, "relative_uncertainty": None,
+            "asymptotic_ratio": None,
+            "note": (
+                f"one successive difference is exactly zero ({e_coarse_medium:+.6g} then "
+                f"{e_medium_fine:+.6g}); the observed order is undefined"
+            ),
+        }
 
     ratio = e_coarse_medium / e_medium_fine
-    if ratio <= 0.0:
+    if ratio < 0.0:
         # Opposite signs: the solution overshoots and comes back. Richardson extrapolation assumes a
         # monotone error series and does not apply, so no uncertainty is produced.
         return {
@@ -144,19 +170,24 @@ def verify(f_coarse: float, f_medium: float, f_fine: float, refinement_ratio: fl
     denominator = refinement_ratio ** order_used - 1.0
 
     extrapolated = f_fine + e_medium_fine / denominator
-    relative_fine = abs(e_medium_fine / f_fine)
-    gci_fine = SAFETY_FACTOR_THREE_GRID * relative_fine / denominator
-    relative_coarse = abs(e_coarse_medium / f_medium) if f_medium != 0.0 else float("inf")
-    gci_coarse = SAFETY_FACTOR_THREE_GRID * relative_coarse / denominator
+    # ABSOLUTE first, because it is always defined; the relative index is the absolute one divided
+    # by the fine value and only exists when that value does not vanish.
+    absolute = SAFETY_FACTOR_THREE_GRID * abs(e_medium_fine) / denominator
+    gci_fine = absolute / abs(f_fine) if relative_is_defined else None
+    gci_coarse = (
+        SAFETY_FACTOR_THREE_GRID * abs(e_coarse_medium / f_medium) / denominator
+        if f_medium != 0.0 else float("inf")
+    )
 
     # Reported, not used as the gate -- see ASYMPTOTIC_ORDER_BAND for why it is tautological here.
     asymptotic_ratio = (
-        gci_coarse / (refinement_ratio ** order_used * gci_fine) if gci_fine > 0 else float("inf")
+        gci_coarse / (refinement_ratio ** order_used * gci_fine)
+        if gci_fine not in (None, 0.0) else None
     )
     low, high = ASYMPTOTIC_ORDER_BAND
     if not (low <= observed_order <= high):
         return {
-            "verdict": "NOT_ASYMPTOTIC", "observed_order": observed_order,
+            "verdict": "IMPLAUSIBLE_ORDER", "observed_order": observed_order,
             "order_used": order_used, "extrapolated": None, "uncertainty": None,
             "relative_uncertainty": None, "asymptotic_ratio": asymptotic_ratio,
             "note": (
@@ -166,9 +197,9 @@ def verify(f_coarse: float, f_medium: float, f_fine: float, refinement_ratio: fl
             ),
         }
     return {
-        "verdict": "ASYMPTOTIC", "observed_order": observed_order, "order_used": order_used,
+        "verdict": "PLAUSIBLE_ORDER", "observed_order": observed_order, "order_used": order_used,
         "extrapolated": extrapolated,
-        "uncertainty": gci_fine * abs(f_fine),
+        "uncertainty": absolute,
         "relative_uncertainty": gci_fine,
         "asymptotic_ratio": asymptotic_ratio,
         "note": (
