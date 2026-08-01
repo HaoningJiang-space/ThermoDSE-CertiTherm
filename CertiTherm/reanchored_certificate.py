@@ -75,6 +75,37 @@ class ReanchoredCertificate:
         return self.slack_k >= 0.0
 
 
+def assert_box_is_the_feasible_set(space: PowerPolytope, total_w: float) -> None:
+    """Refuse a polytope the vectorised greedy cannot see -- checked PER INSTANCE, not assumed.
+
+    `_extreme_rows` maximises over `lower <= p <= upper, sum(p) = total` and nothing else. That is
+    the exact supremum over the DECLARED set only when every inequality row is redundant. This
+    project proved the redundancy for `activity_bounded_power_space` -- `upper_i <= q_i(1+s)` gives
+    `sum_C p <= (1+s) Q_C = b_C` -- but a proof about one constructor is not a property of the type,
+    and peer review was right that treating it as one is how the class-total rows came to be dropped
+    silently in the first place. **The third time this defect appeared it was in code written to fix
+    the first two.** So it is checked here, on the instance, every time.
+
+    Redundancy means the box alone already satisfies the row: `b_ub - a_ub @ upper >= 0`. When it
+    holds the inequality removes nothing and ignoring it is exact; when it does not, this refuses
+    rather than returning a bound over a larger set.
+    """
+
+    a_ub = np.atleast_2d(np.asarray(space.a_ub, dtype=float))
+    if a_ub.size:
+        b_ub = np.atleast_1d(np.asarray(space.b_ub, dtype=float))
+        upper = np.asarray(space.upper_w, dtype=float)
+        slack = b_ub - a_ub @ upper
+        if not np.all(np.isfinite(slack)) or np.any(slack < -1e-9):
+            worst = int(np.argmin(slack))
+            raise ValueError(
+                f"inequality row {worst} is not redundant over the box (slack {slack[worst]:.3e}); "
+                "the vectorised greedy maximises over the box alone, so ignoring it would bound a "
+                "LARGER set than the polytope declares"
+            )
+    _assert_single_total_equality(space, total_w)
+
+
 def _assert_single_total_equality(space: PowerPolytope, total_w: float) -> None:
     """The bound below understands ONE equality: `sum(p) = total_w`. Anything else must refuse.
 

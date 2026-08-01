@@ -53,7 +53,7 @@ import numpy as np
 
 from .core import PowerPolytope
 from .cross_grid_bound import _extreme_rows
-from .reanchored_certificate import _assert_single_total_equality
+from .reanchored_certificate import assert_box_is_the_feasible_set
 
 ENDPOINTS = ("tool_compatible", "active_silicon", "any_layer")
 
@@ -140,7 +140,7 @@ def certify_cells(
             f"no cell is labelled for the {endpoint!r} endpoint; the operator and the endpoint "
             "disagree about what this package contains"
         )
-    _assert_single_total_equality(space, total_w)
+    assert_box_is_the_feasible_set(space, total_w)
     lower = np.asarray(space.lower_w, dtype=float)
     upper = np.asarray(space.upper_w, dtype=float)
     peaks = _extreme_rows(rows[selected], lower, upper, total_w) + ambient[selected]

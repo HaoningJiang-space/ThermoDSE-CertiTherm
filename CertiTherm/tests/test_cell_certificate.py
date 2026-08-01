@@ -119,3 +119,35 @@ def test_a_total_that_disagrees_with_the_polytope_refuses() -> None:
             _ROWS, _AMB, _LABELS, _SPACE, _TOTAL + 1.0, endpoint="active_silicon",
             limit_k=330.0, margin_k=0.05, linearisation_k=0.01,
         )
+
+
+def test_a_nonredundant_inequality_refuses_because_the_greedy_cannot_see_it() -> None:
+    """The third appearance of one defect, and the first time it is checked per instance.
+
+    `_extreme_rows` maximises over the box with a total. Every inequality row it ignores enlarges the
+    set it actually bounds. The project PROVED redundancy for one constructor, and that proof was
+    then treated as a property of the type -- which is how the rows came to be dropped twice before.
+    """
+
+    binding = PowerPolytope(
+        lower_w=_LOWER, upper_w=_UPPER,
+        a_eq=np.ones((1, 3)), b_eq=np.array([_TOTAL]),
+        a_ub=np.array([[1.0, 1.0, 0.0]]), b_ub=np.array([1.0]),
+    )
+    with pytest.raises(ValueError, match="not redundant"):
+        certify_cells(
+            _ROWS, _AMB, _LABELS, binding, _TOTAL, endpoint="active_silicon",
+            limit_k=330.0, margin_k=0.05, linearisation_k=0.01,
+        )
+
+
+def test_a_redundant_inequality_is_accepted_because_ignoring_it_is_then_exact() -> None:
+    redundant = PowerPolytope(
+        lower_w=_LOWER, upper_w=_UPPER,
+        a_eq=np.ones((1, 3)), b_eq=np.array([_TOTAL]),
+        a_ub=np.array([[1.0, 1.0, 0.0]]), b_ub=np.array([float(_UPPER[0] + _UPPER[1])]),
+    )
+    assert certify_cells(
+        _ROWS, _AMB, _LABELS, redundant, _TOTAL, endpoint="active_silicon",
+        limit_k=330.0, margin_k=0.05, linearisation_k=0.01,
+    ).sup_peak_k > 0.0
