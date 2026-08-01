@@ -125,7 +125,7 @@ preferring whichever operator loaded first.
 * **The rows are block averages, and the block-average peak understates the cell peak** by 0.18 K on
   the one architecture where it was measured (`docs/WHERE_THE_THERMAL_ERROR_ACTUALLY_IS.md`). A
   certificate over block averages does not imply one over the physical peak. The cell-level
-  construction exists (`cell_level_bound.py`, 3.10 K max over `content_upper_bounds` on one
+  construction exists (`cell_certificate_run.py`, 3.10 K max over `content_upper_bounds` on one
   architecture) but has not been run under the activity-bounded set or across architectures.
 * **The activity span is declared, not measured.** The breakpoint at 0.36 is meaningful only against
   a power model somebody is willing to be held to at that accuracy.
