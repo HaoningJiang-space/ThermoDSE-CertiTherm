@@ -114,6 +114,15 @@ def budgeted_error_k(linearisation_error_k: float, drift_k: float) -> float:
     Refusing the operator outright and budgeting it are both fail-closed. Budgeting is strictly more
     useful at equal soundness, so refusal is reserved for a band so wide the decision is vacuous --
     which the caller decides, since only it knows the ambient and the limit.
+
+    **This function does not make a certificate sound, and an earlier version of this docstring said
+    it did.** `drift_k` here comes from a maximum over five calibration vectors, and a maximum over
+    five power maps is not a bound over the polytope the certificate quantifies over. Peer review
+    caught the inconsistency. `CertiTherm/cross_grid_bound.py` computes the genuine polytope-wide
+    supremum in closed form, per row, and is what a soundness claim must rest on; this remains a
+    cheap per-model estimate for the operator-build gate. The Richardson factor is also assumed
+    rather than established -- `CertiTherm/solution_verification.py` is where that assumption is
+    tested, and it refuses two thirds of the measured registry.
     """
 
     if not math.isfinite(linearisation_error_k) or linearisation_error_k < 0.0:

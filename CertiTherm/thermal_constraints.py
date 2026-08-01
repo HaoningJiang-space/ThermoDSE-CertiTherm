@@ -77,7 +77,16 @@ def robust_safe_cell_rows(
 def reject_cell_floor(
     thermal: ThermalFamily, margin_k: float, model: int, point: int
 ) -> float:
-    """The temperature a power map must REACH at one (model, point) to be rejected.
+    """The temperature at which a power map stops being certifiably safe at one (model, point).
+
+    **What REJECT means here, precisely, because the name overstates it.** With a model error
+    bounded by `e`, a GUARANTEED-safe verdict needs `T_model <= limit - e` and a GUARANTEED-unsafe
+    one needs `T_model >= limit + e`. This floor SUBTRACTS `e`, so crossing it proves only that the
+    true temperature COULD exceed the limit -- "not certifiably safe", or "possibly unsafe", not
+    "proven unsafe". That is the correct predicate for a fail-closed acceptance policy, which must
+    refuse anything it cannot certify, and it is what the whole pipeline decides. It is NOT a proof
+    that the design fails, and prose that reads "REJECT" as a physical rejection is overstating it.
+    Peer review found the conflation.
 
     `response . p >= limit + margin - error - ambient`. The mirror of
     `robust_safe_cell_rows`, and deliberately next to it: the two differ only in the sign of
