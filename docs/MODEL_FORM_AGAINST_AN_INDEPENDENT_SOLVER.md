@@ -3,8 +3,13 @@
 > **THE BAND IS PARTLY THE BOUNDARY REALISATION, NOT MODEL FORM.** Measured 2026-08-02: driving the
 > sink towards the isothermal limit -- which is what HotSpot's *lumped* sink-to-ambient node is --
 > moves the FEM peak **-0.734 K** (sink conductivity x10, energy balance 2.07e-07, admissible; x100
-> and x1000 were refused by the gate at 2.4e-06 and 5.3e-06, with x1000 reading -0.834 K before it
-> was refused). The measured model-form band is 0.251-1.061 K in the direction "FEM hotter than
+> and x1000 were refused by the gate). **Refining the sink mesh does not rescue them**: x100 at 24
+> z-cells and x1000 at 32 were also refused, so the failure is not through-thickness resolution but
+> the material contrast itself degrading the problem -- which is the `k_max/k_min` coercivity
+> degradation peer review predicted. The isothermal limit is therefore **not reachable by scaling
+> conductivity**, and separating this term needs the lumped sink-to-ambient node implemented directly
+> as a boundary condition. Until then -0.734 K is a single admissible point below the true limit,
+> establishing the direction and a lower bound on the magnitude, not the magnitude. The measured model-form band is 0.251-1.061 K in the direction "FEM hotter than
 > HotSpot". **A boundary-realisation term of the same sign and comparable magnitude sits inside it**,
 > so the band as reported is an upper bound on model form and not an estimate of it. The other two
 > declared equivalences are safe: source depth moves the peak +0.0201 K and the void filler +0.0000 K.
