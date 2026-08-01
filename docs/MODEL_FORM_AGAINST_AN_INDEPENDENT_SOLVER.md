@@ -93,10 +93,36 @@ path, and the difference would have been reported as HotSpot's model-form error.
 conserves energy exactly. What guards the matching is the input parsing above plus the explicit
 ledger of what was assumed equivalent.
 
+## Two corrections from peer review, neither of which moved a number
+
+**The class-total constraints were being dropped at the call site.** `activity_bounded_power_space`
+returns a `PowerPolytope` carrying per-content-class aggregate caps in `a_ub`/`b_ub`, and the callers
+passed only `lower_w` and `upper_w`. Maximising without them bounds a LARGER set, which is sound --
+it can never certify something that should be refused -- but it inflates every band and depresses the
+certified fraction. The bound now solves the full polytope by LP.
+
+**The measured effect is zero, and there is a reason.** `upper = min(placed * (1 + span),
+content_upper_bounds) <= placed * (1 + span)`, so each class's members already sum to at most
+`class_total * (1 + span)`, which is exactly `b_ub`. The caps are implied by the box. Measured:
+`b_ub - a_ub @ upper` is zero to machine precision at spans 0.05, 0.30 and 1.20, and the LP agrees
+with the greedy to **1.07e-9 K** across every peak and band on the development split. This is a
+property of the current construction and not a theorem about the method, so it is pinned by a test
+whose failure message says the LP path has become load-bearing.
+
+**The FEM mesh was sized by the package, not by the die.** The box is 60 mm on a side regardless of
+how large the die is, so a small die gets proportionally fewer cells. Refining it on the smallest
+archive die (5.72 x 11.88 mm) moves the model-form band **0.6093 -> 0.6673 -> 0.6905 K** for cell
+counts 80 -> 160 -> 320 per axis, contracting by a factor of 2.5 per doubling (observed order
+`p ~ 1.32`, Richardson limit ~0.706 K). **A coarse mesh UNDERSTATES the band**, which makes
+certification easier, so this is the optimistic direction and it was corrected before any verdict
+was read. The preregistration fixes the FEM tolerances but not the mesh, so raising it is not a
+protocol change; and because it can only enlarge the band it could never have been a rescue.
+
 ## What this does NOT establish
 
 * **3 architectures, 2 workloads, one package.** Six points.
-* **The FEM is a reference, not ground truth.** Its own mesh convergence is not established; its
+* **The FEM is a reference, not ground truth.** Its mesh convergence is now measured on one design
+  (order ~1.32, Richardson tail ~0.015 K at the finest mesh) but not on all of them; its
   operator NPZ carries `error_k = NaN` deliberately, so any attempt to certify *against* it through
   the normal machinery refuses rather than silently succeeding.
 * **Three assumptions are declared equivalent, not matched**, and each is falsifiable by a
