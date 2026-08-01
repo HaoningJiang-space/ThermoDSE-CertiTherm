@@ -113,12 +113,15 @@ preferring whichever operator loaded first.
 * **3 architectures, 2 workloads.** A curve through 6 points. The other nine architectures in the
   registry are the three frozen held-out splits and are deliberately not run; they are out of scope,
   not unresolved.
-* **`grid512` is a reference, not ground truth.** Every band here is *within HotSpot*. Grid
-  refinement bounds HotSpot's own discretisation error; it does not bound HotSpot's model-form error
-  against physical temperature. No claim here is validated against an independent solver. **3D-ICE
-  cannot supply one**: its layer spec carries no per-layer footprint while the chip dimensions are
-  global, so this package's three distinct footprints (die 21.6962 x 17.95 mm, spreader 50 mm, sink
-  60 mm) cannot coexist; truncating them inserts ~2.57 K of series copper against a 0.095 K margin.
+* **`grid512` is a reference, not ground truth, and every band on this page is *within HotSpot*.**
+  Grid refinement bounds HotSpot's own discretisation error; it does not bound its model-form error.
+  **That gap has since been closed**: `docs/MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` measures
+  HotSpot against a DOLFINx FEM reference and finds model form is 1.4-11.8x the complete refinement
+  tail, one-signed (HotSpot underestimates), and that the frontier survives it at 5 of 6 points with
+  the same +32.1 % price. 3D-ICE could not have supplied that reference: its layer spec carries no
+  per-layer footprint while the chip dimensions are global, so this package's three distinct
+  footprints cannot coexist; truncating them inserts ~2.57 K of series copper against a 0.095 K
+  margin.
 * **The rows are block averages, and the block-average peak understates the cell peak** by 0.18 K on
   the one architecture where it was measured (`docs/WHERE_THE_THERMAL_ERROR_ACTUALLY_IS.md`). A
   certificate over block averages does not imply one over the physical peak. The cell-level

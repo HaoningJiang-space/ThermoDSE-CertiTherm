@@ -1,0 +1,111 @@
+# The model-form error, measured against an independent solver
+
+RESULT 2026-08-01. Development split (`arch_a`, `arch_b`, `arch_c`) x 2 workloads, `default`
+package. The three held-out splits are untouched.
+
+Every error band this project had measured was **within HotSpot** — `block` against `grid128`,
+`grid128` against `grid512`. Grid refinement bounds HotSpot's own discretisation error and cannot
+bound its model-form error, because every member of that family shares the same structural
+assumptions and the whole family can agree while being wrong together in the same direction. This is
+the first measurement against a solver that does not share them.
+
+## Why an FEM reference is cheap, which is a property of the physics
+
+Steady conduction with temperature-independent conductivity and Robin cooling is **linear in the
+power vector**, so the FEM map is affine, `T = R p + a`, exactly like HotSpot's. Three consequences,
+none of which is an engineering trick:
+
+* The operator is built by `n + 1` impulse solves, not by sampling power maps.
+* **The stiffness matrix does not depend on the power map**, so all `n + 1` solves share one
+  factorisation. On one A800 through cuDSS: **182 solves in 30 s** for a 181-block architecture.
+* **`one_sided_containment_bounds` and `peak_over_polytope` apply unchanged.** The whole polytope
+  machinery built for cross-grid comparison transfers to cross-solver comparison without
+  modification, because linearity is a property of the PDE and not of HotSpot.
+
+3D-ICE could not supply this reference: its layer spec carries no per-layer footprint while the chip
+dimensions are global, so a package with die, spreader and sink at three different footprints cannot
+be represented, and truncating them inserts ~2.57 K of series copper against a 0.095 K margin.
+DOLFINx can, because `BoxRegion` carries explicit three-dimensional bounds per region.
+
+## The result: model form dominates discretisation, and it has a sign
+
+Polytope-wide, per row, one-sided, at a declared per-block activity span of 0.30:
+
+| architecture / workload | refinement tail `grid128 -> grid512` | **model form `grid512` vs FEM** | ratio |
+| --- | --- | --- | --- |
+| `arch_a` / resnet50 | 0.051 K | **0.535 K** | 10.4x |
+| `arch_a` / transformer | 0.084 K | **0.984 K** | 11.8x |
+| `arch_b` / resnet50 | 0.225 K | **0.612 K** | 2.7x |
+| `arch_b` / transformer | 0.339 K | **1.061 K** | 3.1x |
+| `arch_c` / resnet50 | 0.186 K | **0.251 K** | 1.4x |
+| `arch_c` / transformer | 0.300 K | **0.467 K** | 1.6x |
+
+**Model form is 1.4 to 11.8 times the complete refinement tail.** Refining the grid is not where the
+error is. This was predicted from first principles before the run: HotSpot's spreader and sink are a
+lumped resistance network that decomposes spreading into a centre block plus peripheral trapezoids,
+which is a *structural* assumption no amount of grid refinement can expose, while within the 150 um
+die at a 130:1 aspect ratio a 2-D lateral network is a good approximation.
+
+**The disagreement has one sign.** At the nominal power map, `T_FEM - T_grid512` is
+**+0.20 to +0.86 K on all six points** — the FEM reads hotter everywhere. HotSpot **systematically
+underestimates**, which is independently what Fetis and Seznec reported (WDDD 2006). It is also the
+worst direction for a certificate: an optimistic thermal model produces optimistic feasibility.
+
+Against the frozen `0.01 K` contract the model-form term is **20-86x at the nominal map** and
+**25-106x over the polytope**. The contract measures direct HotSpot replay against impulse
+superposition — a linearisation residual of one operator — and never contained this term at all.
+
+## The re-anchored frontier, which is the deliverable
+
+Certificate: `sup_p T_grid512(p) + sup_p [T_FEM(p) - T_grid512(p)] <= 330.0 - 0.05 - 0.01`. The
+model-form band is folded in **one-sidedly**, so it can only make certification harder. The
+linearisation term is retained rather than replaced, because it is a different error source.
+
+| per-block activity span | resnet50 | transformer | cheapest certified | price |
+| --- | --- | --- | --- | --- |
+| 0.05 - 0.10 | 3 of 3 | 3 of 3 | `arch_b` (the EDYP optimum) | **+0.0 %** |
+| **0.20 - 1.20** | 3 of 3 | **2 of 3** | `arch_c` (transformer) | **+32.1 %** |
+
+**The frontier is non-empty: 5 of 6 points certify against the independent solver**, and the price of
+robustness is **+0.0 %** for resnet50 and **+32.1 %** for transformer. The breakpoint moves from a
+span of 0.36 (HotSpot-only budget) to between 0.10 and 0.20 once model form is budgeted, and the
+answer is then **stable across a 6x range of declared power-model accuracy**.
+
+`+32.1 %` is now the same figure from **three independent routes**: forward budgeting with
+within-HotSpot bands, a backward robustness radius (`tau*`), and forward budgeting with an
+independent-solver model-form band. The three share the architecture switch (`arch_b -> arch_c`)
+as well as the price.
+
+## What was checked, because a mismatched stack would have looked like model-form error
+
+`_assert_matches_hotspot_inputs` parses the real template and materials file and refuses on drift.
+Per solve: energy balance **4.0e-9**, impulse power error **4.5e-14 W**, zero-solve offset from
+ambient **4.9e-10 K**. Geometry is validated before any GPU time: every mesh cell owned by exactly
+one region, all 181 die blocks owning cells.
+
+**One real geometry error was caught by peer review before the first run.** The TIM was sized to the
+spreader; `temperature_block.c:119` builds one interface node per floorplan unit from
+`flp->units[i].width/height`, so HotSpot's interface layer is the **die** footprint. A
+spreader-sized TIM would have laid a 20 um k=4 sheet under the whole overhang, changed the spreading
+path, and the difference would have been reported as HotSpot's model-form error.
+
+**Energy balance is a numerical check, not a physics-matching check.** A closed but wrong geometry
+conserves energy exactly. What guards the matching is the input parsing above plus the explicit
+ledger of what was assumed equivalent.
+
+## What this does NOT establish
+
+* **3 architectures, 2 workloads, one package.** Six points.
+* **The FEM is a reference, not ground truth.** Its own mesh convergence is not established; its
+  operator NPZ carries `error_k = NaN` deliberately, so any attempt to certify *against* it through
+  the normal machinery refuses rather than silently succeeding.
+* **Three assumptions are declared equivalent, not matched**, and each is falsifiable by a
+  sensitivity run not yet done: block power volumetric over the full die thickness (matching
+  HotSpot's lumped element, not the physically thin active layer); the void outside each plate
+  filled with still air rather than a stepped domain; and `r_convec` realised as a uniform Robin
+  coefficient over the sink top rather than as HotSpot's lumped sink-to-ambient node.
+* **The rows are block averages.** On the FEM, a unit impulse puts the domain maximum **2.06 K**
+  above the hottest block average, so a certificate over block averages does not imply one over the
+  physical peak. This is the independent-solver analogue of the 0.18 K understatement measured
+  inside HotSpot, and it is reported rather than folded in.
+* **The activity span is declared, not measured.**
