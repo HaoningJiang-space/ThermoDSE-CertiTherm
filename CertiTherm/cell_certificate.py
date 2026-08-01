@@ -20,8 +20,16 @@ anything. So the object being certified has to be stated:
 * **`tool_compatible`** -- the maximum HotSpot grid value over **die** cells. This is what
   ThermoDSE's own `find_hotpoint` reports (minus its scan over passive layers), so it is the endpoint
   that makes this project's verdicts comparable with the upstream tool's.
-* **`active_silicon`** -- the supremum over cells belonging to any heat-generating region. On a
+* **`active_silicon`** -- the same over cells belonging to any heat-generating region. On a
   single-die package these coincide; on a stack they do not, and the difference is not a detail.
+
+**Neither is a junction-temperature certificate, and the field name says so.** A HotSpot grid value
+is a CELL AVERAGE, so `max_j sup_p T_j(p)` is a worst-case maximum of cell averages -- correct as a
+discrete, tool-compatible quantity, and *not* a bound on the pointwise temperature inside a cell.
+Refinement alone does not close that gap: it needs a one-sided within-cell bound, from an a-posteriori
+estimate or a comparison-principle supersolution. Until that exists the result is
+`worst_case_max_cell_average_k` and must not be quoted as a junction limit. Peer review asked for
+this naming twice.
 
 Certifying the whole box -- every cell of every layer, which is what `find_hotpoint` literally does --
 is available as `any_layer` but is **not** a junction criterion and is offered only for reproducing
@@ -63,7 +71,7 @@ class CellCertificate:
     """One design, one uncertainty set, one NAMED endpoint."""
 
     endpoint: str
-    sup_peak_k: float
+    worst_case_max_cell_average_k: float
     argmax_cell: int
     comparison_band_k: float
     slack_k: float
@@ -73,7 +81,7 @@ class CellCertificate:
         if self.endpoint not in ENDPOINTS:
             raise ValueError(f"endpoint must be one of {ENDPOINTS}, got {self.endpoint!r}")
         for name, value in (
-            ("sup_peak_k", self.sup_peak_k),
+            ("worst_case_max_cell_average_k", self.worst_case_max_cell_average_k),
             ("comparison_band_k", self.comparison_band_k),
             ("slack_k", self.slack_k),
         ):
@@ -110,7 +118,8 @@ def certify_cells(
     comparison_rows: Optional[np.ndarray] = None,
     comparison_ambient: Optional[np.ndarray] = None,
 ) -> CellCertificate:
-    """`max_j sup_p T_j(p) (+ band) <= limit - margin - linearisation`, over the selected cells.
+    """`max_j sup_p T_j(p) (+ band) <= limit - margin - linearisation` over the selected cells,
+    where `T_j` is a CELL AVERAGE and the result is therefore not a pointwise bound.
 
     `cell_endpoint[j]` labels cell `j` with the narrowest endpoint it belongs to, and the selection
     is by containment: `active_silicon` cells are also `any_layer` cells. Restricting the rows is
@@ -160,7 +169,7 @@ def certify_cells(
         band = max(float(np.max(_extreme_rows(difference, lower, upper, total_w) + offset)), 0.0)
     return CellCertificate(
         endpoint=endpoint,
-        sup_peak_k=peak,
+        worst_case_max_cell_average_k=peak,
         argmax_cell=int(np.flatnonzero(selected)[winner]),
         comparison_band_k=band,
         slack_k=limit_k - margin_k - linearisation_k - peak - band,

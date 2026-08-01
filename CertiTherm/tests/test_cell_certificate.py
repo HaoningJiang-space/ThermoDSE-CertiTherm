@@ -36,7 +36,7 @@ def test_a_wider_endpoint_can_only_be_hotter_because_it_admits_more_rows() -> No
     direction that silently drops the hottest silicon from a certificate about silicon.
     """
 
-    peaks = [_certify(e).sup_peak_k for e in ENDPOINTS]
+    peaks = [_certify(e).worst_case_max_cell_average_k for e in ENDPOINTS]
     assert peaks[0] <= peaks[1] <= peaks[2], peaks
     assert [_certify(e).cells_considered for e in ENDPOINTS] == [1, 2, 3]
 
@@ -150,4 +150,4 @@ def test_a_redundant_inequality_is_accepted_because_ignoring_it_is_then_exact() 
     assert certify_cells(
         _ROWS, _AMB, _LABELS, redundant, _TOTAL, endpoint="active_silicon",
         limit_k=330.0, margin_k=0.05, linearisation_k=0.01,
-    ).sup_peak_k > 0.0
+    ).worst_case_max_cell_average_k > 0.0

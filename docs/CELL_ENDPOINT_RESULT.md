@@ -1,12 +1,18 @@
 # The cell endpoint breaks the tightest point, and the conclusion survives it
 
+> **The certified object is `max_j sup_p T_j(p)` where `T_j` is a HotSpot CELL AVERAGE.** That is a
+> discrete, tool-compatible quantity and **not** a bound on the pointwise temperature inside a
+> cell; closing that needs a one-sided within-cell bound (a-posteriori estimate or a
+> comparison-principle supersolution), which does not exist yet. Nothing here is a junction-limit
+> certificate.
+
 RESULT 2026-08-02. Development split, `grid128` cell operators (16 384 die cells each), activity span
 0.30, endpoint `tool_compatible` (die cells only). HotSpot alone -- **no FEM model-form band folded
 in**, so this is strictly the endpoint change.
 
 `limit - margin - linearisation = 330.0 - 0.05 - 0.01 = 329.94 K`.
 
-| case | `sup_p` over cells | `sup_p` over the exact block projection | gap | slack | verdict |
+| case | `worst_case_max_cell_average` | `sup_p` over the exact block projection | gap | slack | verdict |
 | --- | --- | --- | --- | --- | --- |
 | `arch_b` / resnet50 | 325.4619 K | 325.0550 K | +0.4068 | **+4.4781** | CERTIFIED |
 | **`arch_b` / transformer** | **330.3018 K** | 329.6787 K | **+0.6230** | **-0.3618** | **REFUSED** |

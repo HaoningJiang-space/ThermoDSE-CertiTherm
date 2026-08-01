@@ -208,12 +208,12 @@ def _report(capture, operator_path, out_path, model_id, span):
         "capture": Path(capture).name, "model": model_id, "span": span,
         "blocks": len(blocks), "cells": int(rows.shape[0]),
         "endpoint": cell.endpoint,
-        "sup_peak_over_cells_k": cell.sup_peak_k,
+        "worst_case_max_cell_average_k": cell.worst_case_max_cell_average_k,
         "argmax_cell": cell.argmax_cell,
         "slack_k": cell.slack_k,
         "certified": cell.certified,
         "sup_peak_over_exact_block_projection_k": block_peak,
-        "cell_minus_block_k": cell.sup_peak_k - block_peak,
+        "cell_minus_block_k": cell.worst_case_max_cell_average_k - block_peak,
     }
     print(json.dumps(payload, indent=1), flush=True)
     Path(out_path).write_text(json.dumps(payload, indent=1))

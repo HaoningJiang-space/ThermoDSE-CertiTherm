@@ -78,8 +78,9 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
    On `arch_c`/resnet50 at n=192 against a 321.7263 K baseline: source in the top 10 % of the die
    moves the peak **+0.0201 K**; a near-adiabatic void instead of still air moves it **+0.0000 K**.
    Those two are safe. **The Robin realisation is not**: driving the sink towards the isothermal
-   limit -- HotSpot's lumped node -- moves it **-0.7340 K** (x10, admissible; x100 and x1000 refused
-   by the energy-balance gate). That is the same sign and comparable magnitude to the entire
+   limit -- HotSpot's lumped node -- moves it **-0.7340 K** (x10, energy balance 2.07e-07, the ONLY
+   admissible point; x100 and x1000 were refused by the gate and their numbers are inadmissible and
+   must not be quoted). That is the same sign and comparable magnitude to the entire
    model-form band, so **the band is an upper bound on model form rather than a measurement of it**,
    and separating the two is now the first thing the FEM reference owes.
 4. **Scale.** Everything above rests on 3 architectures x 2 workloads x 1 package.
