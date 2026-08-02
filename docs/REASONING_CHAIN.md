@@ -25,9 +25,9 @@ because linearity is a property of the PDE and not of HotSpot.
 
 | claim | number | population | owner |
 | --- | --- | --- | --- |
-| the frozen error budget covered only linearisation | model form is **25-106x** the 0.01 K contract | dev, 3 arch x 2 workloads | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
-| discretisation is **not** where the error is | model form 0.25-1.06 K vs the complete `grid128->grid512` tail 0.05-0.34 K, a factor of **1.4-11.8** | same | same |
-| HotSpot underestimates, one-signed | `T_FEM - T_grid512` is **+0.20 to +0.86 K on all six points** | same | same |
+| the frozen error budget covered only linearisation | with the boundary matched, model form is **0-60x** the 0.01 K contract | dev, 3 arch x 2 workloads | `MODEL_FORM_ISOLATED.md` |
+| HotSpot agrees with an independent FEM once the boundary is matched | **+-0.15 K** at the nominal map, **0-0.60 K** over the polytope | same | `MODEL_FORM_ISOLATED.md` |
+
 | the refinement tail is bounded | successive ratios 1.8-2.8 per doubling, observed order `p ~ 1`, so the tail past `grid512` is no larger than the last measured step | same | `ROBUST_FEASIBLE_FRONTIER.md` |
 | GPU and CPU operators are the same map | parity **exactly 0.0 K/W** at `grid128`, `grid256`, `grid512` | 3 designs | `ARCHIVE_CENSUS_RUN_LOG.md` |
 | `gridN-avg` breaks thermal reciprocity | **2.5 - 12.0 %**, shrinking with refinement; FEM and `block` are 0.00 %. Effect on `sup_p T`: **+0.002 to +0.071 K** | dev + census | `CertiTherm/reciprocity.py` |
@@ -46,6 +46,8 @@ because linearity is a property of the PDE and not of HotSpot.
 | "the 8 K gap is a package mismatch" | refuted, configs identical | — |
 | "the 8 K gap is cell-max vs block-average" | refuted, the same-run gap is **+0.21 K median** | 40x too small |
 | "the 8 K gap is the six-workload set" | refuted for temperature (+0.30 K); **confirmed for EDYP** (971 vs 811) | — |
+| "HotSpot systematically underestimates, one-signed on six points" | **four of six negative**, residual +-0.15 K | the adapter used a distributed Robin where HotSpot uses a lumped node |
+| "model form is 25-106x the contract, 1.4-11.8x the tail" | **0-60x** and **0-11.8x**, zero on two of six | the boundary realisation was 47-100 % of it |
 | "the reciprocity break costs ~2.3 K, comparable to the model-form band" | **+0.002 to +0.071 K**, measured by symmetrising | a relative entrywise figure times a scale is not an effect on a max of weighted sums |
 
 ## Provisional -- do not quote outside this repository

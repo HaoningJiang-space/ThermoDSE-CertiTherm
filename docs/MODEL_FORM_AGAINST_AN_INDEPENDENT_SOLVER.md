@@ -1,5 +1,13 @@
 # The model-form error, measured against an independent solver
 
+> **SUPERSEDED 2026-08-02 by `MODEL_FORM_ISOLATED.md`.** Every band on this page was measured with
+> a distributed Robin coefficient over the sink top, while HotSpot uses a **lumped** sink-to-ambient
+> node. Isolating that shows the boundary realisation was **47-100 %** of what is called model form
+> here. With it removed the band is **0.000-0.604 K** rather than 0.251-1.061 K, and
+> **"HotSpot systematically underestimates" is withdrawn** -- four of six points go negative and
+> the residual is +-0.15 K. The page is kept because the corrections recorded on it are part of the
+> record; its headline numbers are not current.
+
 > **STATUS.** The frontier conclusion (`arch_b -> arch_c` for transformer, +32.1 % EDYP) is
 > **established and no longer provisional**: it holds at the cell endpoint with no band folded in
 > (`CELL_ENDPOINT_RESULT.md`), which does not depend on this document's band at all.
