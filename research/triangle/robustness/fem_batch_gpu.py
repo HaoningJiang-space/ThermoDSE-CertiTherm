@@ -31,7 +31,8 @@ added to every column.
 
 This is a second construction of an operator the project already has, so it is not trusted on its own
 merits: `--gate` runs the same problems through `solve_steady_heat_batch` and refuses unless the
-region-average temperatures agree to `PARITY_TOL_K`. The slow path stays the oracle.
+region-average temperatures agree to `PARITY_TOL_REL`, relative to the rise above ambient
+(a fixed absolute bound is a mesh-size threshold in disguise). The slow path stays the oracle.
 
 An earlier revision of this docstring promised a `--parity` flag and a capture-driven CLI. **Neither
 existed**: the module had no `main`, no `__main__`, and `solve_batch_gpu` had no callers anywhere in
@@ -40,16 +41,23 @@ implemented now, and the flag is `--gate`.
 
 ## The adjoint row identity
 
-`adjoint_rows` computes rows of the response operator the other way round -- `r_j = (K^-T c_j)^T F`
-instead of reading row `j` out of `n` forward impulse columns. The two are the same object by
-algebra, so any disagreement is an implementation defect in the dual pairing between the region
-average functional and the source map. `--gate` checks every entry.
+`adjoint_covectors` + `adjoint_rows_from_duals` compute rows of the response operator the other way
+round -- `r_j = (K^-T c_j)^T F` instead of reading row `j` out of `n` forward impulse columns. The two
+are the same object by algebra, so any disagreement is an implementation defect in the dual pairing
+between the output functional and the source map.
+
+Region-average rows alone are a weak test: written out they compare `G[j,i]` against `G[i,j]` for
+`G = S^T M^T K^-1 M S`, i.e. the symmetry of `G`, and both sides come from the same device arrays.
+So `cell_covectors_independently` builds CELL covectors from UFL cell tags instead -- a `dx` measure
+restricted to one tagged cell, no `M`, no `S`, no `dof_of_cell` -- which is also what the proposed
+mechanism actually generates. Three mutations are injected to prove the comparison can fail.
 
 It also measures the cost claim that motivates lazy row generation, and refutes it: `K` here is
 symmetric, so an adjoint solve is one more right-hand side against a factorisation that already
 exists. Generating rows lazily cannot avoid the factorisation, only additional triangular solves.
 
-NON-CLAIM diagnostic. Both gates must pass before either path is used for anything quotable.
+NON-CLAIM diagnostic. Every status in the report's `status` block must read PASS before this
+path is used for anything quotable; several are deliberately left UNTESTED/UNRESOLVED.
 
 Usage (on moe-server, from the repo root):
     /data/ziheng/conda_envs/chiplet-fem-0.11/bin/python \\
