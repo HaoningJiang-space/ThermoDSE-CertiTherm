@@ -139,3 +139,53 @@ certificate is about.
 names its replacement, and **finds a third that was not on anyone's list**: the two energy
 accountings in this pipeline do not agree, and the certificate is built on the one that is not
 reported.
+
+## DECISION: the certificate is about `E_full`, and it costs nothing to say so
+
+The question "which energy definition is the certificate about" is not open. It is answered by where
+the power map comes from: `_power_space` reads the **placed map**, which is the ptrace, and
+`gen_ptrace` (`statistic.py:221`) computes each block's power as
+
+```python
+avg_p = np.sum(self.core_dict[nn_name][:, idx, m]) * 1e-12 / latency
+```
+
+over **every** component `m`, `mtxu` and `vecu` included. So the thermal operator has only ever been
+evaluated on `E_full = e_nop + e_noc + e_dram + e_core`. **The certificate is about `E_full`. `e_tot`
+is a search objective and belongs in the objective; it is not a thermal quantity.** These are two
+different quantities with two different jobs, and the mistake was reading them as competing
+definitions of one.
+
+**And the decision costs nothing, because the extra term is not a new nonlinearity.**
+`statistic.py:81` writes
+
+```python
+self.core_dict[nn_name][:, i, :] = self.core_dict[nn_name][:, 0, :]
+```
+
+— core 0's per-component energy replicated to every core, which is the implementation of the
+"they are always fixed" comment. The compute contribution to block `i` is therefore a **constant**,
+independent of which task lands there. So
+
+```
+E_full,i(x) = E_var,i(x) + c_i          c_i constant
+```
+
+and the thermal row stays exactly as linear as before:
+
+```
+sum_i R_ji E_var,i(x)  <=  (limit - a_j) L(x) - sum_i R_ji c_i
+```
+
+Only the right-hand constant moves. **No McCormick term, no new variable, no new binary.**
+
+**What this closes and what it does not.** It closes the third obstruction found above — the two
+accountings disagree, but the disagreement is a constant the thermal row absorbs. It does **not**
+close `EXACT_MAPPING_TO_POWER_MILP`, because the *variable* part `E_var` still contains the
+hyperedge and state behaviour peer review listed (grouped multicast, placement-dependent
+reuse-source selection, buffer retention/eviction, DRAM fallback). Those are what the
+component-by-component equality test has to cover, and they remain unwritten.
+
+**Nor does it explain the residual.** A constant `c_i` cannot produce a gap that varies 4.2 % to
+18.3 % *within one workload across architectures*, so the second effect — most plausibly
+peak-versus-mean — is still unseparated and is now the only unexplained part of the measurement.
