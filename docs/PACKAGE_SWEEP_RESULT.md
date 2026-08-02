@@ -34,8 +34,19 @@ before scaling anything.
 ## The three preregistered outcomes, and which one fired
 
 * **sign flips on some package → withdraw "HotSpot systematically underestimates".**
-  **Did not fire.** The value at the nominal map is positive on **12 of 12**, ranging +0.2398 to
-  +1.0082 K. The one-signed reading survives a test that could have killed it.
+  **This has to be split into two claims, and they give different answers.** An earlier revision of
+  this document tested `max_j (T_FEM − T_coarse) < 0`, which fires only when *every* row is negative
+  and is therefore near-vacuous; peer review caught it and the corrected predicates are:
+
+  | claim | predicate | result |
+  | --- | --- | --- |
+  | **the PEAK is colder** — what the scalar band uses | `max_j T_FEM − max_j T_coarse > 0` | **holds 12/12**, gap +0.1686 to +0.7924 K |
+  | **every ROW is colder** — what per-row budgets need | `min_j (T_FEM − T_coarse) > 0` | **FAILS on 4/12**, all `arch_a` |
+
+  So "HotSpot systematically underestimates" **survives as a statement about the peak and does not
+  hold row-wise**. On `arch_a` the FEM is *colder* than HotSpot on 10–55 rows depending on the case.
+  That is not a package effect — it happens on both — and it is the same structure as the negative
+  `u_j` rows below.
 * **band tracks the package → the finding is about the spreading network and generalises.**
   **Did not fire.**
 * **band does not move → the finding is weaker but still real.** **This one.** The package moves the
@@ -47,18 +58,37 @@ before scaling anything.
 | factor | effect on the band |
 | --- | --- |
 | package (`r_convec` −29 %, sink +67 %) | **0.4 – 5.1 %** |
-| workload (resnet50 → transformer) | **1.73×** |
-| architecture (`arch_c` → `arch_a`) | **4.8×** |
+| workload (resnet50 → transformer), paired | **1.73×** |
+| architecture (`arch_c` → `arch_a`), **paired at fixed workload and package** | **2.48 – 2.72×** |
 
-**The disagreement between HotSpot and an independent FEM is a property of the spatial power map,
-not of the package.** That is a stronger and more useful statement than the one this test was built
-to defend: it means the band has to be measured per design rather than assumed from a package
-characterisation, and it explains why a single package-level guard band cannot be right for every
-architecture.
+An earlier revision of this table reported **4.8×** for the architecture effect. That was wrong: it
+compared `arch_a`/transformer against `arch_c`/resnet50 and so **changed the workload at the same
+time**. Peer review caught it. Held properly paired the effect is 2.48–2.72×, still an order above
+the package effect but not five-fold.
 
-**It also widens the reported range.** The `default`-only figure was 0.251–1.061 K; across packages
-it is **0.2997–1.4332 K**, so the top of the band is **43 % larger** than previously reported and
-the 25–106× ratio against the frozen 0.01 K contract becomes **30–143×**.
+**Within the two non-default packages tested, package changes moved the band far less than workload
+or architecture changes did.** That is the defensible form. The stronger causal reading — "the band
+is set by the power map, not the package" — is **not supported by two packages**, and peer review was
+right to reject it: `standard` and `enhanced` share a 30 mm spreader footprint, while `default` is the
+only configuration with a 50 mm spreader and it was **not included in this sweep run**. Since the
+spreader footprint is exactly the spreading-network axis the test was aimed at, the one perturbation
+most likely to move the band is the one missing. Including `default` is the next run.
+
+What the bounded observation still supports is the operational point: **the band must be measured per
+design rather than assumed from a package characterisation**, because at fixed package it varies
+2.5× across architectures and 1.7× across workloads.
+
+**It also widens the reported range — and the three populations must be kept apart.**
+
+| population | band | ratio to the frozen 0.01 K |
+| --- | --- | --- |
+| `default` only (as previously published) | 0.251 – 1.061 K | 25 – 106× |
+| this sweep, `standard` + `enhanced` | 0.2997 – 1.4332 K | 30 – 143× |
+| **combined, all three packages** | **0.251 – 1.4332 K** | **25 – 143×** |
+
+The top of the band is **35 % larger** than the previously published maximum. Nothing already
+published is invalidated **provided it stays scoped to the `default` package and its producing run**;
+what is no longer admissible is quoting `1.061 K` or `106×` as a repository-wide upper limit.
 
 ## What this does not license
 
@@ -68,6 +98,13 @@ the 25–106× ratio against the frozen 0.01 K contract becomes **30–143×**.
   convergence envelope exists.
 * Nothing about packages outside the three in `experiments/packages.tsv`.
 * Nothing at the cell endpoint: these are block-average rows.
-* The negative `u_j` rows on `arch_a` (2–7 per case, down to −0.1932 K) still never bind, because the
-  reported scalar is `max_j u_j`, which is positive everywhere. They become live the moment per-row
-  budgets are used, which is step 0 of the plan.
+* The negative `u_j` rows on `arch_a` (2–7 per case over the polytope, down to −0.1932 K; 10–55 rows
+  at the nominal map) **never attain the reported scalar maximum**, because that scalar is
+  `max_j u_j` and it is positive everywhere. "Never bind" was the wrong phrase and is withdrawn: a
+  negative per-row correction matters immediately once rows are used individually, where it *raises*
+  that row's REJECT threshold. That is step 0 of the plan and it is now known to affect four of the
+  twelve points measured here.
+* The sweep trusts filenames rather than operator metadata, does not bind output-row identity
+  independently of column order, and does not commit a content-addressed raw report. Those are open
+  and are recorded here rather than fixed, because none of them can change the two verdicts above
+  without also changing the block-id check that already passed.
