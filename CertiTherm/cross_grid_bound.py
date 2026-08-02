@@ -168,6 +168,18 @@ def _extreme(
     if a_ub is not None and np.asarray(a_ub).size:
         return _extreme_lp(coefficients, lower, upper, total, np.asarray(a_ub), np.asarray(b_ub))
     p = lower.copy()
+    # NaN FIRST, SEPARATELY. Every guard below is a single inequality, and `NaN <= 1e-12`,
+    # `NaN <= 0.0` and `NaN > 1e-9` are all False -- so a NaN in `upper`, `lower`, `total` or
+    # `coefficients` would skip the break, skip the `continue`, push `min(NaN, spare)` into `p`,
+    # and then fail to raise on the leftover. The function would RETURN a NaN-contaminated
+    # supremum, in the certificate path, with no error. This is the repository's own recurring
+    # defect class; it is checked here rather than hoped for.
+    if not (np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))
+            and np.all(np.isfinite(coefficients)) and np.isfinite(total)):
+        raise ValueError(
+            "the polytope or the objective carries a non-finite entry; a supremum over it is not "
+            "a number, and every bound check below would silently pass it through"
+        )
     spare = total - float(p.sum())
     if spare < -1e-9:
         raise ValueError(

@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence, Tuple
 
+import math
 import numpy as np
 
 from CertiTherm.phase_trace import PhaseTrace
@@ -101,6 +102,10 @@ def spatial_variation(lowering: ThermoDSETraceLowering) -> SpatialVariation:
         return SpatialVariation(0.0, 0.0, ())
     mean = lowering.trace.mean_power_w
     mean_total = float(mean.sum())
+    # `NaN <= 0.0` is False, so a non-finite total would pass this guard and then divide, writing
+    # NaN into every distribution and into the variation that is reported. Check finiteness first.
+    if not math.isfinite(mean_total):
+        raise ValueError(f"the mean power total is {mean_total!r}; a distribution over it is not one")
     if mean_total <= 0.0:
         return SpatialVariation(0.0, 0.0, ())
     distributions = np.zeros_like(powers)

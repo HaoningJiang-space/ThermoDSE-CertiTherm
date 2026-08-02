@@ -563,6 +563,10 @@ def _bounded_power(
             high = scale
     power = np.minimum(upper, high * weights)
     residual = total_w - float(np.sum(power))
+    # `abs(NaN) > 1e-10` is False, so a non-finite residual would neither be absorbed correctly nor
+    # raise -- the projection would return a vector that does not conserve power, silently.
+    if not math.isfinite(residual):
+        raise RuntimeError(f"bounded-simplex projection produced a {residual!r} residual")
     available = np.flatnonzero(power < upper)
     if available.size:
         power[available[0]] += residual
