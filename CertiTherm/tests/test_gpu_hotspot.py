@@ -96,3 +96,48 @@ def test_the_gpu_build_root_moves_the_solver_the_exporter_and_the_receipt_togeth
     finally:
         monkeypatch.delenv("CERTITHERM_GPU_BUILD_ROOT")
         importlib.reload(module)
+
+
+def test_the_grid_reader_refuses_a_foreign_or_truncated_file(tmp_path) -> None:
+    """The raw grid is a second output in its own format; a wrong one must not be read as numbers."""
+
+    import struct
+
+    from CertiTherm.gpu_hotspot import _GRID_HEADER, _read_grid
+
+    good = tmp_path / "grid.bin"
+    good.write_bytes(_GRID_HEADER.pack(b"CTHGG01", 1, 8, 2, 3) + np.zeros(6).tobytes())
+    assert _read_grid(good, 3).shape == (2, 3)
+
+    wrong_magic = tmp_path / "wrong.bin"
+    wrong_magic.write_bytes(_GRID_HEADER.pack(b"CTHGO01", 1, 8, 2, 3) + np.zeros(6).tobytes())
+    with pytest.raises(RuntimeError, match="unsupported"):
+        _read_grid(wrong_magic, 3)
+
+    short = tmp_path / "short.bin"
+    short.write_bytes(_GRID_HEADER.pack(b"CTHGG01", 1, 8, 2, 3) + np.zeros(4).tobytes())
+    with pytest.raises(RuntimeError, match="expected"):
+        _read_grid(short, 3)
+
+    with pytest.raises(RuntimeError, match="right-hand sides"):
+        _read_grid(good, 4)
+
+
+def test_a_non_finite_grid_is_refused_rather_than_returned(tmp_path) -> None:
+    """A NaN cell would become a NaN row in a cell operator and pass every `>` guard downstream."""
+
+    from CertiTherm.gpu_hotspot import _GRID_HEADER, _read_grid
+
+    poisoned = np.zeros(6)
+    poisoned[2] = np.nan
+    path = tmp_path / "nan.bin"
+    path.write_bytes(_GRID_HEADER.pack(b"CTHGG01", 1, 8, 2, 3) + poisoned.tobytes())
+    with pytest.raises(RuntimeError, match="non-finite"):
+        _read_grid(path, 3)
+
+
+def test_a_negative_refinement_budget_is_refused() -> None:
+    from CertiTherm.gpu_hotspot import GpuHotSpotBackend
+
+    with pytest.raises(ValueError, match="cannot be negative"):
+        GpuHotSpotBackend(Path("/x"), Path("/y"), max_refinements=-1)

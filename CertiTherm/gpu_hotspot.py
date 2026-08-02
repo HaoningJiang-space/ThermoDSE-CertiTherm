@@ -15,6 +15,12 @@ from .digest import sha256_file as _sha256
 
 
 _OUTPUT_HEADER = struct.Struct("<8sIIQQQdd")
+# The RAW GRID field, written to its own file in its own format so the block output above keeps the
+# layout and the receipt it already has. `d_x` in the CUDA solver IS the grid solution -- the block
+# temperatures are computed FROM it by a sparse mapping -- so the cell field exists on the device
+# and was simply discarded. Emitting it is what lets a CELL-level operator build on the GPU at the
+# cost of a block-level one, instead of one CPU HotSpot invocation per block.
+_GRID_HEADER = struct.Struct("<7sBQQQ")
 
 
 @dataclass(frozen=True)
@@ -25,12 +31,18 @@ class GpuHotSpotBackend:
     relative_tolerance: float = 1e-11
     absolute_tolerance: float = 1e-12
     max_iterations: int = 10_000
+    # Restarts on the exactly computed residual. The solver's own argument for this was UNREACHABLE
+    # -- its upper argc bound rejected the position it reads -- so the default was always used and
+    # the knob could not be exercised at all. Both ends are fixed; this is the Python half.
+    max_refinements: int = 4
 
     def __post_init__(self) -> None:
         if self.device < 0:
             raise ValueError("GPU device must be nonnegative")
         if self.relative_tolerance <= 0 or self.absolute_tolerance < 0:
             raise ValueError("invalid GPU solver tolerances")
+        if self.max_refinements < 0:
+            raise ValueError("the refinement budget counts restarts and cannot be negative")
         if self.max_iterations <= 0:
             raise ValueError("GPU solver iteration limit must be positive")
 
@@ -97,6 +109,32 @@ def _read_output(path: Path) -> tuple[np.ndarray, int, float, float]:
     return values, int(iterations), float(residual), float(solve_ms)
 
 
+def _read_grid(path: Path, rhs: int) -> np.ndarray:
+    """`(nodes, rhs)` raw grid temperatures, or a refusal. Never a partial array."""
+
+    with path.open("rb") as stream:
+        raw = stream.read(_GRID_HEADER.size)
+        if len(raw) != _GRID_HEADER.size:
+            raise RuntimeError("truncated GPU HotSpot grid header")
+        magic, version, scalar_bytes, nodes, written_rhs = _GRID_HEADER.unpack(raw)
+        if magic[:7] != b"CTHGG01" or version != 1 or scalar_bytes != 8:
+            raise RuntimeError("unsupported GPU HotSpot grid format")
+        payload = stream.read()
+    if written_rhs != rhs:
+        raise RuntimeError(
+            f"the grid file carries {written_rhs} right-hand sides, not the {rhs} solved for"
+        )
+    expected = nodes * rhs * scalar_bytes
+    if len(payload) != expected:
+        raise RuntimeError(
+            f"GPU HotSpot grid payload has {len(payload)} bytes, expected {expected}"
+        )
+    values = np.frombuffer(payload, dtype="<f8").reshape((nodes, rhs)).copy()
+    if not np.all(np.isfinite(values)):
+        raise RuntimeError("GPU HotSpot returned a non-finite grid field")
+    return values
+
+
 def build_grid_operator_gpu(
     reference_binary: Path,
     config: Path,
@@ -105,8 +143,14 @@ def build_grid_operator_gpu(
     model,
     workspace: Path,
     backend: GpuHotSpotBackend,
+    grid_output: Path = None,
 ) -> tuple[np.ndarray, np.ndarray, str, Tuple[str, ...]]:
-    """Build zero and all unit responses in one exact-system GPU batch."""
+    """Build zero and all unit responses in one exact-system GPU batch.
+
+    With `grid_output` set the solver also writes the RAW GRID field for every right-hand side, so a
+    cell-level operator can be assembled from the same batch. The block temperatures returned here
+    are unchanged either way -- the grid is an additional file, not a different computation.
+    """
 
     if model.model_type != "grid" or model.grid_map_mode != "avg":
         raise ValueError("GPU backend supports registered grid-average models only")
@@ -179,7 +223,8 @@ def build_grid_operator_gpu(
             f"{backend.relative_tolerance:.17g}",
             f"{backend.absolute_tolerance:.17g}",
             str(backend.max_iterations),
-        ],
+            str(backend.max_refinements),
+        ] + ([str(grid_output)] if grid_output is not None else []),
         capture_output=True,
         text=True,
         timeout=600,

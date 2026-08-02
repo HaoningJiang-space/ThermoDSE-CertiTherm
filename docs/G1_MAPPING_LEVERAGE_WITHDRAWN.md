@@ -44,14 +44,32 @@ carrying no spatial signal. Both roads lead to the same next step, which
 
 ## Do NOT reuse these from the withdrawn drafts
 
-* The **~1.9 K headroom** arithmetic. It assumed the boundary-realisation term is nested inside the
-  model-form envelope. `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` retracts that: the sink-top
-  spread is 0.345-1.124 K and, paired point by point, **equals or exceeds the model-form band on four
-  of six** (1.02, 1.06, 1.38, 1.56).
-* **1.124 K as an upper bound on the combined discrepancy.** It is the largest measured value of one
-  component. Once decomposition is disallowed, a component cannot bound the whole.
 * **`g = 3.0 K` as a sourced convention.** No cited work establishes 3-5 K as the incumbent guard for
-  this package class, and ThermoDSE's own 348 K cap is documented as unsupported.
+  this package class, and ThermoDSE's own 348 K cap is documented as unsupported. This is the only
+  item on this list that still stands.
+
+### And one that was un-withdrawn under this document's feet
+
+An earlier version of this section forbade reusing the **~1.9 K headroom** arithmetic
+(`0.01 + 1.061 = 1.071` K of budget against a 3 K guard) on the grounds that it assumed the
+boundary-realisation term was nested inside the model-form envelope, and that
+`MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` had retracted the nesting.
+
+**That retraction was itself reversed on 2026-08-02 and the arithmetic is now correct.**
+`temperature_grid.c:1054` and `temperature_block.c:207` both divide `r_convec` proportional to cell
+area, which is exactly the uniform Robin coefficient `h = 1 / (r_convec * s_sink^2)` the FEM adapter
+already used. Neither HotSpot model imposes an isothermal sink top, so there was never a
+boundary-realisation term to separate: the 0.251-1.061 K band **is** the model-form band, and
+`e_total = e_linearisation + e_model-form` is the right composition after all.
+
+Verified independently at source and in algebra while writing this correction: the two call sites
+read as quoted; summing the per-cell conductances over the sink top gives exactly `1 / r_convec`
+regardless of discretisation; and the six analytical-identity offsets in
+`FEM_ANALYTICAL_VERIFICATION.md` reproduce to ratio 1.0000-1.0001 from `q * slab / (2 k_Cu)`.
+
+The lesson this file should carry is therefore not the arithmetic but the pattern: **a number
+withdrawn on a premise is only as withdrawn as the premise.** Two consecutive rounds treated
+`r_convec`'s *name* as its specification; one grep of the assembly settled it.
 
 ## The one durable contribution, for the fixed-geometry pilot contract
 
@@ -64,10 +82,12 @@ Lift this paragraph; it is the only part worth carrying forward.
 > the computed certificate's. Three properties follow, and each is a design constraint on the pilot.
 > **The window is bounded above**, so any source omitted from the trace can push a candidate out of
 > it -- the pilot must therefore place and conserve compute, NoC, NoP and DRAM energy *before* a
-> candidate means anything, not after. **The window's upper edge is not currently a number:**
-> `e_total = e_linearisation + e_combined-discrepancy,cell`, and the second term is unmeasured at the
-> cell endpoint and may not be decomposed, so the pilot must report the discrepancy interval over
-> which each candidate stays inside the window rather than a verdict at one assumed value.
+> candidate means anything, not after. **The window's upper edge is not yet a number at the endpoint
+> that certifies:** `e_total = e_linearisation + e_model-form`, and while the model-form term is now
+> measured against an analytically verified independent solver, that measurement is at *block* rows
+> (0.251-1.061 K) while the certificate is evaluated at *cell* rows. The pilot must therefore report
+> the model-form interval over which each candidate stays inside the window, rather than a verdict at
+> one assumed value, until the cell-endpoint band is measured.
 > **Candidates are not separators:** the definition includes an independent replay, so the pilot
 > needs a legal-mapper reconstruction and a replay path, and must not use the word until both have
 > run.
