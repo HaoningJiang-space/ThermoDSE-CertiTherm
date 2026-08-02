@@ -73,6 +73,12 @@ def main() -> None:
     argv = sys.argv[1:]
     cells = _option(argv, "--cells", 24)
     grid = _option(argv, "--grid", 3)
+    # THE ELEMENT FAMILY IS THE VARIABLE NOW. With P1 over DG0 coefficients `grad u_h` and `k` are
+    # both constant per tetrahedron, so `div(k grad u_h) = 0` exactly and the volume residual is the
+    # SOURCE ITSELF -- which is why the equilibrated factor measured exactly 1.0012 and certified
+    # nothing. Degree >= 2 is the only way that term becomes a genuine small quantity, so this
+    # option is the falsification of the whole pointwise route rather than a tuning knob.
+    degree = _option(argv, "--degree", 1)
     fem_src = Path(_option(argv, "--fem-src", str(
         Path("/data/ziheng/ThermoDSE/research/reachable_thermal_envelope/src")
     )))
@@ -106,7 +112,7 @@ def main() -> None:
         cell_type=dmesh.CellType.tetrahedron,
     )
 
-    V = fem.functionspace(domain, ("Lagrange", 1))
+    V = fem.functionspace(domain, ("Lagrange", degree))
     Q = fem.functionspace(domain, ("DG", 0))
 
     midpoints = dmesh.compute_midpoints(
@@ -150,7 +156,7 @@ def main() -> None:
         + h_top * ufl.inner(u, v) * ds(1)
     )
 
-    print(f"cells/axis={cells} grid={grid}  dofs={V.dofmap.index_map.size_global}  "
+    print(f"cells/axis={cells} grid={grid} degree={degree}  dofs={V.dofmap.index_map.size_global}  "
           f"contrast={k_cu / k_si:.3g} (NO void here: the favourable case)")
     print(f"{'source':>8s} {'max rise (K)':>14s} {'max z_h (K)':>14s} {'vacuity':>10s} "
           f"{'equilibrated':>12s}")
@@ -176,10 +182,14 @@ def main() -> None:
         uh = forward.solve()
 
         # |r| as a measure: volume source, absolute interior flux jump, absolute Robin residual.
+        # VOLUME RESIDUAL, honestly. `r_vol = f + div(k grad u_h)`. At degree 1 the divergence is
+        # identically zero and this reduces to `f`; at degree >= 2 it is a real cancellation, and
+        # whether it cancels ENOUGH is the question this probe exists to answer.
+        volume_residual = source + ufl.div(kappa * ufl.grad(uh)) if degree > 1 else source
         flux_jump = ufl.jump(kappa * ufl.grad(uh), n)
         robin_residual = ufl.dot(kappa * ufl.grad(uh), n) + h_top * (uh - ambient)
         majorant_load = (
-            abs(source) * v * dx
+            abs(volume_residual) * v * dx
             + abs(flux_jump) * ufl.avg(v) * dS
             + abs(robin_residual) * v * ds(1)
         )
@@ -201,7 +211,7 @@ def main() -> None:
         # naive factor is already measured at 21-64x; if the volume-only factor is still above 1,
         # the face term was not the whole problem and the pointwise route dies here instead of
         # after a week of patch-problem code.
-        equilibrated_load = abs(source) * v * dx + abs(robin_residual) * v * ds(1)
+        equilibrated_load = abs(volume_residual) * v * dx + abs(robin_residual) * v * ds(1)
         equilibrated = LinearProblem(
             bilinear,
             equilibrated_load,
