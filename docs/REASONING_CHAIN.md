@@ -49,6 +49,8 @@ because linearity is a property of the PDE and not of HotSpot.
 | "HotSpot systematically underestimates, one-signed on six points" | **four of six negative**, residual +-0.15 K | the adapter used a distributed Robin where HotSpot uses a lumped node |
 | "model form is 25-106x the contract, 1.4-11.8x the tail" | **0-60x** and **0-11.8x**, zero on two of six | the boundary realisation was 47-100 % of it |
 | "the reciprocity break costs ~2.3 K, comparable to the model-form band" | **+0.002 to +0.071 K**, measured by symmetrising | a relative entrywise figure times a scale is not an effect on a max of weighted sums |
+| **"model form dominates discretisation, 1.4-11.8x"** | **holds on 2 of 6**; model form is 0.000-0.604 K and the tail is 2.6-2.9x LARGER on `arch_b`, exactly zero on `arch_c` | the band contained this adapter's own boundary-realisation choice (0.260-1.005 K), which was larger than model form on four of six points |
+| "the boundary term is at most a third of the band" | it was **most** of it | read from one design; the six-point pairing gives a median ratio of 0.98 |
 
 ## Provisional -- do not quote outside this repository
 
@@ -77,7 +79,13 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
    itself); `arch_c`/transformer certifies with +4.03 K. The `arch_b -> arch_c` switch and the
    +32.1 % price therefore **survive without the block-average assumption**. **All six dev points: 5 of 6 certify**, gap +0.21 to +0.62 K.
    `CELL_ENDPOINT_RESULT.md`.
-3. **The three declared-equivalent FEM assumptions -- MEASURED, and one of them is not safe.**
+3. ~~**The three declared-equivalent FEM assumptions.**~~ **CLOSED.** Source depth **+0.0201 K** and
+   void filler **+0.0000 K** are safe. The Robin realisation was **not**, and it is now separated
+   rather than bounded: the lumped node is constructed exactly (pin the top, shift the response by
+   `r_convec`) and the boundary term measures **0.260 - 1.005 K** -- larger than model form itself on
+   four of six points. Historical framing below.
+
+   **The three declared-equivalent FEM assumptions -- MEASURED, and one of them is not safe.**
    On `arch_c`/resnet50 at n=192 against a 321.7263 K baseline: source in the top 10 % of the die
    moves the peak **+0.0201 K**; a near-adiabatic void instead of still air moves it **+0.0000 K**.
    Those two are safe. **The Robin realisation is the same size as the band.** Per case on all six
