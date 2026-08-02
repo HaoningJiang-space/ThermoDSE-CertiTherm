@@ -159,10 +159,13 @@ protocol change; and because it can only enlarge the band it could never have be
   operator NPZ carries `error_k = NaN` deliberately, so any attempt to certify *against* it through
   the normal machinery refuses rather than silently succeeding.
 * **Three assumptions are declared equivalent, not matched**, and each is falsifiable by a
-  sensitivity run not yet done: block power volumetric over the full die thickness (matching
-  HotSpot's lumped element, not the physically thin active layer); the void outside each plate
-  filled with still air rather than a stepped domain; and `r_convec` realised as a uniform Robin
-  coefficient over the sink top rather than as HotSpot's lumped sink-to-ambient node.
+  sensitivity run, **all three of which have since been done**: block power volumetric over the full
+  die thickness rather than a thin active layer (**+0.0201 K**); the void outside each plate filled
+  with still air rather than a stepped domain (**+0.0000 K**); and `r_convec` realised as a uniform
+  Robin coefficient over the sink top. That last one is **not a mismatch at all** --
+  `temperature_grid.c` and `temperature_block.c` both divide `r_convec` by cell area, which is that
+  same uniform coefficient. An earlier revision of this line called HotSpot's boundary a lumped
+  node; that was the false premise behind a withdrawal which had to be reversed.
 * **The rows are block averages.** On the FEM, a unit impulse puts the domain maximum **2.06 K**
   above the hottest block average, so a certificate over block averages does not imply one over the
   physical peak. This is the independent-solver analogue of the 0.18 K understatement measured
@@ -181,56 +184,65 @@ list, a byte-identical floorplan, and `max abs(dPower) = 0.000e+00 W`. This had 
 The repository keeps corrections rather than deleting them, because a number that moved is evidence
 about how it was arrived at.
 
-**The band contains a boundary-realisation term, and it is comparable to the band itself.** A uniform
-Robin coefficient already reproduces HotSpot's lumped sink-to-ambient relation with the *mean* top
-temperature -- `h * integral(u - T_inf) = (mean(u) - T_inf) / r` -- so the only thing the lumped node
-adds is that the top is **isothermal**. The gap between the two realisations is therefore governed by
-how far from isothermal the top actually is, and the sink-top SPREAD is the natural measure of that.
-Measured on all six points:
-
-| case | sink-top spread | model-form band | spread / band |
-| --- | --- | --- | --- |
-| `arch_a` / resnet50 | 0.3848 K | 0.535 K | 0.72 |
-| `arch_a` / transformer | 0.7389 K | 0.984 K | 0.75 |
-| `arch_b` / resnet50 | 0.6236 K | 0.612 K | **1.02** |
-| `arch_b` / transformer | 1.1235 K | 1.061 K | **1.06** |
-| `arch_c` / resnet50 | 0.3454 K | 0.251 K | **1.38** |
-| `arch_c` / transformer | 0.7276 K | 0.467 K | **1.56** |
-
-The spread is **9.7 - 10.9 % of the total rise on every point**, which is stable enough to be a
-structural property of this package geometry rather than noise.
-
-**The spread is an indicator, not a proven bound, and the earlier wording overstated it.** The
-spread of the *unconstrained* (distributed-Robin) solution and the *difference* between that solution
-and the *constrained* (isothermal-top) one are different quantities; treating the first as a bound on
-the second needs an argument that has not been given. What IS established is the direction: an
-isothermal top is a perfectly conducting sheet on the boundary, and adding conductance cannot raise
-the maximum, which matches the -0.734 K seen when the sink conductivity was scaled. So the spread
-says how large the term can plausibly be, not how large it is at most.
-
-*Withdrawn, and the error was in the comparison rather than the measurement:* an earlier reading of
-this said "at most about a third of the band". It compared a single design's spread (0.345 K) against
-the band's whole RANGE (0.251-1.061 K) instead of against that design's own band (0.251 K) -- where
-the ratio is in fact 1.38. Paired correctly, the bound equals or exceeds the band on four of six
-points.
-
-*Withdrawn:* an earlier estimate of **-0.734 K**, from scaling the sink conductivity by 10. It
-exceeds the entire top non-uniformity, so it is also changing lateral spreading inside the sink and
-is not an isolation of the boundary realisation. Peer review predicted exactly this.
-
-*Also withdrawn:* the diagnosis that the higher-contrast runs (`x100`, `x1000`) failed the
-energy-balance gate for want of through-thickness resolution. Refining the sink to 24 and 32 z-cells
-did not rescue them, so it is the material contrast degrading the problem -- the `k_max/k_min`
-coercivity degradation peer review predicted -- and the isothermal limit is **not reachable by
-scaling conductivity** at all. Measuring the spread is what makes that irrelevant.
-
-**The other two declared equivalences are small.** Source in the top 10 % of the die rather than the
-full thickness: **+0.0201 K**. A near-adiabatic void instead of still air: **+0.0000 K**. Both on one
-design at one mesh, so they are local sensitivities and not general results.
-
-**The block-average endpoint was a real gap and it has been closed.** Every number in this document
-is computed on block-average rows, and on this same FEM a unit impulse puts the domain maximum
-2.06 K above the hottest block average. That warning stood until the cell-level certificate landed;
-it now shows the tightest point is refused at the cell endpoint *without* any band, so the frontier
-does not rest on the block-average assumption. The per-impulse 2.06 K figure should not be read as
-the operational gap: at the placed power map the cell-minus-block gap is **0.21 - 0.62 K**.
+> **SUPERSEDED -- THE PREMISE BELOW IS FALSE, and it is the premise that caused a valid
+> finding to be withdrawn.** It assumes HotSpot uses a lumped sink-to-ambient node, so that a
+> uniform Robin coefficient reproduces it only in the mean and the sink-top spread
+> contaminates the band. **HotSpot has no lumped node**: `temperature_grid.c` and
+> `temperature_block.c` both divide `r_convec` by cell area, which IS a uniform coefficient.
+> There is no boundary-realisation term to subtract. Kept because the corrections are the
+> record; quoted as a blockquote so no reader or extractor can recover the retracted
+> conclusion as if it were current.
+>
+> **The band contains a boundary-realisation term, and it is comparable to the band itself.** A uniform
+> Robin coefficient already reproduces HotSpot's lumped sink-to-ambient relation with the *mean* top
+> temperature -- `h * integral(u - T_inf) = (mean(u) - T_inf) / r` -- so the only thing the lumped node
+> adds is that the top is **isothermal**. The gap between the two realisations is therefore governed by
+> how far from isothermal the top actually is, and the sink-top SPREAD is the natural measure of that.
+> Measured on all six points:
+>
+> | case | sink-top spread | model-form band | spread / band |
+> | --- | --- | --- | --- |
+> | `arch_a` / resnet50 | 0.3848 K | 0.535 K | 0.72 |
+> | `arch_a` / transformer | 0.7389 K | 0.984 K | 0.75 |
+> | `arch_b` / resnet50 | 0.6236 K | 0.612 K | **1.02** |
+> | `arch_b` / transformer | 1.1235 K | 1.061 K | **1.06** |
+> | `arch_c` / resnet50 | 0.3454 K | 0.251 K | **1.38** |
+> | `arch_c` / transformer | 0.7276 K | 0.467 K | **1.56** |
+>
+> The spread is **9.7 - 10.9 % of the total rise on every point**, which is stable enough to be a
+> structural property of this package geometry rather than noise.
+>
+> **The spread is an indicator, not a proven bound, and the earlier wording overstated it.** The
+> spread of the *unconstrained* (distributed-Robin) solution and the *difference* between that solution
+> and the *constrained* (isothermal-top) one are different quantities; treating the first as a bound on
+> the second needs an argument that has not been given. What IS established is the direction: an
+> isothermal top is a perfectly conducting sheet on the boundary, and adding conductance cannot raise
+> the maximum, which matches the -0.734 K seen when the sink conductivity was scaled. So the spread
+> says how large the term can plausibly be, not how large it is at most.
+>
+> *Withdrawn, and the error was in the comparison rather than the measurement:* an earlier reading of
+> this said "at most about a third of the band". It compared a single design's spread (0.345 K) against
+> the band's whole RANGE (0.251-1.061 K) instead of against that design's own band (0.251 K) -- where
+> the ratio is in fact 1.38. Paired correctly, the bound equals or exceeds the band on four of six
+> points.
+>
+> *Withdrawn:* an earlier estimate of **-0.734 K**, from scaling the sink conductivity by 10. It
+> exceeds the entire top non-uniformity, so it is also changing lateral spreading inside the sink and
+> is not an isolation of the boundary realisation. Peer review predicted exactly this.
+>
+> *Also withdrawn:* the diagnosis that the higher-contrast runs (`x100`, `x1000`) failed the
+> energy-balance gate for want of through-thickness resolution. Refining the sink to 24 and 32 z-cells
+> did not rescue them, so it is the material contrast degrading the problem -- the `k_max/k_min`
+> coercivity degradation peer review predicted -- and the isothermal limit is **not reachable by
+> scaling conductivity** at all. Measuring the spread is what makes that irrelevant.
+>
+> **The other two declared equivalences are small.** Source in the top 10 % of the die rather than the
+> full thickness: **+0.0201 K**. A near-adiabatic void instead of still air: **+0.0000 K**. Both on one
+> design at one mesh, so they are local sensitivities and not general results.
+>
+> **The block-average endpoint was a real gap and it has been closed.** Every number in this document
+> is computed on block-average rows, and on this same FEM a unit impulse puts the domain maximum
+> 2.06 K above the hottest block average. That warning stood until the cell-level certificate landed;
+> it now shows the tightest point is refused at the cell endpoint *without* any band, so the frontier
+> does not rest on the block-average assumption. The per-impulse 2.06 K figure should not be read as
+> the operational gap: at the placed power map the cell-minus-block gap is **0.21 - 0.62 K**.
