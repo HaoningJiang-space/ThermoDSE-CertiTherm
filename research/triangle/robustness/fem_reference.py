@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -209,9 +210,15 @@ GRADED_MESH = os.environ.get("CERTITHERM_FEM_GRADED_MESH") == "1"
 # The PINNED SUBMODULE SOURCE, not the build directory. `paths.HOTSPOT` is the compiled binary at
 # `.build/hotspot/hotspot`, and its parent holds object files, not the `.c` files this guard reads.
 HOTSPOT_SOURCE = ROOT / "HotSpot"
+# The DIVISION is the whole point, so the pattern must contain it. An earlier version matched only
+# `"model->config.r_convec *"`, which appears in comments, dead code and unrelated branches and says
+# nothing about whether the resistance is divided by cell area -- it would have passed a lumped-node
+# HotSpot. Peer review caught it.
 _CONVECTION_ASSEMBLY = {
-    "temperature_grid.c": "model->config.r_convec *",
-    "temperature_block.c": "r_amb = r_convec * (s_sink * s_sink) / area",
+    "temperature_grid.c": (
+        "model->config.r_convec *", "(model->config.s_sink * model->config.s_sink) / (cw * ch)"
+    ),
+    "temperature_block.c": ("r_amb = r_convec * (s_sink * s_sink) / area",),
 }
 
 
@@ -235,22 +242,27 @@ def _assert_convection_is_distributed(hotspot_source) -> dict:
     """
 
     found = {}
-    for name, expected in _CONVECTION_ASSEMBLY.items():
+    for name, fragments in _CONVECTION_ASSEMBLY.items():
         path = hotspot_source / name
         if not path.exists():
             raise SystemExit(
                 f"{path} is missing; the FEM's uniform Robin coefficient is justified by how "
                 "HotSpot assembles `r_convec`, and that justification cannot be checked"
             )
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if expected not in text:
+        # Comments stripped first, so a fragment surviving only in prose does not satisfy the check.
+        text = re.sub(r"/\*.*?\*/", " ", path.read_text(encoding="utf-8", errors="replace"),
+                      flags=re.S)
+        text = re.sub(r"//[^\n]*", " ", text)
+        missing = [f for f in fragments if f not in text]
+        if missing:
             raise SystemExit(
-                f"{name} no longer contains {expected!r}. This adapter applies a UNIFORM Robin "
-                "coefficient `h = 1/(r_convec * s_sink^2)`, which is equivalent only while HotSpot "
-                "divides the convective resistance by cell area. If it now uses a lumped node, the "
-                "measured band is the difference between two boundary conditions and not model form."
+                f"{name} no longer contains {missing!r} outside comments. This adapter applies a "
+                "UNIFORM Robin coefficient `h = 1/(r_convec * s_sink^2)`, which is equivalent only "
+                "while HotSpot DIVIDES the convective resistance by cell area. If it now uses a "
+                "lumped node, the measured band is the difference between two boundary conditions "
+                "and not model form."
             )
-        found[name] = expected
+        found[name] = list(fragments)
     return found
 
 

@@ -43,3 +43,30 @@ def test_a_missing_source_file_is_refused_rather_than_skipped(tmp_path) -> None:
 
     with pytest.raises(SystemExit, match="cannot be checked"):
         _assert_convection_is_distributed(tmp_path)
+
+
+def test_the_fragment_surviving_only_in_a_COMMENT_does_not_satisfy_the_check(tmp_path) -> None:
+    """A tripwire that a comment can satisfy is not a check on the assembly.
+
+    The first version matched `"model->config.r_convec *"` alone, which appears in prose and says
+    nothing about the division by cell area -- it would have passed a lumped-node HotSpot.
+    """
+
+    for name, fragments in _CONVECTION_ASSEMBLY.items():
+        body = "\n".join(f"/* {f} */" for f in fragments)
+        (tmp_path / name).write_text(body + "\nint main(void){return 0;}\n")
+    with pytest.raises(SystemExit, match="outside comments"):
+        _assert_convection_is_distributed(tmp_path)
+
+
+def test_the_division_itself_must_be_present_not_merely_the_symbol(tmp_path) -> None:
+    """`r_convec` appearing somewhere is not evidence that it is divided by cell area."""
+
+    (tmp_path / "temperature_grid.c").write_text(
+        "double x = model->config.r_convec * 1.0;  /* a lumped node */\n"
+    )
+    (tmp_path / "temperature_block.c").write_text(
+        "r_amb = r_convec * (s_sink * s_sink) / area;\n"
+    )
+    with pytest.raises(SystemExit, match="cw \\* ch"):
+        _assert_convection_is_distributed(tmp_path)
