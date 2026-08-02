@@ -72,8 +72,8 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
 2. ~~**The cell-level certificate's verdict.**~~ **CLOSED.** `arch_b`/transformer is refused at the
    cell endpoint by **-0.36 K with no band folded in** (cell peak 330.30 K, above the limit
    itself); `arch_c`/transformer certifies with +4.03 K. The `arch_b -> arch_c` switch and the
-   +32.1 % price therefore **survive without the block-average assumption**. Four of six dev
-   points; `arch_a` pending. `CELL_ENDPOINT_RESULT.md`.
+   +32.1 % price therefore **survive without the block-average assumption**. **All six dev points: 5 of 6 certify**, gap +0.21 to +0.62 K.
+   `CELL_ENDPOINT_RESULT.md`.
 3. **The three declared-equivalent FEM assumptions -- MEASURED, and one of them is not safe.**
    On `arch_c`/resnet50 at n=192 against a 321.7263 K baseline: source in the top 10 % of the die
    moves the peak **+0.0201 K**; a near-adiabatic void instead of still air moves it **+0.0000 K**.

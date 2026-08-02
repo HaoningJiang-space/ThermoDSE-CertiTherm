@@ -12,14 +12,19 @@ in**, so this is strictly the endpoint change.
 
 `limit - margin - linearisation = 330.0 - 0.05 - 0.01 = 329.94 K`.
 
-| case | `worst_case_max_cell_average` | `sup_p` over the exact block projection | gap | slack | verdict |
+| case | `worst_case_max_cell_average` | exact block projection | gap | slack | verdict |
 | --- | --- | --- | --- | --- | --- |
-| `arch_b` / resnet50 | 325.4619 K | 325.0550 K | +0.4068 | **+4.4781** | CERTIFIED |
+| `arch_a` / resnet50 | 322.3144 K | 322.0938 K | +0.2206 | +7.6256 | CERTIFIED |
+| `arch_a` / transformer | 325.4231 K | 325.2102 K | +0.2129 | +4.5169 | CERTIFIED |
+| `arch_b` / resnet50 | 325.4619 K | 325.0550 K | +0.4068 | +4.4781 | CERTIFIED |
 | **`arch_b` / transformer** | **330.3018 K** | 329.6787 K | **+0.6230** | **-0.3618** | **REFUSED** |
 | `arch_c` / resnet50 | 322.3138 K | 322.0693 K | +0.2445 | +7.6262 | CERTIFIED |
 | `arch_c` / transformer | 325.9070 K | 325.4730 K | +0.4340 | +4.0330 | CERTIFIED |
 
-`arch_a` is still building.
+**All six development points. 5 of 6 certify; the one that does not is the tightest.** The
+cell-minus-block gap runs **+0.2129 to +0.6230 K**, median +0.4068 -- consistent with the +0.21
+median measured independently across 64 archive designs, and large enough to decide exactly one
+point.
 
 ## What it settles
 
@@ -51,7 +56,6 @@ impulse solves.
 
 ## Scope
 
-* Four of six development points; `arch_a` pending.
 * `grid128` cells, not `grid512`. The refinement tail measured on block rows was 0.05-0.34 K and the
   cell-level tail is not measured here.
 * `tool_compatible` only. On this single-die package it coincides with `active_silicon`; on a stack
