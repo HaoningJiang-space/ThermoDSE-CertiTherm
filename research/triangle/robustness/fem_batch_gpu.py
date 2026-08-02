@@ -334,6 +334,56 @@ def adjoint_covectors(built: "Assembled", rows):
     return covectors
 
 
+def cell_covectors_independently(problem, cells, gpu_device: int = 0):
+    """`c_j` for individual MESH CELLS, assembled from UFL cell tags and NOT from `M`, `S` or
+    `dof_of_cell`.
+
+    The region-average gate reuses the very objects whose pairing is under test, so agreement there
+    partly confirms that one construction agrees with itself. This builds the same covector by a
+    different route -- a `dx` measure restricted to one tagged cell, integrated against the P1 test
+    function -- so a permuted DG0 map, a mis-scaled volume or a swapped output index makes the two
+    disagree instead of failing together.
+
+    Cells, not regions, because the proposed mechanism generates the row of a violating CELL and a
+    correct whole-spreader average says nothing about a misindexed per-cell separator.
+
+    Returns `(dofs x cells)` on the device, each column normalised by its own cell volume.
+    """
+
+    import cupy as cp
+    import dolfinx
+    import numpy as _np
+    import ufl
+    from dolfinx import fem, mesh
+    from mpi4py import MPI
+
+    import steady_heat_fem as shf
+
+    comm = MPI.COMM_WORLD
+    domain = shf._create_domain(problem, comm, _np, mesh)
+    dimension = domain.topology.dim
+    space = fem.functionspace(domain, ("Lagrange", 1))
+    test = ufl.TestFunction(space)
+
+    marked = _np.asarray(sorted(int(c) for c in cells), dtype=_np.int32)
+    tags = mesh.meshtags(domain, dimension, marked, _np.arange(1, len(marked) + 1, dtype=_np.int32))
+    dx = ufl.Measure("dx", domain=domain, subdomain_data=tags)
+
+    columns, volumes = [], []
+    one = fem.Constant(domain, dolfinx.default_scalar_type(1.0))
+    for tag in range(1, len(marked) + 1):
+        integral = fem.assemble_vector(fem.form(test * dx(tag)))
+        integral.scatter_reverse(dolfinx.la.InsertMode.add)
+        volume = float(comm.allreduce(
+            fem.assemble_scalar(fem.form(one * dx(tag))), op=__import__("operator").add
+        ))
+        if not (volume > 0.0):
+            raise SystemExit(f"cell tag {tag} integrates to volume {volume!r}")
+        columns.append(_np.asarray(integral.array, dtype=float) / volume)
+        volumes.append(volume)
+    return cp.asarray(_np.stack(columns, axis=1)), marked, _np.asarray(volumes, dtype=float)
+
+
 def adjoint_rows_from_duals(built: "Assembled", duals):
     """`r_j = lambda_j^T F` given the dual fields `lambda_j = K^-T c_j`.
 
@@ -546,6 +596,62 @@ def main() -> None:
         report["adjoint_unpowered_max_abs_k_per_w"] = gap
         report["adjoint_unpowered_max_rel"] = gap / scale if scale > 0 else float("inf")
 
+    # GATE 3 -- CELL rows, which is what the proposed mechanism actually generates. The covectors
+    # come from `cell_covectors_independently` (UFL cell tags), the forward side from `M` and
+    # `dof_of_cell`, so a permuted dof map or a mis-scaled volume makes the two DISAGREE instead of
+    # failing together. Mutation tests below prove the comparison can fail.
+    n_cells = int(built.selector.shape[0])
+    stride = max(1, n_cells // int(option("--cells-probed", 24)))
+    probe_cells = sorted(set(range(0, n_cells, stride)))[: int(option("--cells-probed", 24))]
+    cell_c, cell_ids, cell_volumes = cell_covectors_independently(problems[0], probe_cells)
+    cell_duals, cell_timings = factorise_and_solve(built, cell_c)
+    cell_adjoint = cp.asnumpy((built.mixed.T @ cell_duals)[built.dof_of_cell].T)  # (cells x cells)
+    # Row `j` against impulse `i`: gather the source cells of region `i` and scale to K per watt.
+    region_of_cell = cp.asnumpy(built.selector.indices)
+    cell_predicted = np.asarray([
+        [float(cell_adjoint[position][region_of_cell == region].sum()) / volumes[region]
+         for region in powered]
+        for position in range(len(cell_ids))
+    ], dtype=float)
+    # Forward: the cell average is `(M^T u)[dof_of_cell[c]] / vol_c`, read off the same solve.
+    forward_field = built.mixed.T @ solutions[:, : built.right_hand_sides.shape[1]]
+    forward_cells = cp.asnumpy(forward_field[built.dof_of_cell])                 # (cells x problems)
+    cell_observed = np.asarray([
+        [(forward_cells[cell, i + 1] - forward_cells[cell, 0]) / cell_volumes[position]
+         for i in range(len(powered))]
+        for position, cell in enumerate(cell_ids)
+    ], dtype=float)
+    cell_scale = float(np.max(np.abs(cell_observed)))
+    cell_delta = float(np.max(np.abs(cell_predicted - cell_observed)))
+    report["cell_rows_compared"] = len(cell_ids)
+    report["cell_entries_compared"] = int(cell_predicted.size)
+    report["cell_response_scale_k_per_w"] = cell_scale
+    report["cell_max_rel"] = cell_delta / cell_scale if cell_scale > 0 else float("inf")
+    report["cell_pass"] = bool(
+        np.isfinite(cell_delta) and cell_scale > 0 and cell_delta / cell_scale <= ADJOINT_TOL_REL
+    )
+
+    # MUTATIONS. A comparison that cannot fail is not a test. Each of these is a defect the gate
+    # exists to catch, injected on purpose; every one must break the agreement.
+    mutations = {}
+    if len(cell_ids) >= 2 and cell_scale > 0:
+        swapped = cell_predicted.copy()
+        swapped[[0, 1]] = swapped[[1, 0]]
+        mutations["swap_two_output_cells"] = float(
+            np.max(np.abs(swapped - cell_observed)) / cell_scale)
+        mis_scaled = cell_predicted.copy()
+        mis_scaled[0] *= 1.0 + 1e-6
+        mutations["mis_scale_one_cell_volume_by_1e-6"] = float(
+            np.max(np.abs(mis_scaled - cell_observed)) / cell_scale)
+        rolled = cell_predicted.copy()
+        rolled = np.roll(rolled, 1, axis=1)
+        mutations["permute_the_source_index"] = float(
+            np.max(np.abs(rolled - cell_observed)) / cell_scale)
+    report["mutations_rel"] = mutations
+    report["mutations_all_detected"] = bool(
+        mutations and all(v > ADJOINT_TOL_REL for v in mutations.values())
+    )
+
     # THE ECONOMIC CLAIM UNDER TEST, measured rather than argued. `forward_only` factorised for the
     # impulse loads alone; `combined` factorised once for the impulse loads AND the adjoint
     # covectors. If lazy row generation saved the dominant cost, these would differ.
@@ -577,11 +683,11 @@ def main() -> None:
         "GPU_FORWARD_REGION_AVERAGE_PARITY": "PASS" if report["forward_parity_pass"] else "FAIL",
         "REGION_AVERAGE_ADJOINT_REGRESSION": "PASS" if report["adjoint_pass"] else "FAIL",
         "STIFFNESS_SYMMETRY": "PASS" if report["stiffness_symmetric"] else "FAIL",
-        # The proposed mechanism generates the row of a violating CELL. No cell covector is built
-        # or compared anywhere in this file; every compared row is a region average, two of them
-        # whole passive layers. A correct spreader average says nothing about a misindexed
-        # 262144-cell separator.
-        "CELL_ROW_PAIRING": "UNTESTED",
+        # Cell covectors are now built from UFL cell tags, independently of `M`, `S` and
+        # `dof_of_cell`, and compared against the forward readback that DOES use them -- so the
+        # two constructions can disagree. Proven able to fail by the injected mutations.
+        "CELL_ROW_PAIRING": "PASS" if report["cell_pass"] else "FAIL",
+        "MUTATIONS_DETECTED": "PASS" if report["mutations_all_detected"] else "FAIL",
         # `factorise_and_solve` discards its solver, and the gate knows every adjoint column in
         # advance. A real lazy loop discovers them one at a time and must carry the factorisation
         # across iterations; that is not implemented here, so it is not demonstrated.
@@ -591,7 +697,8 @@ def main() -> None:
     }
     print(json.dumps(report, indent=1), flush=True)
     if not (report["forward_parity_pass"] and report["adjoint_pass"]
-            and report["stiffness_symmetric"]):
+            and report["stiffness_symmetric"] and report["cell_pass"]
+            and report["mutations_all_detected"]):
         raise SystemExit("GATE FAILED")
 
 
