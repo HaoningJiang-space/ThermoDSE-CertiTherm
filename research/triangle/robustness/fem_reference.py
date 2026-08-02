@@ -615,6 +615,7 @@ def main() -> None:
     def named_temperatures(result, prefix):
         return {n: v for n, v in result.region_average_temperature_k if n.startswith(prefix)}
 
+    sink_top_identity = None
     sink_top_nominal = {}
     if PROBE_SINK_TOP:
         # The probe regions are affine in `p` exactly like the die rows, so their nominal value is
@@ -627,6 +628,28 @@ def main() -> None:
                  for i in range(len(blocks))], dtype=float
             )
             sink_top_nominal[name] = float(base[name] + column @ placed_vector)
+        # Area weights, not cell counts: the mesh is finer in the centre, so a cell-count weighting
+        # would silently weight by resolution instead of by area.
+        half, quarter = 0.5 * box_x, 0.25 * box_x
+        areas = {
+            "sink_top_centre": half * half,
+            "sink_top_west": quarter * box_y, "sink_top_east": quarter * box_y,
+            "sink_top_south": half * quarter, "sink_top_north": half * quarter,
+        }
+        weighted = sum(areas[n] * sink_top_nominal[n] for n in areas if n in sink_top_nominal)
+        covered = sum(areas[n] for n in areas if n in sink_top_nominal)
+        total_power = float(np.sum(placed_vector))
+        slab = (z_sink[1] - sink_probe_z)
+        expected = (
+            ambient_k + r_convec * total_power
+            + (total_power / (box_x * box_y)) * slab / (2.0 * COPPER_K_W_PER_M_K)
+        )
+        observed = weighted / covered
+        sink_top_identity = {
+            "observed_mean_k": observed, "expected_mean_k": expected,
+            "residual_k": observed - expected,
+            "relative_to_rise": abs(observed - expected) / max(r_convec * total_power, 1e-30),
+        }
 
     ambient_row = die_temperatures(results[0])
     response = np.empty((len(blocks), len(blocks)), dtype=float)
@@ -704,6 +727,15 @@ def main() -> None:
         # the spread was identically zero and the probe would have "measured" isothermality by
         # construction. The regions are affine in the power vector like everything else, so the
         # nominal value is the impulse rows evaluated at the placed map.
+        # AN ANALYTICAL SELF-CHECK, and the strongest one available. In steady state every watt
+        # leaves through the top, and the convective law gives `mean(T_top) = T_inf + r_convec * P`
+        # exactly. Neither solver provides that identity -- it is conservation plus the boundary
+        # condition -- so it tests the geometry, the materials, the boundary condition, the power
+        # injection and the region reporting all at once. The probe regions are one sink cell THICK
+        # and DOLFINx reports a volume mean, so the expected reading sits `q * slab / (2 k)` above
+        # the face value; measured on six points that correction reproduces the residual to a ratio
+        # of 1.000.
+        "sink_top_mean_identity": sink_top_identity,
         "sink_top_spread_at_nominal_k": (
             max(sink_top_nominal.values()) - min(sink_top_nominal.values())
             if sink_top_nominal else None
