@@ -48,6 +48,12 @@ Two matching decisions are not mechanical and are recorded as such:
   difference. Physically the sources are a thin active layer, so this is a matched-to-HotSpot
   choice, not a matched-to-reality one, and it is a declared ledger line rather than a silent one.
 
+**The convection is matched by construction, and that is now CHECKED rather than assumed.**
+`_assert_convection_is_distributed` reads HotSpot's assembly and refuses if it stops dividing
+`r_convec` by cell area. Without that check a re-pin to a lumped-node HotSpot would leave the band
+measuring the boundary condition instead of the model, silently -- which is not hypothetical: the
+name alone misled two rounds of analysis before the assembly was read.
+
 NON-CLAIM diagnostic. Writes one operator NPZ and one ledger JSON.
 
 Usage (on moe-server, from the repo root):
@@ -101,10 +107,13 @@ SOURCE_FRACTION = float(os.environ.get("CERTITHERM_FEM_SOURCE_FRACTION", "1.0"))
 # 2. Void filler. HotSpot has no material outside each plate; the FEM box must be tiled. Lowering
 #    this drives the void towards the adiabatic limit HotSpot actually models.
 VOID_K_W_PER_M_K = float(os.environ.get("CERTITHERM_FEM_VOID_K", str(AIR_K_W_PER_M_K)))
-# 3. Boundary realisation. `r_convec` is a LUMPED sink-to-ambient resistance; this adapter spreads it
-#    as a uniform Robin coefficient over the sink top, which couples differently when the sink is not
-#    isothermal. Scaling the sink conductivity up drives it to the isothermal limit, where the
-#    distributed and lumped realisations coincide -- so a large scale factor measures the gap.
+# 3. Boundary realisation. **`r_convec` is NOT a lumped node**, despite the name and the upstream
+#    comment calling it "sink-to-ambient": `temperature_grid.c` and `temperature_block.c` both DIVIDE
+#    it by cell area, which is exactly the uniform Robin coefficient this adapter applies. An earlier
+#    revision of this comment asserted the opposite, and two rounds of reasoning built on it before
+#    `_assert_convection_is_distributed` was written to check the assembly instead of the name. The
+#    knobs below therefore measure a sensitivity to a boundary condition HotSpot does not use -- which
+#    is worth having, and is not a correction to the model-form band.
 SINK_K_SCALE = float(os.environ.get("CERTITHERM_FEM_SINK_K_SCALE", "1.0"))
 # Cells per layer in z. The layers span 20 um to 6.9 mm, so a single cell per layer -- which is what
 # an unrefined node list gives -- would put the entire 6.9 mm sink in one element and resolve none of
@@ -193,6 +202,53 @@ EDGE_QUANTUM_M = 1.0e-9
 # cores with nine other jobs, so the timing comparison is confounded and no speedup is claimed.
 GRADED_FAR_FIELD_RATIO = float(os.environ.get("CERTITHERM_FEM_FAR_FIELD_RATIO", "4.0"))
 GRADED_MESH = os.environ.get("CERTITHERM_FEM_GRADED_MESH") == "1"
+
+
+# The assembly this adapter's uniform Robin coefficient is equivalent to. Both HotSpot models divide
+# the convective resistance by cell area, which is `h = 1 / (r_convec * s_sink^2)` applied uniformly.
+_CONVECTION_ASSEMBLY = {
+    "temperature_grid.c": "model->config.r_convec *",
+    "temperature_block.c": "r_amb = r_convec * (s_sink * s_sink) / area",
+}
+
+
+def _assert_convection_is_distributed(hotspot_source) -> dict:
+    """Refuse unless HotSpot still DIVIDES `r_convec` by cell area, which is what we match.
+
+    **This guard exists because its absence nearly cost a valid result.** `r_convec` is named like a
+    lumped resistance and documented as "sink-to-ambient", and two rounds of reasoning took the name
+    for the specification: the sink-top spread was read as a boundary-realisation term contaminating
+    the model-form band, an exact lumped-node FEM was built to separate it, the band collapsed, and
+    the headline was withdrawn. It should not have been --
+    `temperature_grid.c` does `rz += r_convec * (s_sink * s_sink) / (cw * ch)` and
+    `temperature_block.c` does `r_amb = r_convec * (s_sink * s_sink) / area`. Per-cell resistance
+    scaled inversely with cell area **is** a uniform Robin coefficient, so the two were matched all
+    along.
+
+    Nothing checked it, so nothing would have caught a re-pin to a HotSpot that used a lumped node --
+    the band would simply have started measuring the boundary condition instead of the model. The
+    check is a substring of the assembly, which is crude but fails CLOSED: any edit to those lines
+    stops the run and forces a human to re-derive the equivalence rather than assume it.
+    """
+
+    found = {}
+    for name, expected in _CONVECTION_ASSEMBLY.items():
+        path = hotspot_source / name
+        if not path.exists():
+            raise SystemExit(
+                f"{path} is missing; the FEM's uniform Robin coefficient is justified by how "
+                "HotSpot assembles `r_convec`, and that justification cannot be checked"
+            )
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if expected not in text:
+            raise SystemExit(
+                f"{name} no longer contains {expected!r}. This adapter applies a UNIFORM Robin "
+                "coefficient `h = 1/(r_convec * s_sink^2)`, which is equivalent only while HotSpot "
+                "divides the convective resistance by cell area. If it now uses a lumped node, the "
+                "measured band is the difference between two boundary conditions and not model form."
+            )
+        found[name] = expected
+    return found
 
 
 def _assert_matches_hotspot_inputs(template_config, materials) -> dict:
@@ -357,6 +413,8 @@ def main() -> None:
     hotspot_inputs = _assert_matches_hotspot_inputs(
         TEMPLATE / "example.config", TEMPLATE / "example.materials"
     )
+    # Checked unless this run is DELIBERATELY modelling the other boundary condition.
+    convection_assembly = None if LUMPED_SINK else _assert_convection_is_distributed(HOTSPOT.parent)
 
     _space, block_ids, placed, floorplan_text = _power_space(capture)
     blocks = _floorplan_blocks(floorplan_text)
@@ -629,6 +687,11 @@ def main() -> None:
         "worst_impulse_power_error_w": worst_impulse_w,
         "zero_solve_offset_from_ambient_k": zero_offset_k,
         "hotspot_inputs_checked": hotspot_inputs,
+        # SELF-IDENTIFYING. A lumped operator is NOT a like-for-like comparison against HotSpot,
+        # and a band computed between it and a HotSpot reference measures the boundary condition
+        # rather than the model. Recording it in the ledger is what lets a consumer notice.
+        "boundary_realisation": "lumped_node" if LUMPED_SINK else "distributed_robin",
+        "matches_hotspot_convection_assembly": convection_assembly,
         "lumped_sink": LUMPED_SINK,
         "lumped_shift_k_per_w": lumped_shift,
         # THE QUANTITY THAT BOUNDS THE LUMPED-VERSUS-DISTRIBUTED GAP. A uniform Robin coefficient
@@ -688,7 +751,7 @@ def main() -> None:
 
     np.savez_compressed(
         out_path,
-        model_ids=np.asarray(["fem-dolfinx"]),
+        model_ids=np.asarray(["fem-dolfinx-lumped" if LUMPED_SINK else "fem-dolfinx"]),
         response_k_per_w=response[None, :, :],
         ambient_k=ambient_row[None, :],
         limit_k=np.asarray(THERMAL_LIMIT_K),
