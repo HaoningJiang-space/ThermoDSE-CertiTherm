@@ -73,6 +73,37 @@ The instance is deliberately **not** the real floorplan. The identity is algebra
 geometry-independent, so the gate uses the smallest box that exercises every path it must test —
 mixed mass matrix, DG0 dof reordering, region selector, Robin boundary — and nothing it does not.
 
+## Result, first run 2026-08-02 on `moe-server` at `d29e8ac`+
+
+| cells/axis | rows | parity abs | parity rel | adjoint rel | entries | factorisation share |
+| --- | --- | --- | --- | --- | --- | --- |
+| 24 | 9 | 1.11e-11 K | 1.72e-12 | **1.12e-13** | 81 | 94.8 % |
+| 48 | 16 | 1.26e-10 K | — | **1.51e-13** | 256 | 92.2 % |
+| 96 | 16 | 8.76e-10 K | — | **2.83e-13** | 256 | 98.4 % |
+| 128 | 64 | 1.37e-09 K | 1.73e-10 | **1.89e-13** | 4096 | 98.1 % |
+| 160 | 64 | 3.29e-09 K | 4.15e-10 | **3.85e-13** | 4096 | 97.8 % |
+
+**Gate 0 PASSES.** The adjoint row equals the forward row to 1e-13 relative — machine precision, and
+flat across a 7x mesh refinement and a 64x growth in entries compared. The dual pairing is correct,
+so the CertiTherm-Opt mechanism is not blocked by an implementation defect.
+
+**And the economics are refuted, measured rather than argued.** The factorisation is **92–98 % of
+the linear-algebra cost**, and the share *grows* with mesh size because factorisation is superlinear
+while triangular solves are linear. Doubling the right-hand sides from 65 to 129 columns to carry
+64 adjoint rows changed the solve from 0.027 s to 0.077 s against a 1.45 s factorisation. **Lazy row
+generation cannot save the cost that dominates.**
+
+Three defects were found in `fem_batch_gpu.py` by running it for the first time, all latent in code
+that had no callers: `nvs.DirectSolver(matrix)` against an API that requires `(a, b)`; a return
+shaped `(regions x problems)` while the docstring promised per problem; and a C-order right-hand
+side where cuDSS requires column-major. A fourth was in the gate's own definition — see below.
+
+**The absolute parity tolerance was wrong and was corrected, not loosened to fit.** Two
+implementations of one weak form, both solved directly, diverge with floating-point accumulation:
+1.07e-11 → 1.26e-10 → 8.76e-10 → 1.37e-9 K as the mesh refines. A fixed absolute bound is therefore
+a mesh-size threshold in disguise and refused the 128 case for being large. The criterion is now
+relative to the rise above ambient; the absolute figure is still reported so the growth stays visible.
+
 ## Reading the result
 
 `adjoint_pass: false` **kills the CertiTherm-Opt mechanism** until the dual pairing is fixed; do not
