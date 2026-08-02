@@ -265,6 +265,20 @@ def _extreme_rows(rows: np.ndarray, lower: np.ndarray, upper: np.ndarray, total:
     """
 
     coefficients = np.atleast_2d(np.asarray(rows, dtype=float))
+    # NaN FIRST, SEPARATELY, and this is the path that matters: the scalar `_extreme` serves a
+    # 200-block operator while THIS one serves 262 144 cell rows, so it is the one a cell
+    # certificate actually goes through. Every check below is a single inequality --
+    # `spare < -1e-9`, the `np.clip`, and the leftover comparison -- and each is False for NaN, so
+    # a non-finite `upper`, `lower`, `total` or coefficient would propagate through `np.clip` into
+    # the returned suprema and be REPORTED rather than raised. Same defect class the repository has
+    # already found five times; the vectorised twin was missed when the scalar path was guarded,
+    # and the test that named `_extreme_rows` is what caught it.
+    if not (np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))
+            and np.all(np.isfinite(coefficients)) and np.isfinite(total)):
+        raise ValueError(
+            "the polytope or the objective carries a non-finite entry; a supremum over it is not "
+            "a number, and every bound check below would silently pass it through"
+        )
     spare = float(total) - float(lower.sum())
     if spare < -1e-9:
         raise ValueError(
