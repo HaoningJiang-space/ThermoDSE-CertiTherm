@@ -1,56 +1,37 @@
 # The model-form error, measured against an independent solver
 
-> # WITHDRAWN 2026-08-02: "model form dominates discretisation"
+> # The withdrawal was WRONG and is reversed. The result below stands.
 >
-> The lumped sink-to-ambient node has been implemented exactly and the boundary-realisation term is
-> now **separated rather than bounded**. Like for like against HotSpot -- which uses a lumped node --
-> the model-form band is **0.000 - 0.604 K**, not the 0.251 - 1.061 K reported below.
+> **2026-08-02, in three moves.** (1) The sink-top temperature spread was measured at 0.345-1.124 K
+> and, paired per case, equalled or exceeded the model-form band on four of six points, so the band
+> looked contaminated by a boundary-realisation term. (2) A lumped sink-to-ambient node was
+> constructed exactly and the band collapsed to 0.000-0.604 K, beating the refinement tail on only
+> 2 of 6, so "model form dominates discretisation" was withdrawn. (3) **HotSpot's source says it does
+> not use a lumped node**, and the withdrawal is therefore void.
 >
-> | case | refinement tail | **model form (lumped)** | ratio | as reported |
-> | --- | --- | --- | --- | --- |
-> | `arch_a` / resnet50 | 0.0512 K | 0.3706 K | 7.24x | 13.7x |
-> | `arch_a` / transformer | 0.0837 K | 0.6039 K | 7.22x | 15.2x |
-> | `arch_b` / resnet50 | 0.2254 K | **0.0860 K** | **0.38x** | 2.9x |
-> | `arch_b` / transformer | 0.3391 K | **0.1168 K** | **0.34x** | 3.3x |
-> | `arch_c` / resnet50 | 0.1860 K | **0.0000 K** | — | 1.4x |
-> | `arch_c` / transformer | 0.3002 K | **0.0000 K** | — | 1.5x |
+> ```
+> temperature_grid.c:1054   /* heatsink is connected to ambient. divide r_convec proportional to cell area */
+>                           rz += r_convec * (s_sink * s_sink) / (cw * ch);
+> temperature_block.c:207   /* vertical R to ambient: divide r_convec proportional to area */
+>                           r_amb = r_convec * (s_sink * s_sink) / area;
+> ```
 >
-> **The claim holds on 2 of 6 points, not 6 of 6.** On `arch_b` the refinement tail is 2.6-2.9x
-> LARGER than model form; on `arch_c` the band is **exactly zero** -- the FEM is never hotter than
-> HotSpot anywhere on the polytope. The dominant term in what was called "model form" was the
-> boundary realisation, which is a choice made in this adapter and not a property of HotSpot: it
-> measured 0.260 - 1.005 K, larger than the model-form term itself on four of six points.
+> Per-cell resistance scaled inversely with cell area is **exactly** a uniform Robin coefficient
+> `h = 1 / (r_convec * s_sink^2)`, which is what this adapter already used. **Both HotSpot models
+> distribute the convection; neither imposes an isothermal sink top.** So the distributed-Robin FEM
+> was the like-for-like comparison all along, the 0.251 - 1.061 K band IS the model-form band, and
+> there is no boundary-realisation mismatch to subtract: both solvers have a non-uniform sink top and
+> both have the same total convective resistance.
 >
-> ## What survives
+> **What the lumped experiment actually measured** is the difference between HotSpot's convection
+> model and a *different* one that nobody here uses -- 0.260 - 1.005 K, and it agrees closely with
+> the independently measured sink-top spread, which is the physics working as expected. It is a valid
+> sensitivity to a boundary condition; it is not a correction to this document.
 >
-> * **The method.** An independent solver is affine, so it compares exactly over a whole polytope at
->   `n + 1` solves. That is unaffected and is what made this correction possible at all.
-> * **The frozen contract did not cover model form.** Still true, at **0 - 60x** the 0.01 K budget
->   rather than 25-106x.
-> * **The frontier.** `arch_b -> arch_c` for transformer at +32.1 % EDYP does **not** depend on this
->   band: it holds at the cell endpoint with nothing folded in (`CELL_ENDPOINT_RESULT.md`).
-> * **The sign.** HotSpot still never reads hotter than the FEM anywhere measured.
->
-> ## How the lumped node was constructed, since two earlier attempts failed
->
-> Scaling the sink conductivity towards isothermal raises the material contrast to 1e6-1e7; the solve
-> loses its energy balance and refining the mesh does not rescue it, because the problem is
-> coercivity and not resolution. It also changes lateral sink spreading, so it never isolated the
-> boundary term.
->
-> The exact construction needs no new boundary condition. **Every face except the top is adiabatic**
-> -- verified in source: `bottom_heat_transfer = 0.0`, and boundary terms appear only on `ds(1)` and
-> `ds(2)`, so the sides carry the natural zero-flux condition. A problem with the top pinned to a
-> constant and everything else insulated therefore shifts RIGIDLY with that constant. So: pin the top
-> at ambient (`h = 1e7`, Robin degenerating to Dirichlet), solve once; all heat leaves through the
-> top so the total flux is exactly the dissipated power; the lumped relation `Q = (T_s - T_inf)/r`
-> gives `T_s = T_inf + r P`; and the lumped solution is the pinned field plus `r P`. Because
-> `r * sum(p)` is **linear in `p`**, it belongs in the RESPONSE and not the ambient -- every entry
-> gains exactly `r_convec`, each impulse being one watt. One solve, exact, and `h` is a surface
-> coefficient rather than a volume contrast, which is why it is well conditioned where conductivity
-> scaling was not.
->
-> Everything below this line is the superseded result, kept because the corrections are the record.
+> **The lesson, recorded because it nearly cost a valid finding.** `r_convec` is *named* like a lumped
+> resistance and is *documented* as sink-to-ambient, and two rounds of reasoning treated the name as
+> the specification. The check that settled it was reading how the coefficient is assembled, which
+> cost one grep. **Do not infer a discretisation from a parameter's name.**
 
 RESULT 2026-08-01. Development split (`arch_a`, `arch_b`, `arch_c`) x 2 workloads, `default`
 package. The three held-out splits are untouched.

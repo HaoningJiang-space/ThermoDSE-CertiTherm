@@ -49,8 +49,7 @@ because linearity is a property of the PDE and not of HotSpot.
 | "HotSpot systematically underestimates, one-signed on six points" | **four of six negative**, residual +-0.15 K | the adapter used a distributed Robin where HotSpot uses a lumped node |
 | "model form is 25-106x the contract, 1.4-11.8x the tail" | **0-60x** and **0-11.8x**, zero on two of six | the boundary realisation was 47-100 % of it |
 | "the reciprocity break costs ~2.3 K, comparable to the model-form band" | **+0.002 to +0.071 K**, measured by symmetrising | a relative entrywise figure times a scale is not an effect on a max of weighted sums |
-| **"model form dominates discretisation, 1.4-11.8x"** | **holds on 2 of 6**; model form is 0.000-0.604 K and the tail is 2.6-2.9x LARGER on `arch_b`, exactly zero on `arch_c` | the band contained this adapter's own boundary-realisation choice (0.260-1.005 K), which was larger than model form on four of six points |
-| "the boundary term is at most a third of the band" | it was **most** of it | read from one design; the six-point pairing gives a median ratio of 0.98 |
+| "the boundary term is at most a third of the band" | ~~it was most of it~~ -- **there is no boundary-realisation mismatch at all** | HotSpot distributes `r_convec` by cell area (`temperature_grid.c:1054`), which is the uniform Robin already used. Both the "at most a third" reading AND the withdrawal it led to are void |
 
 ## Provisional -- do not quote outside this repository
 
