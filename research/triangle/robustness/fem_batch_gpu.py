@@ -287,8 +287,12 @@ def solve_batch_gpu(problems, *, gpu_device: int = 0):
     generated = cp.asnumpy((built.volumes.ravel()[:, None] * built.power).sum(axis=0))
     timings["postprocess_s"] = time.perf_counter() - started
 
+    # `(problems x regions)`, matching this function's documented contract and
+    # `solve_steady_heat_batch`'s one-result-per-problem convention. The device-side product is
+    # naturally `(regions x problems)`; returning it untransposed contradicted the docstring, which
+    # nothing caught because the function had no callers.
     return (
-        cp.asnumpy(region_average),
+        cp.asnumpy(region_average).T,
         {
             "generated_power_w": np.asarray(generated, dtype=float),
             "convected_power_w": cp.asnumpy(convected).astype(float),
