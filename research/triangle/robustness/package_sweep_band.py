@@ -114,10 +114,21 @@ def main() -> None:
                     "rows_with_negative_u_j": int(np.count_nonzero(hotter < 0.0)),
                     "at_nominal_max_k": float(np.max(nominal)),
                     "at_nominal_min_k": float(np.min(nominal)),
-                    # THE PREREGISTERED KILL READING. The headline is "HotSpot reads COLDER", i.e.
-                    # T_FEM - T_grid512 > 0. A negative maximum at the nominal map on any package is
-                    # the sign flip that withdraws it.
-                    "sign_flipped_at_nominal": bool(np.max(nominal) < 0.0),
+                    # THE PREREGISTERED KILL READING, AND IT IS TWO DIFFERENT CLAIMS. An earlier
+                    # revision tested only `max_j(...) < 0`, which fires only when EVERY row is
+                    # negative and therefore could almost never fire -- a near-vacuous predicate
+                    # whose "no flip" verdict meant nothing. Peer review caught it. Both are now
+                    # recorded, because a certificate that reads a PEAK and a certificate that
+                    # relaxes each ROW are answered by different ones:
+                    #   * peak:     max_j T_FEM - max_j T_coarse > 0   -- what the scalar band uses
+                    #   * row-wise: min_j (T_FEM - T_coarse)   > 0     -- what per-row budgets need
+                    "peak_gap_k": float(np.max(fine_rows @ power + fine_ambient)
+                                        - np.max(coarse_rows @ power + coarse_ambient)),
+                    "sign_flipped_on_peak": bool(
+                        np.max(fine_rows @ power + fine_ambient)
+                        - np.max(coarse_rows @ power + coarse_ambient) < 0.0),
+                    "colder_on_every_row": bool(np.min(nominal) > 0.0),
+                    "rows_where_hotspot_is_not_colder": int(np.count_nonzero(nominal <= 0.0)),
                     "total_power_w": float(np.sum(power)),
                 })
 
@@ -126,23 +137,37 @@ def main() -> None:
         "reference_default_band_k": [0.251, 1.061],
         "results": results, "skipped": skipped,
     }
-    flips = [r for r in results if r["sign_flipped_at_nominal"]]
-    report["any_sign_flip"] = bool(flips)
-    # FAIL CLOSED ON AN EMPTY SWEEP. "no sign flip was observed" is true of zero observations, so
-    # a run that skipped everything would otherwise print a verdict that reads as corroboration.
-    # An absent test must not look like a passed one.
-    if not results:
-        report["verdict"] = "UNRESOLVED: no (architecture, workload, package) point produced a band"
-        print(json.dumps(report, indent=1), flush=True)
-        raise SystemExit(
-            f"the sweep compared nothing -- {len(skipped)} points were skipped, so the preregistered "
-            "sign-flip reading has NOT been tested"
+    # FAIL CLOSED ON A PARTIAL SWEEP, not merely an empty one. The preregistered design is exactly
+    # `len(ARCHITECTURES) x len(WORKLOADS) x len(packages)` unique points; one success and eleven
+    # skips would otherwise print a verdict that reads as corroboration of all twelve.
+    expected = len(ARCHITECTURES) * len(WORKLOADS) * len(packages)
+    seen = {(r["architecture"], r["workload"], r["package"]) for r in results}
+    report["expected_points"] = expected
+    report["observed_points"] = len(results)
+    if len(results) != expected or len(seen) != expected:
+        report["verdict"] = (
+            f"UNRESOLVED: {len(results)} of {expected} preregistered points produced a band "
+            f"({len(seen)} unique); the sign reading has NOT been tested as designed"
         )
-    report["verdict"] = (
-        "WITHDRAW 'HotSpot systematically underestimates': sign flipped on "
-        + ", ".join(f"{r['architecture']}/{r['workload']}/{r['package']}" for r in flips)
-        if flips else
-        f"no sign flip across {len(results)} points; the one-signed reading survives this test"
+        print(json.dumps(report, indent=1), flush=True)
+        raise SystemExit(report["verdict"] + f"; skipped: {skipped}")
+
+    peak_flips = [r for r in results if r["sign_flipped_on_peak"]]
+    row_failures = [r for r in results if not r["colder_on_every_row"]]
+    report["any_peak_sign_flip"] = bool(peak_flips)
+    report["points_not_colder_on_every_row"] = len(row_failures)
+    report["verdict_peak"] = (
+        "WITHDRAW the peak reading: sign flipped on "
+        + ", ".join(f"{r['architecture']}/{r['workload']}/{r['package']}" for r in peak_flips)
+        if peak_flips else
+        f"peak reading survives on {len(results)}/{expected}: HotSpot's peak is colder everywhere"
+    )
+    report["verdict_rowwise"] = (
+        f"ROW-WISE READING DOES NOT HOLD on {len(row_failures)}/{expected}: "
+        + ", ".join(f"{r['architecture']}/{r['workload']}/{r['package']}"
+                    f"({r['rows_where_hotspot_is_not_colder']} rows)" for r in row_failures)
+        if row_failures else
+        f"HotSpot is colder on every row at all {len(results)}/{expected} points"
     )
     print(json.dumps(report, indent=1), flush=True)
 
