@@ -176,6 +176,10 @@ def _floorplan_blocks(text: str):
 # those near-duplicates survive the node set and then bisect to an interval of zero width, which the
 # solver rejects as a non-increasing node list -- the symptom is far from the cause.
 EDGE_QUANTUM_M = 1.0e-9
+# How much coarser the far field may be than the die region under grading. 4x in each lateral axis
+# is a 16x cell-count saving out there, and the far field is copper and air carrying a smooth field.
+GRADED_FAR_FIELD_RATIO = float(os.environ.get("CERTITHERM_FEM_FAR_FIELD_RATIO", "4.0"))
+GRADED_MESH = os.environ.get("CERTITHERM_FEM_GRADED_MESH") == "1"
 
 
 def _assert_matches_hotspot_inputs(template_config, materials) -> dict:
@@ -251,30 +255,63 @@ def _frame(box_x: float, box_y: float, inner, z0: float, z1: float):
     )
 
 
-def _axis_nodes(edges, extent: float, minimum_cells: int):
-    """Every block edge is a mesh node, then subdivide until the cell count is reached.
+def _axis_nodes(edges, extent: float, minimum_cells: int, fine_span=None):
+    """Every block edge is a mesh node, then subdivide -- optionally only where the physics is.
 
     Assigning cells to regions by midpoint means a mesh that cuts across a block boundary puts part
     of one block's power into another. Making the edges nodes removes that failure entirely rather
     than making it small.
+
+    **Grading.** Uniform bisection resolves the far field as finely as the die, and the far field is
+    a slab of copper carrying almost no information: the die occupies about a tenth of the 60 mm
+    package footprint while every gradient of interest is inside it. Profiling put mesh construction
+    at 35 % of a run -- the largest single term, and larger still once the per-problem assembly loops
+    are removed -- and the cell count drives the assembly and the factorisation too. So when
+    `fine_span` is given, only intervals overlapping it are bisected to the target spacing; the rest
+    stop at `GRADED_FAR_FIELD_RATIO` times that spacing.
+
+    This changes the discretisation, so it is **not** free: the caller must show the answer does not
+    move. It is a knob rather than a default for exactly that reason.
     """
 
     interior = {_snap(e) for e in edges if EDGE_QUANTUM_M < _snap(e) < extent - EDGE_QUANTUM_M}
     nodes = sorted({0.0, float(extent)} | interior)
-    while len(nodes) - 1 < minimum_cells:
+    if fine_span is None:
+        while len(nodes) - 1 < minimum_cells:
+            refined = [nodes[0]]
+            for left, right in zip(nodes, nodes[1:]):
+                # Only split what is still wide enough to split. Bisecting an interval already at
+                # the quantum would reintroduce the zero-width pair this function exists to avoid.
+                if right - left > 2.0 * EDGE_QUANTUM_M:
+                    refined.append(0.5 * (left + right))
+                refined.append(right)
+            if len(refined) == len(nodes):
+                raise SystemExit(
+                    f"the node list cannot reach {minimum_cells} cells without intervals below the "
+                    f"{EDGE_QUANTUM_M} m edge quantum; the floorplan is finer than the mesh allows"
+                )
+            nodes = refined
+        return tuple(nodes)
+
+    fine_low, fine_high = (_snap(v) for v in fine_span)
+    target = float(extent) / minimum_cells
+    coarse_target = target * GRADED_FAR_FIELD_RATIO
+    for _ in range(64):
         refined = [nodes[0]]
+        changed = False
         for left, right in zip(nodes, nodes[1:]):
-            # Only split what is still wide enough to split. Bisecting an interval already at the
-            # quantum would reintroduce exactly the zero-width pair this function exists to avoid.
-            if right - left > 2.0 * EDGE_QUANTUM_M:
+            width = right - left
+            # An interval counts as fine if it overlaps the fine span at all, so the transition
+            # falls outside the region of interest rather than inside it.
+            overlaps = min(right, fine_high) > max(left, fine_low)
+            limit = target if overlaps else coarse_target
+            if width > limit + EDGE_QUANTUM_M and width > 2.0 * EDGE_QUANTUM_M:
                 refined.append(0.5 * (left + right))
+                changed = True
             refined.append(right)
-        if len(refined) == len(nodes):
-            raise SystemExit(
-                f"the node list cannot reach {minimum_cells} cells without intervals below the "
-                f"{EDGE_QUANTUM_M} m edge quantum; the floorplan is finer than the mesh model allows"
-            )
         nodes = refined
+        if not changed:
+            break
     return tuple(nodes)
 
 
@@ -348,12 +385,14 @@ def main() -> None:
         + [spr_x0, spr_x0 + s_spreader]
         + ([0.25 * box_x, 0.75 * box_x] if PROBE_SINK_TOP else []),
         box_x, lateral_cells,
+        (die_x0, die_x0 + die_width) if GRADED_MESH else None,
     )
     y_nodes = _axis_nodes(
         [die_y0 + e for _n, _x0, y0, _x1, y1 in blocks for e in (y0, y1)]
         + [spr_y0, spr_y0 + s_spreader]
         + ([0.25 * box_y, 0.75 * box_y] if PROBE_SINK_TOP else []),
         box_y, lateral_cells,
+        (die_y0, die_y0 + die_height) if GRADED_MESH else None,
     )
     z_nodes = []
     die_layers = (("die", (z_die[0], source_z0)), ("die", (source_z0, z_die[1]))) \
@@ -548,6 +587,8 @@ def main() -> None:
         "solves": len(problems), "seconds": elapsed,
         "mesh_cells": [len(x_nodes) - 1, len(y_nodes) - 1, len(z_nodes) - 1],
         "z_cells_per_layer": Z_CELLS_PER_LAYER,
+        "graded_mesh": GRADED_MESH,
+        "graded_far_field_ratio": GRADED_FAR_FIELD_RATIO if GRADED_MESH else None,
         "void_filler_k_w_per_m_k": VOID_K_W_PER_M_K,
         "source_fraction_of_die_thickness": SOURCE_FRACTION,
         "sink_conductivity_scale": SINK_K_SCALE,
