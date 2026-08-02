@@ -13,7 +13,7 @@ experiments	_SPLIT_PROTOCOL_STATE	2	test	CertiTherm/tests/test_experiment_guards
 experiments	_anytime_result_fields	1	test	CertiTherm/tests/test_anytime_controller.py
 experiments	_archive_query_evidence	2	test	CertiTherm/tests/test_query_evidence.py,CertiTherm/tests/test_query_parallelism.py
 experiments	_assert_clean_revision	2	prod+test	CertiTherm/precheck.py,CertiTherm/tests/test_experiment_guards.py
-experiments	_bounded_power	1	test	CertiTherm/tests/test_experiment_semantics.py
+experiments	_bounded_power	2	test	CertiTherm/tests/test_experiment_semantics.py,CertiTherm/tests/test_nan_guards.py
 experiments	_budgeted_call	1	test	CertiTherm/tests/test_anytime_controller.py
 experiments	_build_operators	1	test	CertiTherm/tests/test_gpu_selection_snapshot.py
 experiments	_cache_receipt_matches	2	test	CertiTherm/tests/test_cache_source_bundle.py,CertiTherm/tests/test_experiment_guards.py
