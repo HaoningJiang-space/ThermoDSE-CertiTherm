@@ -5,9 +5,9 @@
 > (`CELL_ENDPOINT_RESULT.md`), which does not depend on this document's band at all.
 >
 > **The band below CANNOT currently be attributed to model form.** Measured over all six points, the
-> bound on the boundary-realisation term -- the sink-top temperature spread -- is
-> **0.345 - 1.124 K**, and paired point by point it **equals or exceeds the model-form band on four
-> of the six**. Until the lumped sink-to-ambient node is implemented directly and the term is
+> sink-top temperature spread is **0.345 - 1.124 K**, and paired point by point it **equals or
+> exceeds the model-form band on four of the six**. *The spread is an INDICATOR of the
+> boundary-realisation term's magnitude, not a proven bound on it* -- see the corrections section. Until the lumped sink-to-ambient node is implemented directly and the term is
 > separated, "model form is 1.4-11.8x the refinement tail" is a statement about **model form plus
 > boundary realisation**, and the headline must not be quoted without that qualifier.
 
@@ -147,6 +147,13 @@ protocol change; and because it can only enlarge the band it could never have be
   inside HotSpot, and it is reported rather than folded in.
 * **The activity span is declared, not measured.**
 
+## Verified, not assumed
+
+**The captures are package-independent, so reusing them across packages is sound.** Re-running the
+ThermoDSE capture for `arch_c`/resnet50 under `default` and under `standard` gives an identical block
+list, a byte-identical floorplan, and `max abs(dPower) = 0.000e+00 W`. This had been argued from
+`thermal_map=False` rather than measured; it is now measured.
+
 ## Corrections, in the order they were made
 
 The repository keeps corrections rather than deleting them, because a number that moved is evidence
@@ -155,8 +162,9 @@ about how it was arrived at.
 **The band contains a boundary-realisation term, and it is comparable to the band itself.** A uniform
 Robin coefficient already reproduces HotSpot's lumped sink-to-ambient relation with the *mean* top
 temperature -- `h * integral(u - T_inf) = (mean(u) - T_inf) / r` -- so the only thing the lumped node
-adds is that the top is **isothermal**. The gap between the two realisations is therefore the
-sink-top temperature SPREAD. Measured on all six points:
+adds is that the top is **isothermal**. The gap between the two realisations is therefore governed by
+how far from isothermal the top actually is, and the sink-top SPREAD is the natural measure of that.
+Measured on all six points:
 
 | case | sink-top spread | model-form band | spread / band |
 | --- | --- | --- | --- |
@@ -169,6 +177,14 @@ sink-top temperature SPREAD. Measured on all six points:
 
 The spread is **9.7 - 10.9 % of the total rise on every point**, which is stable enough to be a
 structural property of this package geometry rather than noise.
+
+**The spread is an indicator, not a proven bound, and the earlier wording overstated it.** The
+spread of the *unconstrained* (distributed-Robin) solution and the *difference* between that solution
+and the *constrained* (isothermal-top) one are different quantities; treating the first as a bound on
+the second needs an argument that has not been given. What IS established is the direction: an
+isothermal top is a perfectly conducting sheet on the boundary, and adding conductance cannot raise
+the maximum, which matches the -0.734 K seen when the sink conductivity was scaled. So the spread
+says how large the term can plausibly be, not how large it is at most.
 
 *Withdrawn, and the error was in the comparison rather than the measurement:* an earlier reading of
 this said "at most about a third of the band". It compared a single design's spread (0.345 K) against

@@ -73,7 +73,13 @@ resolution unchanged.
 **Measured, and rejected.** On `arch_c`/resnet50 a 4x far-field ratio cuts the lateral cell count
 **2.17x** (200x264 to 152x160) and moves the die peak by **-0.0728 K** -- **29 % of the 0.251 K
 model-form band on that same point**. A mesh change that shifts the quantity under measurement by a
-third of itself is not an optimisation, whatever it does to the runtime. And the runtime was not
+third of itself is not an optimisation, whatever it does to the runtime.
+
+**The reason is weaker than "grading introduces 0.0728 K of error".** Both meshes are approximations,
+so their difference could be the uncertainty of the comparison rather than a bias introduced by
+grading -- establishing which would need the uniform mesh shown converged at this scale, and it has
+not been. What the measurement licenses is: **grading moves the answer by 0.0728 K and nothing here
+shows that is not a bias.** For a quantity whose band is 0.251 K that is enough to decline it. And the runtime was not
 established either: 306 s against 265 s, but sharing 52 cores with nine other jobs, so the comparison
 is confounded and no speedup is claimed.
 
