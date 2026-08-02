@@ -1,10 +1,11 @@
-# The cross-solver difference is set by the power map, not by the package
+# Package sensitivity of the cross-solver difference: bounded, and smaller than the design effects
 
 RESULT 2026-08-02. Reading declared before the operators were built
 (`~/.claude/plans/fixed-geometry-thermal-scheduling.md` step 4). Producer:
 `research/triangle/robustness/package_sweep_band.py`, which calls the same
 `one_sided_containment_bounds` `robust_frontier.py` uses, so the band definition cannot drift.
-12 of 12 points, 0 skipped.
+12 of 12 points, 0 skipped. **Corrected 2026-08-02 after peer review** -- the sign predicate, the
+architecture ratio and the causal headline were all wrong in the first revision; see each section.
 
 ## Why this test existed
 
@@ -53,7 +54,7 @@ before scaling anything.
   band by **0.4–5.1 %** (median 3.9 %), and not even consistently in sign, against a 29 % cut in
   `r_convec` and a 67 % larger sink.
 
-## What actually sets the band, which is the positive result
+## What moves the band more than the package does
 
 | factor | effect on the band |
 | --- | --- |
