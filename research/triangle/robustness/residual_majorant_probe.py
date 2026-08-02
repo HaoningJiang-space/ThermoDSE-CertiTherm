@@ -141,7 +141,7 @@ def main() -> None:
     )
 
     print(f"cells/axis={cells} grid={grid}  dofs={V.dofmap.index_map.size_global}  "
-          f"contrast={k_cu / k_si:.3g}")
+          f"contrast={k_cu / k_si:.3g} (NO void here: the favourable case)")
     print(f"{'source':>8s} {'max rise (K)':>14s} {'max z_h (K)':>14s} {'vacuity':>10s}")
 
     factors = []
@@ -154,6 +154,7 @@ def main() -> None:
             bilinear,
             source * v * dx + h_top * ambient * v * ds(1),
             petsc_options={"ksp_type": "preonly", "pc_type": "lu"},
+            petsc_options_prefix=f"fwd{src}_",
         )
         uh = forward.solve()
 
@@ -166,9 +167,10 @@ def main() -> None:
             + abs(robin_residual) * v * ds(1)
         )
         majorant = LinearProblem(
-            bilinear + h_top * 0.0 * ufl.inner(u, v) * ds(1),   # same operator, zero ambient load
+            bilinear,                       # THE SAME operator; only the load differs
             majorant_load,
             petsc_options={"ksp_type": "preonly", "pc_type": "lu"},
+            petsc_options_prefix=f"maj{src}_",
         )
         zh = majorant.solve()
 
