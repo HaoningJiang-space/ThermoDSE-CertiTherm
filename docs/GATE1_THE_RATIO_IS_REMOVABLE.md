@@ -108,16 +108,24 @@ captures (`_power_space`, the same reader the certificate uses):
 **`p = E / L` is not the relation between the numbers this pipeline actually carries.** The placed
 map draws 4–79 % more power than the reported energy over the reported latency, one-signed on all six.
 
-**Two candidate mechanisms, not yet separated.**
+**The dominant mechanism is confirmed at source, and it is DELIBERATE rather than a bug.**
+`ThermoDSE/core/statistic.py:200`, comment included:
 
-* **Peak versus mean.** `docs/ARCHIVE_CENSUS_RESULT.md` already recorded a 19 % spread of exactly
-  this kind on `arxv017` and attributed it to peak-vs-mean rather than a missing component. That
-  covers the resnet50 column (4–18 %) but **cannot explain 79 %**.
-* **The known `e_tot` defect.** The workspace notes `ThermoDSE/core/statistic.py:200` computes
-  `e_tot = ... + e_core - e_comp`, i.e. it **subtracts compute energy** from the reported total. A
-  reported `E` that is short by the compute term would make `E/L` too small, one-signed, by more for
-  workloads where compute dominates — and transformer's gap being 4× resnet50's is the direction
-  that predicts.
+```python
+e_tot = e_nop + e_noc + e_dram + e_core - e_comp  # exclude the energy of computing units, since they are always fixed
+```
+
+`e_comp` is `mtxu + vecu`. Meanwhile `gen_ptrace` (`:203`) writes the **full** per-block energy,
+compute included. **So the objective's energy and the thermal model's energy are different
+quantities by construction**, and the reported `E` is short by exactly the compute term. That
+predicts the sign (positive on all six), and predicts transformer being worst (GEMM-dominated).
+
+**It does not explain everything, and the residual is stated rather than absorbed.** The same
+workload varies 4.2 % to 18.3 % across architectures, which a fixed compute fraction cannot produce
+alone. A second effect is still present — most plausibly peak-versus-mean, since `sum p` is the
+placed instantaneous map while `E/L` is a time average, and
+`docs/ARCHIVE_CENSUS_RESULT.md` already measured a 19 % spread of that kind on `arxv017`. The two
+compound and have not been separated.
 
 **Why this is decision-relevant regardless of which mechanism it is.** A MILP whose objective and
 whose thermal rows both use ThermoDSE's reported `energy_mj` would drive a power map that is 4–79 %
