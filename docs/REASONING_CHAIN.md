@@ -25,9 +25,9 @@ because linearity is a property of the PDE and not of HotSpot.
 
 | claim | number | population | owner |
 | --- | --- | --- | --- |
-| the frozen error budget covered only linearisation | model form is **25-106x** the 0.01 K contract over the polytope, **20-86x** at the nominal map | dev, 3 arch x 2 workloads | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
-| model form exceeds the refinement tail | **1.4-11.8x**, band **0.251-1.061 K** polytope-wide, per row, one-sided | same | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
-| HotSpot reads colder than an independent FEM, one-signed | `T_FEM - T_grid512` = **+0.21 to +0.93 K on all six** at the nominal map | same | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
+| the frozen error budget covered only linearisation | model form is **25-106x** the 0.01 K contract over the polytope, **20-86x** at the nominal map -- **at run `32666c9`; see the open collision below** | dev, 3 arch x 2 workloads, span 0.30 | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
+| model form exceeds the refinement tail | **1.4-11.8x**, band **0.251-1.061 K** polytope-wide, per row, one-sided, **at run `32666c9`** | same | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
+| HotSpot reads colder than an independent FEM | `T_FEM - T_grid512` = **+0.21 to +0.93 K, positive at all six NOMINAL MAPS** -- not shown polytope-wide, which would need the difference MINIMISED over the set | same | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
 | the FEM reference satisfies an analytical identity | `mean(T_top) = T_amb + r_convec*P` to solver precision; the 3.0e-4 residual is a predicted slab offset, ratio **1.000** on all six | same | `FEM_ANALYTICAL_VERIFICATION.md` |
 | a lumped sink boundary would move the band | **0.26-1.01 K** -- a sensitivity to a BC HotSpot does not use, not a correction | same | `LUMPED_BOUNDARY_SENSITIVITY.md` |
 

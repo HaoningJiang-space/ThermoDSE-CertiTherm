@@ -57,7 +57,7 @@ Polytope-wide one-sided band at activity span 0.30. The right-hand column is **t
 swapping the boundary condition** -- it was previously and wrongly labelled "boundary realisation",
 which implied it was an error sitting inside the distributed-Robin number.
 
-| case | distributed Robin (**the like-for-like comparison**) | lumped node (a BC HotSpot does not use) | sensitivity to the swap |
+| case | distributed Robin (this run) | lumped node (a BC HotSpot does not use) | sensitivity to the swap |
 | --- | --- | --- | --- |
 | `arch_a` / resnet50 | **0.7030 K** | 0.3706 K | 0.3324 K |
 | `arch_a` / transformer | **1.2748 K** | 0.6039 K | 0.6709 K |
@@ -66,9 +66,24 @@ which implied it was an error sitting inside the distributed-Robin number.
 | `arch_c` / resnet50 | **0.2603 K** | 0.0000 K | 0.2603 K |
 | `arch_c` / transformer | **0.4583 K** | 0.0000 K | 0.4583 K |
 
+### The distributed column here is NOT the same measurement as the band's owner reports
+
+`MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` reports the model-form band as **0.251-1.061 K** from
+the run at `32666c9`. The distributed column above, from the run at `1d3ae3c`, is
+**0.2603-1.2748 K** -- per case up to **0.29 K** apart, and not even one-signed
+(`arch_c`/transformer is 0.0087 K *lower* here). **Neither is withdrawn and they must not be quoted
+as one result.**
+
+The freeze difference is **not established from these documents**. The likeliest candidate is the
+mesh: the owner records that the FEM mesh was sized by the package rather than the die and that
+refining it moved a band `0.6093 -> 0.6673 -> 0.6905 K`, i.e. **a coarse mesh UNDERSTATES**, which is
+the direction of five of the six differences here. That is a hypothesis, not a finding. Until each
+run's activity span, power bounds, constraint set, endpoint rows, mesh, solver tolerances and SHA are
+recovered and compared, any statement of the form "the band is X" must name which run it came from.
+
 And at the nominal map (`T_FEM - T_grid512`):
 
-| case | distributed (**like-for-like**) | lumped |
+| case | distributed (this run) | lumped |
 | --- | --- | --- |
 | `arch_a` / resnet50 | **+0.4356** | +0.1118 |
 | `arch_a` / transformer | **+0.8089** | +0.1507 |
@@ -84,8 +99,8 @@ It is a consistency check on the construction, not evidence about HotSpot.
 ## Two withdrawals this document made, both of which are VOID
 
 **"HotSpot systematically underestimates, one-signed on all six points" -- the withdrawal is void and
-the original claim stands.** The like-for-like column is `+0.2128` to `+0.9304 K`, **positive on all
-six**. The four-of-six-negative result belongs to the lumped comparison, which is against a boundary
+the original claim stands.** The distributed column of THIS run is `+0.2128` to `+0.9304 K`, **positive on all six**, and
+the owner's run at `32666c9` is likewise positive on all six. The four-of-six-negative result belongs to the lumped comparison, which is against a boundary
 condition HotSpot does not have. The Fetis and Seznec citation is likewise reinstated as independent
 corroboration of the direction.
 
@@ -103,9 +118,9 @@ sensitivity, and it is the right size to matter, so any future comparison agains
 lump its sink must construct the boundary to match rather than assume it is a detail.
 
 **It does NOT establish that HotSpot agrees with an independent solver to +-0.15 K.** That figure is
-against the wrong boundary-value problem. The like-for-like agreement is `+0.21` to `+0.93 K` at the
-nominal map and `0.251 - 1.061 K` over the polytope, owned by
-`MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md`.
+against the wrong boundary-value problem. The distributed-Robin agreement is `+0.21` to `+0.93 K` at the
+nominal map, with the polytope-wide band owned by `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` --
+subject to the run collision recorded above.
 
 ## What this document does not touch
 
