@@ -1,23 +1,56 @@
 # The model-form error, measured against an independent solver
 
-> **SUPERSEDED 2026-08-02 by `MODEL_FORM_ISOLATED.md`.** Every band on this page was measured with
-> a distributed Robin coefficient over the sink top, while HotSpot uses a **lumped** sink-to-ambient
-> node. Isolating that shows the boundary realisation was **47-100 %** of what is called model form
-> here. With it removed the band is **0.000-0.604 K** rather than 0.251-1.061 K, and
-> **"HotSpot systematically underestimates" is withdrawn** -- four of six points go negative and
-> the residual is +-0.15 K. The page is kept because the corrections recorded on it are part of the
-> record; its headline numbers are not current.
-
-> **STATUS.** The frontier conclusion (`arch_b -> arch_c` for transformer, +32.1 % EDYP) is
-> **established and no longer provisional**: it holds at the cell endpoint with no band folded in
-> (`CELL_ENDPOINT_RESULT.md`), which does not depend on this document's band at all.
+> # WITHDRAWN 2026-08-02: "model form dominates discretisation"
 >
-> **The band below CANNOT currently be attributed to model form.** Measured over all six points, the
-> sink-top temperature spread is **0.345 - 1.124 K**, and paired point by point it **equals or
-> exceeds the model-form band on four of the six**. *The spread is an INDICATOR of the
-> boundary-realisation term's magnitude, not a proven bound on it* -- see the corrections section. Until the lumped sink-to-ambient node is implemented directly and the term is
-> separated, "model form is 1.4-11.8x the refinement tail" is a statement about **model form plus
-> boundary realisation**, and the headline must not be quoted without that qualifier.
+> The lumped sink-to-ambient node has been implemented exactly and the boundary-realisation term is
+> now **separated rather than bounded**. Like for like against HotSpot -- which uses a lumped node --
+> the model-form band is **0.000 - 0.604 K**, not the 0.251 - 1.061 K reported below.
+>
+> | case | refinement tail | **model form (lumped)** | ratio | as reported |
+> | --- | --- | --- | --- | --- |
+> | `arch_a` / resnet50 | 0.0512 K | 0.3706 K | 7.24x | 13.7x |
+> | `arch_a` / transformer | 0.0837 K | 0.6039 K | 7.22x | 15.2x |
+> | `arch_b` / resnet50 | 0.2254 K | **0.0860 K** | **0.38x** | 2.9x |
+> | `arch_b` / transformer | 0.3391 K | **0.1168 K** | **0.34x** | 3.3x |
+> | `arch_c` / resnet50 | 0.1860 K | **0.0000 K** | — | 1.4x |
+> | `arch_c` / transformer | 0.3002 K | **0.0000 K** | — | 1.5x |
+>
+> **The claim holds on 2 of 6 points, not 6 of 6.** On `arch_b` the refinement tail is 2.6-2.9x
+> LARGER than model form; on `arch_c` the band is **exactly zero** -- the FEM is never hotter than
+> HotSpot anywhere on the polytope. The dominant term in what was called "model form" was the
+> boundary realisation, which is a choice made in this adapter and not a property of HotSpot: it
+> measured 0.260 - 1.005 K, larger than the model-form term itself on four of six points.
+>
+> ## What survives
+>
+> * **The method.** An independent solver is affine, so it compares exactly over a whole polytope at
+>   `n + 1` solves. That is unaffected and is what made this correction possible at all.
+> * **The frozen contract did not cover model form.** Still true, at **0 - 60x** the 0.01 K budget
+>   rather than 25-106x.
+> * **The frontier.** `arch_b -> arch_c` for transformer at +32.1 % EDYP does **not** depend on this
+>   band: it holds at the cell endpoint with nothing folded in (`CELL_ENDPOINT_RESULT.md`).
+> * **The sign.** HotSpot still never reads hotter than the FEM anywhere measured.
+>
+> ## How the lumped node was constructed, since two earlier attempts failed
+>
+> Scaling the sink conductivity towards isothermal raises the material contrast to 1e6-1e7; the solve
+> loses its energy balance and refining the mesh does not rescue it, because the problem is
+> coercivity and not resolution. It also changes lateral sink spreading, so it never isolated the
+> boundary term.
+>
+> The exact construction needs no new boundary condition. **Every face except the top is adiabatic**
+> -- verified in source: `bottom_heat_transfer = 0.0`, and boundary terms appear only on `ds(1)` and
+> `ds(2)`, so the sides carry the natural zero-flux condition. A problem with the top pinned to a
+> constant and everything else insulated therefore shifts RIGIDLY with that constant. So: pin the top
+> at ambient (`h = 1e7`, Robin degenerating to Dirichlet), solve once; all heat leaves through the
+> top so the total flux is exactly the dissipated power; the lumped relation `Q = (T_s - T_inf)/r`
+> gives `T_s = T_inf + r P`; and the lumped solution is the pinned field plus `r P`. Because
+> `r * sum(p)` is **linear in `p`**, it belongs in the RESPONSE and not the ambient -- every entry
+> gains exactly `r_convec`, each impulse being one watt. One solve, exact, and `h` is a surface
+> coefficient rather than a volume contrast, which is why it is well conditioned where conductivity
+> scaling was not.
+>
+> Everything below this line is the superseded result, kept because the corrections are the record.
 
 RESULT 2026-08-01. Development split (`arch_a`, `arch_b`, `arch_c`) x 2 workloads, `default`
 package. The three held-out splits are untouched.
