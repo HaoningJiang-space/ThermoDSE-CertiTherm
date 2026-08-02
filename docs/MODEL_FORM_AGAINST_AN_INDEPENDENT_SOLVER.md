@@ -1,47 +1,10 @@
 # The model-form error, measured against an independent solver
 
-> **THE BOUNDARY-REALISATION TERM IS BOUNDED AT ~0.35 K, NOT 0.73 K.** Measured directly rather
-> than inferred: with a uniform Robin coefficient the total flux is already
-> `h * integral(u - T_inf) = (mean(u) - T_inf) / r`, which IS HotSpot's lumped sink-to-ambient
-> relation with the mean top temperature. **The only thing the lumped node adds is that the top is
-> isothermal**, so the gap between the two realisations is the sink-top temperature SPREAD. On
-> `arch_c`/resnet50 at n=192 that spread is **0.345 K** across a 3.578 K total rise (9.7 %):
-> centre 319.763 K, south 319.531, east 319.433, north 319.420, west 319.417.
->
-> **This also shows the conductivity-scaling experiment does not isolate the term.** Its -0.734 K
-> exceeds the entire top non-uniformity, so it is changing lateral spreading inside the sink as well
-> -- exactly what peer review warned about. The scaling number is therefore not a measurement of the
-> boundary realisation, and the spread is.
->
-> Consequence: **at most about a third** of the 0.251-1.061 K band is boundary realisation, not most
-> of it. The band remains an upper bound on model form, but a much tighter one.
->
-> **Superseded framing, kept for the record.** Measured 2026-08-02: driving the
-> sink towards the isothermal limit -- which is what HotSpot's *lumped* sink-to-ambient node is --
-> moves the FEM peak **-0.734 K** (sink conductivity x10, energy balance 2.07e-07, admissible; x100
-> and x1000 were refused by the gate). **Refining the sink mesh does not rescue them**: x100 at 24
-> z-cells and x1000 at 32 were also refused, so the failure is not through-thickness resolution but
-> the material contrast itself degrading the problem -- which is the `k_max/k_min` coercivity
-> degradation peer review predicted. The isothermal limit is therefore **not reachable by scaling
-> conductivity**, and separating this term needs the lumped sink-to-ambient node implemented directly
-> as a boundary condition. Until then -0.734 K is a single admissible point below the true limit,
-> establishing the direction and a lower bound on the magnitude, not the magnitude. The measured model-form band is 0.251-1.061 K in the direction "FEM hotter than
-> HotSpot". **A boundary-realisation term of the same sign and comparable magnitude sits inside it**,
-> so the band as reported is an upper bound on model form and not an estimate of it. The other two
-> declared equivalences are safe: source depth moves the peak +0.0201 K and the void filler +0.0000 K.
->
-> **THE CELL ENDPOINT HAS LANDED AND THE CONCLUSION SURVIVED IT** (`CELL_ENDPOINT_RESULT.md`):
-> `arch_b`/transformer is refused at the cell endpoint by -0.36 K **without any band folded in**,
-> so the `arch_b -> arch_c` switch and its +32.1 % price no longer rest on the block-average
-> assumption. What remains provisional is the band's composition, not the frontier.
->
-> **Superseded warning, kept for the record.** Every number below is computed on
-> **block-average rows**, and on this same FEM a unit impulse puts the domain maximum **2.06 K** above
-> the hottest block average (0.18 K inside HotSpot). That term is reported here and **not** folded
-> into the certificate. The tightest point on the frontier has **0.31 K** of slack, so folding it in
-> can be expected to break at least that point. **Do not quote `+32.1 %` or "5 of 6 certify" outside
-> this repository until the cell-level certificate lands.** The three independent routes that agree
-> on +32.1 % share the block-level assumption, so their agreement does not cover this gap.
+> **STATUS.** The frontier conclusion (`arch_b -> arch_c` for transformer, +32.1 % EDYP) is
+> **established and no longer provisional**: it holds at the cell endpoint with no band folded in
+> (`CELL_ENDPOINT_RESULT.md`). What the band below bounds is **model form plus a boundary-realisation
+> term of at most ~0.35 K**, so it is an upper bound on model form rather than a measurement of it.
+> Corrections made along the way are recorded at the end of this document rather than stacked here.
 
 RESULT 2026-08-01. Development split (`arch_a`, `arch_b`, `arch_c`) x 2 workloads, `default`
 package. The three held-out splits are untouched.
@@ -178,3 +141,36 @@ protocol change; and because it can only enlarge the band it could never have be
   physical peak. This is the independent-solver analogue of the 0.18 K understatement measured
   inside HotSpot, and it is reported rather than folded in.
 * **The activity span is declared, not measured.**
+
+## Corrections, in the order they were made
+
+The repository keeps corrections rather than deleting them, because a number that moved is evidence
+about how it was arrived at.
+
+**The band contains a boundary-realisation term, and it is ~0.35 K rather than ~0.73 K.** A uniform
+Robin coefficient already reproduces HotSpot's lumped sink-to-ambient relation with the *mean* top
+temperature -- `h * integral(u - T_inf) = (mean(u) - T_inf) / r` -- so the only thing the lumped node
+adds is that the top is **isothermal**. The gap between the two realisations is therefore the
+sink-top temperature SPREAD, measured at **0.345 K** across a 3.578 K rise on `arch_c`/resnet50
+(centre 319.763 K, south 319.531, east 319.433, north 319.420, west 319.417).
+
+*Withdrawn:* an earlier estimate of **-0.734 K**, from scaling the sink conductivity by 10. It
+exceeds the entire top non-uniformity, so it is also changing lateral spreading inside the sink and
+is not an isolation of the boundary realisation. Peer review predicted exactly this.
+
+*Also withdrawn:* the diagnosis that the higher-contrast runs (`x100`, `x1000`) failed the
+energy-balance gate for want of through-thickness resolution. Refining the sink to 24 and 32 z-cells
+did not rescue them, so it is the material contrast degrading the problem -- the `k_max/k_min`
+coercivity degradation peer review predicted -- and the isothermal limit is **not reachable by
+scaling conductivity** at all. Measuring the spread is what makes that irrelevant.
+
+**The other two declared equivalences are small.** Source in the top 10 % of the die rather than the
+full thickness: **+0.0201 K**. A near-adiabatic void instead of still air: **+0.0000 K**. Both on one
+design at one mesh, so they are local sensitivities and not general results.
+
+**The block-average endpoint was a real gap and it has been closed.** Every number in this document
+is computed on block-average rows, and on this same FEM a unit impulse puts the domain maximum
+2.06 K above the hottest block average. That warning stood until the cell-level certificate landed;
+it now shows the tightest point is refused at the cell endpoint *without* any band, so the frontier
+does not rest on the block-average assumption. The per-impulse 2.06 K figure should not be read as
+the operational gap: at the placed power map the cell-minus-block gap is **0.21 - 0.62 K**.
