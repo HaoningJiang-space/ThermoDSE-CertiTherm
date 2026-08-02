@@ -94,11 +94,15 @@ def main() -> None:
     ambient = 318.15
     h_top = 1.0 / (0.1 * 0.06 * 0.06)          # the distributed Robin coefficient, as HotSpot assembles it
 
-    nz_die, nz_spr, nz_sink = 2, 2, 3
+    # `create_box` grades z UNIFORMLY, and the layers span 150 um to 6.9 mm. A z-count chosen for the
+    # sink puts the entire die inside the first cell, no midpoint lands in it, the source becomes
+    # identically zero and the probe prints a table of zeros -- which is what the first run did. The
+    # count is therefore derived from the THINNEST layer and the outcome is asserted below, not hoped.
+    nz = int(np.ceil(total_z / (z_die / 2)))
     domain = dmesh.create_box(
         MPI.COMM_WORLD,
         [np.zeros(3), np.array([box_xy, box_xy, total_z])],
-        [cells, cells, nz_die + nz_spr + nz_sink],
+        [cells, cells, nz],
         cell_type=dmesh.CellType.tetrahedron,
     )
 
@@ -110,6 +114,12 @@ def main() -> None:
         np.arange(domain.topology.index_map(domain.topology.dim).size_local, dtype=np.int32),
     )
     zc = midpoints[:, 2]
+
+    if not np.any(zc < z_die):
+        raise SystemExit(
+            f"no cell midpoint lies in the {z_die * 1e6:.0f} um die at nz={nz}: the source would be "
+            "identically zero and every number below would be a silent zero"
+        )
 
     kappa = fem.Function(Q)
     kappa.x.array[:] = np.where(zc < z_die, k_si, k_cu)
@@ -149,6 +159,12 @@ def main() -> None:
         source = fem.Function(Q)
         volume = float(step * step * z_die)
         source.x.array[:] = np.where(region == src, 1.0 / volume, 0.0)   # one watt, spread over the block
+        injected = fem.assemble_scalar(fem.form(source * dx))
+        if not np.isclose(injected, 1.0, rtol=2e-2):
+            raise SystemExit(
+                f"source {src} integrates to {injected:.6g} W, not 1 W: the block does not tile the "
+                "cells it is assigned from, so every ratio below would be scaled by an unknown factor"
+            )
 
         forward = LinearProblem(
             bilinear,
