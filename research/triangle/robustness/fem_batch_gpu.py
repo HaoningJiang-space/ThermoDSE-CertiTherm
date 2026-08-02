@@ -478,28 +478,46 @@ def main() -> None:
     # covectors go into ONE right-hand side, so there is demonstrably one factorisation for both.
     import cupy as cp
 
+    # TWO CHOICES HERE, BOTH TO STOP THE GATE BEING VACUOUS.
+    #
+    # `(K^-T c)^T F = c^T K^-1 F` is an algebraic tautology, so comparing an adjoint row against a
+    # forward row built from the SAME device objects would largely confirm that `A @ B` and
+    # `(B.T @ A.T).T` agree. Writing out what this gate actually compares:
+    # `forward[j,i] = G[j,i]/vol_j` and `adjoint[j,i] = G[i,j]/vol_j` for
+    # `G = S^T M^T K^-1 M S`, so the content is the SYMMETRY of `G` -- reciprocity -- which is a
+    # property of the assembled operator and not of the algebra, but which this project has already
+    # measured at 0.00 % for the FEM. That overlap is real and the gate must not be sold as
+    # independent of it.
+    #
+    # So: (1) the forward side is taken from the CPU ORACLE, not the GPU build, which makes the
+    # comparison cross two implementations rather than two readings of one array; and (2) the
+    # compared rows include the UNPOWERED regions, which never appear as a source at all, so the
+    # `j`-index of `G` ranges over regions the `i`-index cannot reach.
+    probe_rows = list(range(n_regions))
+    unpowered = [r for r in probe_rows if r not in set(powered)]
+
     built = assemble_batch(problems)
-    covectors = adjoint_covectors(built, powered)
+    covectors = adjoint_covectors(built, probe_rows)
     combined = cp.concatenate((built.right_hand_sides, covectors), axis=1)
     solutions, combined_timings = factorise_and_solve(built, combined)
     duals = solutions[:, built.right_hand_sides.shape[1]:]
+    adjoint = adjoint_rows_from_duals(built, duals)       # (probe_rows x regions), K per volumetric
 
-    dof_integrals = built.mixed.T @ solutions[:, : built.right_hand_sides.shape[1]]
-    combined_average = cp.asnumpy(
-        (built.selector.T @ dof_integrals[built.dof_of_cell]) / built.volumes
-    ).T
-    forward_rows = np.asarray([
-        (combined_average[i + 1] - combined_average[0]) for i in range(len(powered))
-    ], dtype=float).T                                     # (regions_out x impulses), K per watt
-    adjoint = adjoint_rows_from_duals(built, duals)       # (rows x regions), K per volumetric
-    predicted = np.asarray([
-        [adjoint[r, region] / volumes[region] for region in powered]
-        for r in range(len(powered))
+    # `reference` is the ORACLE, problems x regions. Row j of the response, in K per watt.
+    observed = np.asarray([
+        [reference[i + 1][j] - reference[0][j] for i in range(len(powered))]
+        for j in probe_rows
     ], dtype=float)
-    observed = forward_rows[powered, :]
+    predicted = np.asarray([
+        [adjoint[position, region] / volumes[region] for region in powered]
+        for position in range(len(probe_rows))
+    ], dtype=float)
+
     scale = float(np.max(np.abs(observed)))
     delta = float(np.max(np.abs(predicted - observed)))
-    report["adjoint_rows_compared"] = len(powered)
+    report["adjoint_forward_side"] = "cpu_oracle"
+    report["adjoint_rows_compared"] = len(probe_rows)
+    report["adjoint_rows_unpowered"] = len(unpowered)
     report["adjoint_entries_compared"] = int(predicted.size)
     report["response_scale_k_per_w"] = scale
     report["adjoint_max_abs_k_per_w"] = delta
@@ -508,6 +526,13 @@ def main() -> None:
     report["adjoint_pass"] = bool(
         np.isfinite(delta) and scale > 0 and delta / scale <= ADJOINT_TOL_REL
     )
+    # Reported separately because the unpowered rows are the part that is NOT a restatement of
+    # reciprocity between source regions.
+    if unpowered:
+        block = np.asarray([probe_rows.index(r) for r in unpowered], dtype=int)
+        gap = float(np.max(np.abs(predicted[block] - observed[block])))
+        report["adjoint_unpowered_max_abs_k_per_w"] = gap
+        report["adjoint_unpowered_max_rel"] = gap / scale if scale > 0 else float("inf")
 
     # THE ECONOMIC CLAIM UNDER TEST, measured rather than argued. `forward_only` factorised for the
     # impulse loads alone; `combined` factorised once for the impulse loads AND the adjoint
