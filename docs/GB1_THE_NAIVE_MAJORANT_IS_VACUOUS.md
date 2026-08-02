@@ -153,3 +153,45 @@ whole direction."* Under P1+DG0 that construction is now measured to be structur
 
 **The route is not refuted — the element family is.** Re-running it on P1 in any form, equilibrated
 or not, would reproduce a known negative result.
+
+---
+
+# P2 CROSSES BELOW 1 FOR THE FIRST TIME — measured 2026-08-02
+
+The section above concluded that the element family, not the route, is what P1+DG0 refutes: the
+volume residual is `f` itself because `div(k grad u_h) = 0` inside every element, so the majorant
+problem IS the forward problem and the factor is identically 1 whatever the mesh. The probe now takes
+`--degree`, and the volume residual is written honestly as `f + div(k grad u_h)`.
+
+`--cells 12 --grid 3`, 9 sources, same layered box:
+
+| degree | naive median | **equilibrated median** | equilibrated max |
+| ---: | ---: | ---: | ---: |
+| 1 | 33.8451 | **1.0012** | 1.0016 |
+| **2** | **5.4873** | **0.8545** | 1.0790 |
+
+**The prediction holds.** With P2 the divergence term is a genuine cancellation rather than an
+identity, so the naive factor falls 6.2x and the equilibrated one falls below 1 for the first time —
+**40x end to end** against the P1 naive baseline. The face term also shrinks from 33.8x of the rest
+to 6.4x, so equilibration matters less at P2 and the volume term is no longer the floor.
+
+## But this is "the route is alive", not "the route works"
+
+The rise is ~6.4 K and the factor is 0.8545, so the certificate half-width is **~5.5 K**. The
+preregistered threshold in `PEAKCERT_OPERATOR_PREREGISTRATION.md` is a **median <= 0.5 K**, so the
+construction is still **~11x** away at this mesh, and `equilibrated max = 1.0790` means one source is
+still above 1.
+
+**Whether refinement closes an 11x gap is the whole question, and one mesh cannot answer it.** At P1
+the naive factor decayed only as `h^0.770`, for a structural reason: the total mass of the
+absolute-jump measure is `O(1)`. At P2 that argument does not bind the volume term, which should
+converge at the element's own rate — but it is unchanged for the face term, which is now 6.4x of the
+rest rather than 33.8x. A refinement sweep is running on `moe-server`.
+
+**Settled either way:** equilibration alone was never going to be enough (P1 equilibrated is 1.0012),
+and the element family really was the binding constraint. **Not settled:** whether P2 plus
+equilibration reaches a decision-useful width or merely a smaller useless one.
+
+**Cost, stated up front.** Moving `steady_heat_fem` to P2 changes the element family every operator,
+parity result and cross-solver band in this repository was built on. That is a Tier-2 change and it
+is not authorised by this probe — the probe exists to say whether it would be worth asking.
