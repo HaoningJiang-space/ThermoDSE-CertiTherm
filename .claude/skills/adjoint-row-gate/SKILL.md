@@ -83,9 +83,24 @@ mixed mass matrix, DG0 dof reordering, region selector, Robin boundary — and n
 | 128 | 64 | 1.37e-09 K | 1.73e-10 | **1.89e-13** | 4096 | 98.1 % |
 | 160 | 64 | 3.29e-09 K | 4.15e-10 | **3.85e-13** | 4096 | 97.8 % |
 
-**Gate 0 PASSES.** The adjoint row equals the forward row to 1e-13 relative — machine precision, and
-flat across a 7x mesh refinement and a 64x growth in entries compared. The dual pairing is correct,
-so the CertiTherm-Opt mechanism is not blocked by an implementation defect.
+**Those numbers came from a WEAKER form of the gate and are kept only to show the progression.**
+Written out, that version compared `G[j,i]` against `G[i,j]` for `G = S^T M^T K^-1 M S` — the
+symmetry of `G`, i.e. **reciprocity**, which this project already measures at 0.00 % for the FEM.
+Real content, but not independent of a result already in hand, and both sides came from the same
+device arrays. The gate now takes its forward side from the **CPU oracle** and includes **unpowered**
+output regions, whose `j` index the `i` index cannot reach:
+
+| cells/axis | rows (unpowered) | entries | adjoint vs oracle | **unpowered block** | CPU/GPU parity |
+| --- | --- | --- | --- | --- | --- |
+| 24 | 11 (2) | 99 | 4.92e-12 | **4.92e-12** | 5.42e-12 |
+| 96 | 18 (2) | 288 | 1.22e-10 | **1.22e-10** | 1.32e-10 |
+| 160 | 66 (2) | 4224 | 4.25e-10 | **4.25e-10** | 4.52e-10 |
+
+**Gate 0 PASSES.** The maximum error sits *on* the unpowered rows — the one block that is not a
+restatement of source-to-source reciprocity — and tracks the CPU-vs-GPU parity level, so the adjoint
+identity holds as tightly as the two implementations agree with each other and cannot hold tighter.
+The dual pairing is correct, so the CertiTherm-Opt mechanism is not blocked by an implementation
+defect.
 
 **And the economics are refuted, measured rather than argued.** The factorisation is **92–98 % of
 the linear-algebra cost**, and the share *grows* with mesh size because factorisation is superlinear
@@ -115,8 +130,32 @@ tractability instead.
 
 ## Scope
 
-This gate does **not** test the thermal result, the floorplan, the power model, or `p(x) = Bx + d`.
-That last one is the separate live risk: NoC/NoP energy depends on whether two tasks share a
-chiplet, i.e. on `x_u ⊗ x_v`, so `p(x)` is **bilinear**, not linear. It is linearisable with pair
-variables at real cost in MILP size, and it is the same obstruction that closed the architecture-DSE
-direction. Gate 0 passing does not retire it.
+This gate tests one thing: that a response row obtained by an adjoint solve is the row the forward
+build produces. It does **not** test the thermal result, the floorplan, the power model, or the host
+MILP.
+
+## The `p(x) = Bx + d` kill condition — RESOLVED, and it does not fire
+
+**`p(x)` really is bilinear, confirmed from source.** `ThermoDSE/core/nop.py:73`
+`move_between_core(src, dst, volume)` calls `unicast(src_cidx, dst_cidx, size)`, which calls
+`NoP_link_calc(src_cidx, dst_cidx)`. The hop count is a function of **both** placements, so for a
+binary assignment `x[t,c]`:
+
+    hops(u,v) = sum over c,c' of  x[u,c] * x[v,c'] * hop(c,c')
+
+**Two reasons it does not kill the thermal contribution.**
+
+1. **The optimality proof survives, because the variables are binary.** McCormick on a product of
+   binaries — `z <= x[u,c]`, `z <= x[v,c']`, `z >= x[u,c] + x[v,c'] - 1`, `z >= 0` — is an **exact
+   reformulation**, not a relaxation. The linearised model is still the full problem, so "master is
+   a relaxation of it" is untouched.
+2. **The thermal rows never see the blow-up.** Power is dissipated **per chiplet**, not per task, so
+   the bilinear terms reaching `p(x)` aggregate to `y[c,c'] = sum over edges of volume_uv x[u,c]
+   x[v,c']` — that is `C**2` terms, **16 for 4 chiplets and 256 for 16**, *independent of task
+   count*. The `edges * C**2` explosion (208 896 z-variables at 256 tasks and 8 chiplets) lands in
+   the latency/ordering part of the mapping MILP, which is the host problem's difficulty and not the
+   certificate's.
+
+**What this does NOT settle:** that a mapping MILP with an exact objective and a usable bound can be
+built at all. `ThermoDSE/core/schedule.py` is greedy and provides no bound, so the host problem has
+to be written from scratch. That is Gate 1, and it is where the direction can still die.
