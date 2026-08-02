@@ -248,3 +248,98 @@ different core counts, so the excluded `e_comp` is a different fraction of the t
 removes the need to invoke a second mechanism to explain the spread, though it does not rule one
 out — peak-versus-mean remains plausible and unseparated, and `docs/ARCHIVE_CENSUS_RESULT.md`
 measured a 19 % spread of that kind independently.
+
+---
+
+# WITHDRAWALS 2026-08-02, after round-3 peer review
+
+Three of the four claims above are withdrawn or narrowed. Each withdrawal names the premise it rests
+on and that premise was checked against source, per the standing rule that a retraction is held to
+the same falsification standard as a promotion.
+
+## The process failure first, because it caused two of the three
+
+**`docs/THERMODSE_ENDPOINT_AUDIT.md` was committed on 2026-08-01 and I did not read it.** It already
+establishes, by measurement on `arch_c`/resnet50 at `ec91515`:
+
+* **`latency_ms` is 1.8x too large** — a units bug, cycles accumulated where time was meant;
+* the aligned ptrace **excludes DRAM entirely, drops NoP during alignment, and over-counts NoC by
+  33.41 %**, and the resulting `2.0000x` against the per-order mean is **fully accounted for with
+  zero residual**;
+* its `sum(placed_power_w) = 13.68 W` is **the same number** the table above reports for
+  `resnet50/arch_c`.
+
+So the measurement was arithmetically right and **scientifically ill-posed**: I re-derived one side
+of a discrepancy the repository had already decomposed to zero residual, and then attributed it to a
+mechanism that document rules out. This is the "grep the repository before writing a new script"
+rule in `CLAUDE.md`, and the cost was a whole section of wrong conclusions.
+
+## C — WITHDRAWN
+
+`sum_i p_i * L` and `energy_mj` are **not two endpoints of one conservation identity**. `L` is 1.8x
+too large, so the left side is overstated by 1.8x; and the two sides cover different channels —
+the ptrace has no DRAM and, after alignment, no NoP, while `energy_mj` includes both and excludes
+compute. **The +4.2 % to +79.2 % gaps therefore do not isolate the compute subtraction and do not
+support the `e_tot` mechanism**, however well the sign and ordering appeared to fit. Peak-versus-mean
+is also not the residual explanation: `gen_all_ptrace_3D` emits one time-averaged sample.
+
+What is required instead is the ledger that audit already demonstrates: `E_objective`,
+`E_source-full`, `E_raw-ptrace`, `E_aligned-ptrace` under **physical** latency, reconciling each
+transition to near-zero residual.
+
+## D — WITHDRAWN in its headline, narrowed to what survives
+
+**"The certificate is about `E_full` because that is what the operator has always been evaluated
+on" is FALSE.** The aligned operator sees core energy plus distorted NoC, **no DRAM**, and **no NoP**.
+It has never seen `e_nop + e_noc + e_dram + e_core`. The captures also use
+`gen_all_ptrace_3D` (`chiplet_eva.py:231`), not the `gen_ptrace` I cited.
+
+**What survives** is the linearity result, and only in the corrected form already committed at
+`4bb62c4`: compute work is placement-invariant per task, so per-core compute energy is
+`E_comp[c,m](x) = sum_{r,t} x[r,t,c] * e_comp[t,m]` for `m` in `{mtxu, vecu}` — **linear in the
+assignment variables**, indexed by component and core rather than a scalar per block. It is not a
+right-hand constant, and this document's earlier sentence calling the disagreement "a constant the
+thermal row absorbs" is void.
+
+**The certificate target must be defined operationally from the aligned ptrace transformation**, not
+from scalar energy names — and the prior question is whether the intended target is today's defective
+compute-domain trace or a corrected trace that conserves DRAM/NoP/NoC.
+
+## B — WITHDRAWN; the replay argument does not close it
+
+My resolution was that replay is the arbiter, so an optimistic master is harmless. **That is wrong,
+and the counter-argument is decisive: the generated cuts are thermal rows, and a point that is
+infeasible because of its *latency representation* is not excluded by any thermal row.** Replay
+rejects the point, the cut is added, and the master can return the same point again. The loop need
+not converge, and no valid cut exists to make it.
+
+`L_r >= q_rk` is the **epigraph** of a max, not equality to it. Closing this needs one of two
+explicit contracts, and the choice is a modelling decision:
+
+* **no idle** — tie `L_r = max_k q_rk(x)` exactly, e.g. one-hot `z_rk` with `L_r <= q_rk + M_rk(1 - z_rk)`
+  and `sum_k z_rk = 1`, with proved finite big-M;
+* **idle allowed** — explicit bounded idle variables `d_r`, `L_r = max_k q_rk(x) + d_r`, replayed with
+  the identical idle schedule, and idle/leakage energy plus any deadline or throughput constraint
+  included.
+
+An unconstrained epigraph variable is not an idle policy. **Status: `UNRESOLVED`, blocking.**
+
+## A — survives, but it transformed the wrong row
+
+The algebra is exact and multiplying by `L > 0` never reverses the inequality (an earlier sentence
+here implied it could; that is void — the sign of `limit - a_j` controls only whether a larger `L`
+*relaxes* the row). Two corrections:
+
+* the certificate's actual SAFE ceiling is `limit - margin - error_m - a_mj`
+  (`CertiTherm/thermal_constraints.py:55`), not `limit - a_j`. **The transformation above is of a
+  weaker row than the one the certificate uses** and must be redone on the registered row.
+* `core.py:183` validates shape and finiteness but **not** `ambient_k < limit_k`. The measured
+  11.85 K holds on all 2 580 rows of the current operators, but that is an observation, not a
+  guarantee; a fail-closed per-row headroom guard is owed.
+
+## Net effect on the gate
+
+`CERTITHERM_OPT_KILL_CONDITION` remains **NOT CLEARED**, and this round moved it backwards rather
+than forwards: one obstruction (the ratio) is genuinely removed, one (the latency representation) is
+now known to be blocking rather than resolved, and the energy-definition question is reopened on a
+firmer footing than the one I closed it with.
