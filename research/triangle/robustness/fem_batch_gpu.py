@@ -342,6 +342,54 @@ def adjoint_covectors(built: "Assembled", rows):
     return covectors
 
 
+def lazy_loop_reusing_one_factorisation(built: "Assembled", covectors):
+    """Solve columns ONE AT A TIME against a single factorisation, as a real lazy loop must.
+
+    The gate's main path concatenates every adjoint covector into one right-hand side, which proves
+    there is one factorisation but only because every column was known in advance. A lazy generator
+    discovers them one at a time, so what has to be demonstrated is that the *solver object* carries
+    its factorisation across iterations rather than re-factorising per generated row.
+
+    `nvmath`'s `DirectSolver` takes `b` at construction and exposes `reset_operands(b=...)`, so the
+    loop plans and factorises once and then only swaps the right-hand side. Returns
+    `(rows, timings)`; `timings["per_iteration_s"]` holds one entry per generated row and
+    `timings["refactorisations"]` counts how many times a factorisation had to be redone -- which
+    must be zero, or the lazy scheme costs a factorisation per row and is strictly worse than
+    building the whole operator.
+    """
+
+    import cupy as cp
+    import nvmath.sparse.advanced as nvs
+
+    columns = cp.asfortranarray(covectors)
+    timings = {"per_iteration_s": [], "refactorisations": 0}
+
+    started = time.perf_counter()
+    solver = nvs.DirectSolver(built.stiffness, cp.asfortranarray(columns[:, :1]))
+    solver.plan()
+    solver.factorize()
+    cp.cuda.runtime.deviceSynchronize()
+    timings["initial_factorisation_s"] = time.perf_counter() - started
+
+    duals = []
+    for index in range(columns.shape[1]):
+        started = time.perf_counter()
+        if index:
+            # THE WHOLE POINT: swap the operand, do NOT re-plan and do NOT re-factorize. If this
+            # call silently re-factorised, the elapsed time would jump to the initial cost and the
+            # comparison below would catch it.
+            solver.reset_operands(b=cp.asfortranarray(columns[:, index:index + 1]))
+        duals.append(solver.solve())
+        cp.cuda.runtime.deviceSynchronize()
+        elapsed = time.perf_counter() - started
+        timings["per_iteration_s"].append(elapsed)
+        if index and elapsed > 0.5 * timings["initial_factorisation_s"]:
+            timings["refactorisations"] += 1
+
+    stacked = cp.concatenate([d.reshape(-1, 1) for d in duals], axis=1)
+    return adjoint_rows_from_duals(built, stacked), timings
+
+
 def cell_covectors_independently(problem, cells, gpu_device: int = 0):
     """`c_j` for individual MESH CELLS, assembled from UFL cell tags and NOT from `M`, `S` or
     `dof_of_cell`.
@@ -660,6 +708,28 @@ def main() -> None:
         mutations and all(v > ADJOINT_TOL_REL for v in mutations.values())
     )
 
+    # GATE 4 -- ITERATIVE FACTOR REUSE. Everything above knew every column in advance. A lazy
+    # generator does not, so what must be shown is that ONE solver object carries its factorisation
+    # across iterations. If it cannot, the scheme pays a factorisation per generated row and is
+    # strictly worse than building the whole operator up front -- the opposite of its claim.
+    lazy_rows, lazy_timings = lazy_loop_reusing_one_factorisation(built, covectors)
+    lazy_delta = float(np.max(np.abs(lazy_rows - adjoint)))
+    per_iteration = lazy_timings["per_iteration_s"]
+    report["lazy_initial_factorisation_s"] = lazy_timings["initial_factorisation_s"]
+    report["lazy_per_iteration_s_median"] = float(np.median(per_iteration))
+    report["lazy_per_iteration_s_max"] = float(np.max(per_iteration))
+    report["lazy_refactorisations"] = lazy_timings["refactorisations"]
+    report["lazy_rows_match_batched"] = bool(
+        np.isfinite(lazy_delta) and scale > 0 and lazy_delta / scale <= ADJOINT_TOL_REL)
+    report["lazy_max_rel_vs_batched"] = lazy_delta / scale if scale > 0 else float("inf")
+    # The break-even the economics actually turn on: I + k < n.
+    report["lazy_break_even_rows"] = (
+        lazy_timings["initial_factorisation_s"] / float(np.median(per_iteration))
+        if np.median(per_iteration) > 0 else float("inf")
+    )
+    report["iterative_factor_reuse_pass"] = bool(
+        lazy_timings["refactorisations"] == 0 and report["lazy_rows_match_batched"])
+
     # THE ECONOMIC CLAIM UNDER TEST, measured rather than argued. `forward_only` factorised for the
     # impulse loads alone; `combined` factorised once for the impulse loads AND the adjoint
     # covectors. If lazy row generation saved the dominant cost, these would differ.
@@ -696,17 +766,16 @@ def main() -> None:
         # two constructions can disagree. Proven able to fail by the injected mutations.
         "CELL_ROW_PAIRING": "PASS" if report["cell_pass"] else "FAIL",
         "MUTATIONS_DETECTED": "PASS" if report["mutations_all_detected"] else "FAIL",
-        # `factorise_and_solve` discards its solver, and the gate knows every adjoint column in
-        # advance. A real lazy loop discovers them one at a time and must carry the factorisation
-        # across iterations; that is not implemented here, so it is not demonstrated.
-        "ITERATIVE_FACTOR_REUSE": "UNTESTED",
+        # One solver object now solves the columns one at a time via `reset_operands`, and the
+        # run refuses if any iteration costs anything like a factorisation.
+        "ITERATIVE_FACTOR_REUSE": "PASS" if report["iterative_factor_reuse_pass"] else "FAIL",
         "EXACT_MAPPING_TO_POWER_MILP": "UNRESOLVED",
         "CERTITHERM_OPT_KILL_CONDITION": "NOT CLEARED",
     }
     print(json.dumps(report, indent=1), flush=True)
     if not (report["forward_parity_pass"] and report["adjoint_pass"]
             and report["stiffness_symmetric"] and report["cell_pass"]
-            and report["mutations_all_detected"]):
+            and report["mutations_all_detected"] and report["iterative_factor_reuse_pass"]):
         raise SystemExit("GATE FAILED")
 
 
