@@ -292,6 +292,29 @@ expect.
 tree and was called from inside a refusal message, so a refusal about a misplaced file died with
 a ValueError instead of printing. Fail-closed means the failure is *reported*.
 
+**Do not infer a discretisation from a parameter's name.** `r_convec` is named like a lumped
+resistance and is documented as "sink-to-ambient", and two consecutive rounds of reasoning treated
+the name as the specification. On that premise the sink-top temperature spread looked like a
+boundary-realisation term contaminating the measured model-form band, an exact lumped-node FEM was
+built to separate it, the band collapsed from 0.251-1.061 K to 0.000-0.604 K, and the headline
+"model form dominates discretisation" was **withdrawn**. It should not have been:
+`temperature_grid.c:1054` and `temperature_block.c:207` both *divide `r_convec` proportional to cell
+area*, which is exactly the uniform Robin coefficient the FEM adapter already used. Neither HotSpot
+model imposes an isothermal sink top, so there was never a mismatch to separate. **The check that
+settled it cost one grep of the assembly code**; the two rounds spent reasoning about what the name
+implied cost far more, and nearly discarded a valid result. Before comparing against a pinned
+model, read how the coefficient is assembled — not what it is called, and not what its comment says
+it represents.
+
+**A correction can be wrong too, and a withdrawal is not automatically the safe direction.** The
+project's standing rule is that a correction which only weakens a claim needs no pre-review, because
+it cannot manufacture a false positive. That remains true for *safety*, and it is exactly why the
+rule exists — but it does not make a withdrawal *free*. Withdrawing on a false premise destroys a
+real finding, and no gate in this repository will catch that, because every fail-closed check is
+built to stop the opposite error. Hold a withdrawal to the same falsification standard as a
+promotion: name the premise it rests on, and check that premise against source before publishing
+the retraction.
+
 **Review is triggered by risk, not by commit count.**
 
 | tier | examples | review |
