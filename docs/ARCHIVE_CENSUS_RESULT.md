@@ -111,25 +111,33 @@ temperature one open.
 
 ### The temperature gap is UNEXPLAINED, and that is the operative conclusion
 
-Every reproducible knob has been tried. What remains is a **code-revision** difference, and it can
-now be named rather than gestured at: **this project's own bridge patches the pinned submodule at
-runtime in order to make it run at all.** `install_compatibility_layer` repairs three upstream API
-drifts, and two of them are behaviour-bearing rather than cosmetic:
+Every reproducible knob has been tried. A sixth hypothesis was then raised and **refuted**, and the
+refutation corrects an earlier version of this document.
 
-* `GemmLayer.total_filter_size` lost its `word_bytes=1` default in the pinned revision. That value
-  feeds buffer sizing and therefore energy and power.
-* the pinned breadth-first traversal omits external inputs from its initially satisfied dependency
-  set, so **recurrent networks stall** -- and `transformer` is one of the six workloads whose maximum
-  the archive reports.
+**The hypothesis.** This project's bridge patches the pinned submodule at runtime to make it run at
+all (`install_compatibility_layer`). An earlier revision of this section asserted that two of those
+patches were behaviour-bearing and therefore explained the gap.
 
-So the pinned submodule is demonstrably **not** the revision that produced the archive: it cannot
-execute the archive's own workload set without being patched, and the patches change numerics. That
-is consistent with the residual EDYP discrepancy as well -- re-running with the six-workload default
-gives 971.22 against the archive's 810.66, a 20 % gap that the workload set alone does not explain.
+**The refutation, from source.** The submodule is a **single-commit snapshot** -- no history to
+search. The sibling working repository has 170 commits and shows the archive files were added at
+`51c1506`, which is exactly the pinned revision, while the `GemmLayer` API was changed 27 commits
+later by `28e442a "fix: align GemmLayer filter-size API"`, whose entire diff is
+`def total_filter_size(self, word_bytes)` -> `def total_filter_size(self, word_bytes=1)`.
 
-The producing revision is not in this repository, so the mechanism cannot be closed further here.
-What has changed is its status: not "an unexplained 8 K" but "a code-revision difference whose
-behaviour-bearing components are documented in our own compatibility layer".
+So the compatibility layer does not restore an upstream convention; it forward-ports a later fix. And
+crucially, **the value it restores is the value every other implementation already uses**:
+`Layer.total_filter_size(self, word_size=1)`, `ConvLayer` the same, and the `taskdag` wrappers the
+same. **The patch changes whether a call raises, not what it computes.** It is an API-shape drift,
+not a numeric one, and it does **not** explain the 8 K.
+
+What it does establish is that the pinned tree cannot execute the GEMM path through the seven call
+sites that omit the argument (`evaluator.py:238,354`, `taskdag.py:190,462,525`, `partengine.py:99`,
+`schedule.py:411`) -- so the archive was produced by a tree that differs from the pin, and that tree
+is not recoverable from this repository.
+
+**Status: six hypotheses refuted, mechanism not established.** The decision it gated is answered --
+the archive supplies design vectors, not a thermal screen -- and that answer does not depend on the
+mechanism.
 
 **So the decision-relevant answer is not the mechanism, it is this: the archive's reported peak
 temperatures are not reproducible from the pinned submodule at its current revision, to within 7 K.**

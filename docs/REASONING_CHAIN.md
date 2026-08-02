@@ -62,15 +62,14 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
 
 ## Open, ranked
 
-1. **The mechanism of the 8 K -- NAMED, not closed.** Five hypotheses refuted (package, power map,
-   functional, workload set, evaluator flags). What remains is a **code-revision** difference, and
-   this project's own `install_compatibility_layer` is the evidence: the pinned submodule needs three
-   runtime patches to run the archive's workload set at all, two of which change numerics (a lost
-   `word_bytes=1` default feeding buffer sizing and energy; a traversal that stalls on recurrent
-   networks, and `transformer` is one of the six). **The pinned revision is demonstrably not the one
-   that produced the archive.** The producing revision is not in this repository, so it cannot be
-   closed further here. The **decision** it gated is answered: the archive supplies design vectors,
-   not a thermal screen.
+1. **The mechanism of the 8 K -- SIX hypotheses refuted, mechanism not established.** Package, power
+   map, functional, workload set, evaluator flags, and -- newly, correcting an earlier claim in this
+   file -- the compatibility layer. That last one restores `word_bytes=1`, which is **the value every
+   other implementation already uses**, so it changes whether a call raises and not what it computes.
+   The submodule is a single-commit snapshot; the sibling repo shows the archive was added at the
+   pinned `51c1506` while the API fix came 27 commits later. **The producing tree is not recoverable
+   from this repository.** The decision it gated is answered without it: the archive supplies design
+   vectors, not a thermal screen.
 2. ~~**The cell-level certificate's verdict.**~~ **CLOSED.** `arch_b`/transformer is refused at the
    cell endpoint by **-0.36 K with no band folded in** (cell peak 330.30 K, above the limit
    itself); `arch_c`/transformer certifies with +4.03 K. The `arch_b -> arch_c` switch and the
