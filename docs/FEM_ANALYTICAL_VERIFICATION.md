@@ -8,9 +8,19 @@ exactly.
 
     mean(T_top)  =  T_ambient  +  r_convec * P
 
-Neither HotSpot nor the FEM supplies that relation -- it is conservation plus the boundary condition
--- so it tests **the geometry, the materials, the boundary condition, the power injection and the
-region reporting simultaneously**. Any one of them wrong and the identity breaks.
+Neither HotSpot nor the FEM supplies that relation -- it is conservation plus the boundary
+condition.
+
+**What it verifies, stated narrowly because the first version of this document overclaimed.** It
+checks the **total injected power**, the **aggregate Robin conductance** (`h` times the top area, as
+one product), and the **probe's averaging semantics**. The slab residual additionally checks sink
+thickness, sink conductivity and probe depth.
+
+**What it does NOT verify.** Internal geometry, most material constants, block placement, lateral
+conductivities, and every spatial error whose area-mean is zero -- which is exactly the class that
+moves block and cell peaks. Coherent errors in top area and `h` cancel in it. The energy balance is
+not an independent second check either: it exercises essentially the same conservation equation.
+`P` here is the assembled load; an injection-scale error common to both sides would escape.
 
 ## Result
 
@@ -29,9 +39,20 @@ reading is offset above the face value by the mean gradient through a copper sla
 | `arch_c` / resnet50 | 13.682 | 4.097e-03 K | 4.097e-03 K | **1.000** |
 | `arch_c` / transformer | 28.859 | 8.643e-03 K | 8.643e-03 K | **1.000** |
 
-**The identity holds to solver precision on every point, and the whole residual is explained by a
-geometric fact predicted in advance.** The energy balance independently sits at 6e-8, so nothing here
-is a convergence artefact.
+**The identity holds on every point and the residual is explained by a geometric fact.** Two
+qualifications that the "1.000" column hides:
+
+* **`1.000` is rounded.** It conceals a discrepancy of up to ~5e-4 relative. The unrounded pairs are
+  in the table above; the ratio is computed from them, not reported independently.
+* **Six points are not six independent confirmations.** The operator depends on (architecture,
+  package), so the six rows are **three** spatial solutions at six power scalings. The identity is
+  linear in `P`, so the power axis mostly re-tests one relation. Three geometries is the honest
+  count.
+
+The prediction `q * slab / (2 k)` was derived before the residual was inspected, from the probe
+geometry alone. It shares `P`, the top area and `k_Cu` with the measurement, so it is not fully
+independent of it -- an error common to both would cancel. Breaking that would need the sink
+conductivity, slab depth and top area perturbed separately, which has not been done.
 
 ## Two details that would have hidden a real error
 
