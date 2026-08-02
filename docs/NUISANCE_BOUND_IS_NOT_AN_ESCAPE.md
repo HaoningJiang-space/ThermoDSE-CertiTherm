@@ -56,3 +56,62 @@ Six dev points, `standard` package, `grid512`, block-average rows, nominal map, 
 one architecture's audit closure and scaled by total power. The supports are name-family guesses, not
 measured source locations — which is the point: **no measured source location exists, and that is the
 blocking gap.**
+
+---
+
+# ESTABLISHED FROM SOURCE: `eblk0..3` IS where DRAM and NoP go, and it changes the verdict
+
+`docs/THERMODSE_ENDPOINT_AUDIT.md` §4 called the filler reading of `eblk*` *"plausible but does not
+establish it"* and withdrew an earlier "reserved DRAM positions" hypothesis. **It is now established,
+by one grep of the generator rather than by geometry comparison.**
+
+`ThermoDSE/core/gen_floorplan.py:325,327` (and again at `:434,436`):
+
+```python
+gen_cover_flp('interposer', sys_width, sys_height, eblk_w, eblk_h, output_file)   # interposer.flp
+gen_cover_flp('dram',       sys_width, sys_height, eblk_w, eblk_h, output_file)   # dram.flp
+```
+
+**Identical arguments.** And `gen_cover_flp` (`:202-209`) emits `name_e0..e3` with the same four
+formulas `gen_sys_floorplan` (`:280-283`) uses for `eblk0..3`. So
+
+> `dram_e0..e3` == `eblk0..3` == `interposer_e0..e3` — **the same four physical frame positions**,
+> by construction, not by inference from byte-identical geometry.
+
+The central `dram` and `interposer` blocks likewise map to the sys area itself, which is why neither
+can simply be appended to `output_3D.flp`: they would overlap the compute blocks in a planar model.
+
+## What this does to the numbers
+
+The support restriction is no longer a guess, so the adversarial reading over `eblk` is replaced by
+the physically motivated one — a uniform source over the four frame blocks, weighted by their areas
+from the capture's own floorplan text:
+
+| case | slack | adversarial over `eblk` | **by area over `eblk`** | verdict |
+| --- | ---: | ---: | ---: | --- |
+| resnet50/`arch_a` | 8.808 | 1.737 | **1.417** | OK |
+| resnet50/`arch_b` | 6.608 | 3.017 | **2.398** | OK |
+| resnet50/`arch_c` | 8.839 | 1.570 | **1.315** | OK |
+| transformer/`arch_a` | 6.460 | 3.520 | **2.871** | OK |
+| **transformer/`arch_b`** | **2.989** | 5.075 | **4.243** | **VACUOUS** |
+| transformer/`arch_c` | 6.299 | 4.173 | **2.908** | OK, **3.39 K left** |
+
+**Two corrections to earlier documents follow.**
+
+1. **`docs/MISSING_ENERGY_SENSITIVITY.md` was pessimistic and its placement is superseded.** It
+   spread the missing heat *proportionally to the existing map*, i.e. onto the hot compute blocks,
+   and concluded `transformer/arch_c` falls to `+0.750 K`. The generator says the heat belongs on the
+   **cool frame**, where the same watts leave **3.39 K**. Proportional placement is not the physical
+   case; it is now the pessimistic bracket, and it should be read as one.
+2. **The `arch_b -> arch_c` headline SURVIVES and is strengthened.** `arch_b` is refused with more
+   margin than before, and `arch_c` still certifies. The earlier reading — that the missing energy
+   makes the decision unresolvable — held only under the superseded placement.
+
+## What is still open, and it is smaller than it was
+
+* `transformer/arch_b` is vacuous under every support including the established one. That is the
+  design being *refused*, so it does not threaten the headline — but it does mean **no positive
+  statement about `arch_b` is available**, only a refusal.
+* The central `dram`/`interposer` blocks are NOT placed by this. Only the four edge blocks are
+  established; the central share has no home in `output_3D.flp` and remains the open Tier-2 question.
+* The NoC over-count (+33.41 %) and its uniform spreading are untouched by any of this.
