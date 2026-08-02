@@ -252,6 +252,10 @@ def factorise_and_solve(built: "Assembled", right_hand_sides):
 
     timings = {}
     started = time.perf_counter()
+    # cuDSS requires column-major right-hand sides. `cp.concatenate` returns C order, so a caller
+    # that stacks forward loads and adjoint covectors would be refused at construction; converting
+    # here means every caller is covered by one rule instead of remembering it.
+    right_hand_sides = cp.asfortranarray(right_hand_sides)
     solver = nvs.DirectSolver(built.stiffness, right_hand_sides)
     solver.plan()
     timings["plan_s"] = time.perf_counter() - started
