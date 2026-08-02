@@ -94,3 +94,62 @@ print: at least one cell midpoint inside the die, and the source integrating to 
 
 **`dolfinx 0.11` requires `petsc_options_prefix` on `LinearProblem`**, which the first attempt did not
 pass. Both defects were latent in code that had never been executed.
+
+---
+
+# EQUILIBRATION IS NECESSARY AND NOWHERE NEAR SUFFICIENT — measured 2026-08-02
+
+The failure above was attributed to the face term, and the standard remedy is an equilibrated flux
+reconstruction (Braess–Schoberl, Ern–Vohralik) whose interior jumps are identically zero. Rather than
+write a week of local patch problems to find out, the **best case** was measured directly: dropping
+the `dS` term is an exact model of what equilibration can achieve, because it touches nothing else.
+
+`--cells 12 --grid 3`, 9 sources, same layered box:
+
+| | min | median | max |
+| --- | ---: | ---: | ---: |
+| naive | 28.0966 | **33.8451** | 35.3924 |
+| equilibrated, best case | 1.0001 | **1.0012** | 1.0016 |
+
+**The face term is 33.8x everything else, so equilibration removes 97 % of the majorant — and the
+route still dies, because what is left is exactly 1.**
+
+## Why 1.0 is not a near miss but the structural floor
+
+A factor of 1 says the certificate is `|u - u_h| <= z` with `max z = max(u_h - ambient)`: **the bound
+is the entire signal**. And it is exactly 1 for a reason this document's own opening already stated
+without drawing the consequence:
+
+> "The volume residual is `f` — **the entire source density**, not a small quantity."
+
+With P1 Lagrange over DG0 coefficients, `grad u_h` and `k` are both constant per tetrahedron, so
+`div(k grad u_h) = 0` exactly inside every element and the volume residual reduces to `f` itself.
+The majorant problem `a(z,v) = <|f|,v>` is then **the forward problem**, with the same load and the
+same operator, so `z = u_h - ambient` and the factor is identically 1. Measured 1.0001–1.0016; the
+excess is the Robin residual.
+
+**So the residual-majorant route cannot certify anything under P1+DG0 at any mesh, with or without
+equilibration.** Refinement does not help either: the ratio is 1 independently of `h`.
+
+## What this kills and what it leaves
+
+**Killed:** equilibration as *the* fix. It is necessary — 97 % of the naive majorant is the face term
+— but it converts a 34x vacuity into a 1.0x vacuity, and 1.0x certifies nothing.
+
+**Left, and it is a different piece of work:** the volume residual has to become a genuinely small
+quantity, which requires a discretisation where `div(k grad u_h)` is not identically zero — **P2 or
+higher**. Then the volume residual is `f + div(k grad u_h)`, which vanishes under refinement, and
+equilibration is still needed to kill the face term. **Both, not either.**
+
+That is a substantially larger change than was scoped: it replaces the element family in
+`steady_heat_fem`, which every operator, parity result and cross-solver band in this repository was
+built on.
+
+## The preregistered consequence
+
+`PEAKCERT_OPERATOR_PREREGISTRATION.md` registers the symmetric residual majorant as "the primary and
+only open route to a two-sided pointwise envelope", and says so explicitly: *"this construction is the
+whole direction."* Under P1+DG0 that construction is now measured to be structurally vacuous.
+
+**The route is not refuted — the element family is.** Re-running it on P1 in any form, equilibrated
+or not, would reproduce a known negative result.
