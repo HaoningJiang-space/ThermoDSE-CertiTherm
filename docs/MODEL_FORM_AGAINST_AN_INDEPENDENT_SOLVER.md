@@ -2,9 +2,14 @@
 
 > **STATUS.** The frontier conclusion (`arch_b -> arch_c` for transformer, +32.1 % EDYP) is
 > **established and no longer provisional**: it holds at the cell endpoint with no band folded in
-> (`CELL_ENDPOINT_RESULT.md`). What the band below bounds is **model form plus a boundary-realisation
-> term of at most ~0.35 K**, so it is an upper bound on model form rather than a measurement of it.
-> Corrections made along the way are recorded at the end of this document rather than stacked here.
+> (`CELL_ENDPOINT_RESULT.md`), which does not depend on this document's band at all.
+>
+> **The band below CANNOT currently be attributed to model form.** Measured over all six points, the
+> bound on the boundary-realisation term -- the sink-top temperature spread -- is
+> **0.345 - 1.124 K**, and paired point by point it **equals or exceeds the model-form band on four
+> of the six**. Until the lumped sink-to-ambient node is implemented directly and the term is
+> separated, "model form is 1.4-11.8x the refinement tail" is a statement about **model form plus
+> boundary realisation**, and the headline must not be quoted without that qualifier.
 
 RESULT 2026-08-01. Development split (`arch_a`, `arch_b`, `arch_c`) x 2 workloads, `default`
 package. The three held-out splits are untouched.
@@ -147,12 +152,29 @@ protocol change; and because it can only enlarge the band it could never have be
 The repository keeps corrections rather than deleting them, because a number that moved is evidence
 about how it was arrived at.
 
-**The band contains a boundary-realisation term, and it is ~0.35 K rather than ~0.73 K.** A uniform
+**The band contains a boundary-realisation term, and it is comparable to the band itself.** A uniform
 Robin coefficient already reproduces HotSpot's lumped sink-to-ambient relation with the *mean* top
 temperature -- `h * integral(u - T_inf) = (mean(u) - T_inf) / r` -- so the only thing the lumped node
 adds is that the top is **isothermal**. The gap between the two realisations is therefore the
-sink-top temperature SPREAD, measured at **0.345 K** across a 3.578 K rise on `arch_c`/resnet50
-(centre 319.763 K, south 319.531, east 319.433, north 319.420, west 319.417).
+sink-top temperature SPREAD. Measured on all six points:
+
+| case | sink-top spread | model-form band | spread / band |
+| --- | --- | --- | --- |
+| `arch_a` / resnet50 | 0.3848 K | 0.535 K | 0.72 |
+| `arch_a` / transformer | 0.7389 K | 0.984 K | 0.75 |
+| `arch_b` / resnet50 | 0.6236 K | 0.612 K | **1.02** |
+| `arch_b` / transformer | 1.1235 K | 1.061 K | **1.06** |
+| `arch_c` / resnet50 | 0.3454 K | 0.251 K | **1.38** |
+| `arch_c` / transformer | 0.7276 K | 0.467 K | **1.56** |
+
+The spread is **9.7 - 10.9 % of the total rise on every point**, which is stable enough to be a
+structural property of this package geometry rather than noise.
+
+*Withdrawn, and the error was in the comparison rather than the measurement:* an earlier reading of
+this said "at most about a third of the band". It compared a single design's spread (0.345 K) against
+the band's whole RANGE (0.251-1.061 K) instead of against that design's own band (0.251 K) -- where
+the ratio is in fact 1.38. Paired correctly, the bound equals or exceeds the band on four of six
+points.
 
 *Withdrawn:* an earlier estimate of **-0.734 K**, from scaling the sink conductivity by 10. It
 exceeds the entire top non-uniformity, so it is also changing lateral spreading inside the sink and
