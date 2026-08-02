@@ -102,7 +102,22 @@ values are derived on the instance and recorded before the gate is read.
 
 ## Gates, in dependency order
 
-### G-A. Stepped domain vs air-filled void — and it must compare the CONSTANTS, not the contrast
+### G-A. Stepped domain vs air-filled void — **RUN, and it is not a flag**
+
+> **RESULT 2026-08-02 (`GA_STEPPED_DOMAIN_IS_NOT_A_FLAG.md`): not executable as registered.**
+> `steady_heat_fem.py:307` refuses any mesh cell not owned by exactly one region and the domain
+> builder always meshes the full box, so a domain with a hole is outside the adapter's contract.
+> `dolfinx 0.11.0` does provide `create_submesh`, so it is constructible — as a **new adapter in this
+> repository**, with a registered boundary condition on the newly exposed step faces, not as a
+> parameter. And `CERTITHERM_FEM_VOID_K` is not a stand-in: lowering it toward adiabatic *raises* the
+> contrast to `4e6` rather than removing it.
+>
+> **Consequence: G-A is no longer a precondition. G-B runs first, at contrast `1.54e4`.** A
+> non-vacuous majorant there makes the stepped-domain build unnecessary; only a vacuous one, with the
+> failure attributable to contrast rather than to re-entrant geometry or source-edge regularity,
+> justifies building it.
+
+#### As originally registered, retained for the comparison it still specifies
 
 The FEM box is tiled, so space outside each plate is filled with still air (`0.026`) against copper
 (`400`): contrast `1.54e4`, a meshing convenience rather than physics.
@@ -126,7 +141,7 @@ boundary conditions imposed on the step faces.
 **Kill:** if the re-entrant geometry costs more than the contrast reduction buys, keep the air-filled
 domain and carry `1.54e4` into G-B explicitly.
 
-### G-B. `n = 1`, two-sided, on every singularity class — the only real kill point
+### G-B. `n = 1`, two-sided, on every singularity class — the only real kill point, and now FIRST
 
 **Do:** one block, one impulse, on an **interface- and source-fitted** mesh — every material
 interface and every source-block boundary exactly aligned with element faces, because a source
