@@ -65,12 +65,22 @@ The two per-problem loops become one sparse-dense product each, and both use the
 construction at 68 % of what remains.** Reporting "~7x" as the first version did was wrong: it
 assumed the whole remainder was the per-problem loop.
 
-Going further requires reducing `C`, and the reason `C` is large is structural rather than
-necessary: **the mesh is uniform and the physics is not.** The die occupies about 10 % of the 60 mm
-package footprint and every gradient of interest is inside it; the rest is far-field copper and air
-carrying almost no information. A graded mesh holding the current resolution over the die and
-coarsening outward should cut `C` by roughly 5x, giving mesh 8 s, `K` 1.1 s, `M` 0.6 s and a total
-near 12-15 s -- **7-9x overall**, with the accuracy over the die unchanged by construction.
+Going further requires reducing `C`, and the obvious route was that **the mesh is uniform and the
+physics is not**: the die occupies about a tenth of the 60 mm package footprint while every gradient
+of interest is inside it, so grading the far field should cut `C` several-fold with the die
+resolution unchanged.
+
+**Measured, and rejected.** On `arch_c`/resnet50 a 4x far-field ratio cuts the lateral cell count
+**2.17x** (200x264 to 152x160) and moves the die peak by **-0.0728 K** -- **29 % of the 0.251 K
+model-form band on that same point**. A mesh change that shifts the quantity under measurement by a
+third of itself is not an optimisation, whatever it does to the runtime. And the runtime was not
+established either: 306 s against 265 s, but sharing 52 cores with nine other jobs, so the comparison
+is confounded and no speedup is claimed.
+
+The part of the argument that was wrong is "carrying almost no information". The far field is
+smooth, and smooth does not imply coarsenable **at this accuracy target** -- 0.07 K matters here
+because the band being measured is 0.25 K. The knob is retained (`CERTITHERM_FEM_GRADED_MESH`) so
+the trade can be re-measured at gentler ratios, and it is off by default so nothing certifies on it.
 
 ## The accuracy limit, derived
 

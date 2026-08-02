@@ -176,8 +176,21 @@ def _floorplan_blocks(text: str):
 # those near-duplicates survive the node set and then bisect to an interval of zero width, which the
 # solver rejects as a non-increasing node list -- the symptom is far from the cause.
 EDGE_QUANTUM_M = 1.0e-9
-# How much coarser the far field may be than the die region under grading. 4x in each lateral axis
-# is a 16x cell-count saving out there, and the far field is copper and air carrying a smooth field.
+# GRADING IS OFF BY DEFAULT BECAUSE IT WAS MEASURED AND REJECTED.
+#
+# The argument for it was that mesh construction is the largest single cost (35 % of a run, and the
+# new bottleneck once the per-problem assembly loops are removed) while the far field is smooth
+# copper and air a long way from any gradient. On `arch_c`/resnet50 at a 4x far-field ratio it does
+# cut the lateral cell count 2.17x -- and it moves the die peak by **-0.0728 K**, which is **29 % of
+# the 0.251 K model-form band on that same point**. A mesh change that shifts the quantity under
+# measurement by a third of itself is not an optimisation.
+#
+# "Smooth" turned out not to imply "coarsenable at this accuracy target", which is the part of the
+# first-principles argument that was wrong. The knob stays so the measurement can be repeated at
+# other ratios, and stays OFF so nothing certifies on it.
+#
+# The speed side was not even established: the graded run took 306 s against 265 s, but it shared 52
+# cores with nine other jobs, so the timing comparison is confounded and no speedup is claimed.
 GRADED_FAR_FIELD_RATIO = float(os.environ.get("CERTITHERM_FEM_FAR_FIELD_RATIO", "4.0"))
 GRADED_MESH = os.environ.get("CERTITHERM_FEM_GRADED_MESH") == "1"
 
