@@ -43,8 +43,20 @@ sum_i R_ji E_i(x)  <=  (limit - a_j) * L(x)
 
 **Both sides are linear in `(E, L)`.** The ratio is gone. `E_i` still needs the standard binary
 McCormick treatment for its placement-pair products — exact, not a relaxation — and `L` is already a
-linear expression in the round variables. `limit - a_j > 0` always here, since `a_j` is the ambient
-row (~318.15 K) and `limit` is 330 K, so no case split on the sign of the multiplier is needed.
+linear expression in the round variables.
+
+**The multiplier's sign is not assumed, it is measured.** `limit - a_j` over **all 2 580 rows of all
+twelve operators** built for the package sweep is `11.8500 K` on every single row — the ambient is
+uniform at 318.15 K, so the multiplier is not merely positive but **constant**, and no case split is
+needed. The thermal row is therefore just
+
+```
+sum_i R_ji E_i(x)  <=  11.85 * L(x)
+```
+
+If a future package or an ambient map made `a_j` row-dependent this must be re-checked, because a row
+with `a_j >= limit` would flip the inequality's direction on multiplication and silently invert the
+constraint. That is a guard the eventual implementation owes, not a live problem today.
 
 This is not a trick: it is the statement that a *temperature* constraint under constant total energy
 is really a constraint on **energy against elapsed time**, which is what a thermal limit physically
