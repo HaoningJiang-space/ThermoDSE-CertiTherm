@@ -143,6 +143,16 @@ domain and carry `1.54e4` into G-B explicitly.
 
 ### G-B. `n = 1`, two-sided, on every singularity class — the only real kill point, and now FIRST
 
+> **STEP 1 RESULT 2026-08-02 (`GB1_THE_NAIVE_MAJORANT_IS_VACUOUS.md`): the naive form is dead.**
+> Measured `max(z_h)/max(u_h - ambient)` = **21-64**, on the FAVOURABLE geometry (no void, contrast
+> `3.08`). It falls only as `h^0.770`, because the absolute-jump measure has total mass `O(1)` under
+> refinement — reaching a factor of 1 needs `h` 64.7x smaller, `~1.07e10` dofs.
+>
+> **Equilibration is therefore mandatory rather than an optimisation** — and it delivers a guaranteed
+> **energy**-norm bound, while the certificate needs `L^infinity`. The repaired route is
+> "equilibrated flux + a max-norm conversion", which is the research problem, not a step. It must be
+> rescheduled as such before the rest of G-B is attempted.
+
 **Do:** one block, one impulse, on an **interface- and source-fitted** mesh — every material
 interface and every source-block boundary exactly aligned with element faces, because a source
 boundary cutting elements makes both the residual interpretation and verified quadrature much harder.
