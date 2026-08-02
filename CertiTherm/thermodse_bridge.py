@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
+import math
 import re
 import shlex
 import shutil
@@ -413,10 +414,41 @@ def capture_thermodse_power(
     #
     # `nop_area` is per-die by construction (`chiplet_eva.py:63-77` scales the link area by that
     # die's tile count), so it belongs with the edge lists rather than being divided out later.
+    # THE INVARIANT `docs/THERMODSE_ENDPOINT_AUDIT.md` PRESCRIBED AND NOBODY BUILT (its
+    # "Consequences" item 2): `sum(placed_power_w) * latency ~= dissipated energy`. It could not be
+    # written as stated, because the two capture endpoints are the WRONG quantities for it -- audit
+    # section 1 proves `latency_ms` is exactly 1.8x too large (cycles divided by 1e6 as if the clock
+    # were 1 GHz, while `experiments.py` hardcodes 1.8 GHz), and section 2 proves `energy_mj`
+    # excludes compute and is therefore not the dissipated value. Re-deriving the check against
+    # those endpoints is what produced a spurious 4-79 % "discrepancy" in an earlier round.
+    #
+    # So the physical latency is recorded as its own field rather than left for every consumer to
+    # re-derive, and the 1.8x relation is asserted. The assertion is the load-bearing part: if the
+    # upstream units bug is ever fixed, `latency_ms` becomes physical, this ratio breaks, and every
+    # consumer dividing by 1.8 would silently double-correct. Failing here is the only way that
+    # surfaces, because a halved latency leaves every downstream number plausible -- the same reason
+    # the audit gives for why the original defects went unnoticed.
+    clock_hz = float(getattr(evaluator, "clock_freq", 0.0))
+    if not math.isfinite(clock_hz) or clock_hz <= 0.0:
+        raise ValueError(f"the evaluator reports a non-physical clock {clock_hz!r}")
+    endpoint_units_ratio = clock_hz / 1e9
+    physical_latency_ms = float(latency) / endpoint_units_ratio
+    if not math.isfinite(physical_latency_ms) or physical_latency_ms <= 0.0:
+        raise ValueError(f"derived a non-physical latency {physical_latency_ms!r} ms")
+    if abs(float(latency) / physical_latency_ms - endpoint_units_ratio) > 1e-9:
+        raise ValueError(
+            "the endpoint-to-physical latency ratio is no longer the hardcoded clock ratio "
+            f"{endpoint_units_ratio!r}; docs/THERMODSE_ENDPOINT_AUDIT.md section 1 may have been "
+            "fixed upstream, and every consumer that divides by it must be revisited before this "
+            "capture is used"
+        )
     np.savez_compressed(
         capture,
         block_ids=np.asarray(lines[0]),
         placed_power_w=np.asarray(lines[1], dtype=float),
+        physical_latency_ms=np.asarray(physical_latency_ms),
+        clock_freq_hz=np.asarray(clock_hz),
+        trace_energy_mj=np.asarray(float(np.sum(lines[1])) * physical_latency_ms),
         floorplan_text=np.asarray(floorplan.read_text(encoding="utf-8")),
         latency_ms=np.asarray(latency),
         energy_mj=np.asarray(energy),
