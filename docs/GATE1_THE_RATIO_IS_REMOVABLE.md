@@ -156,28 +156,40 @@ is a search objective and belongs in the objective; it is not a thermal quantity
 different quantities with two different jobs, and the mistake was reading them as competing
 definitions of one.
 
-**And the decision costs nothing, because the extra term is not a new nonlinearity.**
-`statistic.py:81` writes
+**And the decision costs nothing — but NOT for the reason first written here.**
 
-```python
-self.core_dict[nn_name][:, i, :] = self.core_dict[nn_name][:, 0, :]
-```
+**CORRECTED before review.** The first version of this section argued the compute term is a
+*constant*, on the strength of `statistic.py:81`
+`core_dict[:, i, :] = core_dict[:, 0, :]`. That line lives inside **`cost_copy()`**, and
+`chiplet_eva.py:229` calls it only `if self.baseline2 or self.baseline3`. **On the default path the
+replication does not happen**, so per-core compute energy is whatever `update_internal_info` wrote
+and it does depend on what was mapped there. The constant argument is withdrawn.
 
-— core 0's per-component energy replicated to every core, which is the implementation of the
-"they are always fixed" comment. The compute contribution to block `i` is therefore a **constant**,
-independent of which task lands there. So
-
-```
-E_full,i(x) = E_var,i(x) + c_i          c_i constant
-```
-
-and the thermal row stays exactly as linear as before:
+The conclusion survives on a different and simpler footing. A task's compute energy does not depend
+on *where* it runs — only on the task — so the compute energy landing on block `i` is
 
 ```
-sum_i R_ji E_var,i(x)  <=  (limit - a_j) L(x) - sum_i R_ji c_i
+c_i(x) = sum_t x[t,i] * e_comp(t)
 ```
 
-Only the right-hand constant moves. **No McCormick term, no new variable, no new binary.**
+which is **linear in `x`: one index, not a product**. So
+
+```
+E_full,i(x) = E_var,i(x) + c_i(x)
+```
+
+and the thermal row stays exactly as tractable as before:
+
+```
+sum_i R_ji ( E_var,i(x) + c_i(x) )  <=  (limit - a_j) L(x)
+```
+
+**Still no McCormick term, no new variable, no new binary** — the compute part is the *easiest* part
+of the model, being the only one with a single placement index. What changes versus the withdrawn
+version is that it moves a linear expression rather than a right-hand constant, which matters
+because a constant would have been invisible to the search and a linear term is not: **the master
+can trade compute placement against thermal feasibility, and that is a real degree of freedom the
+constant reading would have hidden.**
 
 **What this closes and what it does not.** It closes the third obstruction found above — the two
 accountings disagree, but the disagreement is a constant the thermal row absorbs. It does **not**
@@ -186,6 +198,10 @@ hyperedge and state behaviour peer review listed (grouped multicast, placement-d
 reuse-source selection, buffer retention/eviction, DRAM fallback). Those are what the
 component-by-component equality test has to cover, and they remain unwritten.
 
-**Nor does it explain the residual.** A constant `c_i` cannot produce a gap that varies 4.2 % to
-18.3 % *within one workload across architectures*, so the second effect — most plausibly
-peak-versus-mean — is still unseparated and is now the only unexplained part of the measurement.
+**The residual is now partly explained by the correction itself.** With `c_i(x)` mapping-dependent
+rather than constant, a gap that varies 4.2 % to 18.3 % *within one workload across architectures*
+is no longer anomalous: different architectures place the same compute differently and have
+different core counts, so the excluded `e_comp` is a different fraction of the total in each. That
+removes the need to invoke a second mechanism to explain the spread, though it does not rule one
+out — peak-versus-mean remains plausible and unseparated, and `docs/ARCHIVE_CENSUS_RESULT.md`
+measured a 19 % spread of that kind independently.
