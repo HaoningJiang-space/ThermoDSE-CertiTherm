@@ -1,6 +1,6 @@
 # The chain, end to end: what is established, what is open, and what each number rests on
 
-STATUS 2026-08-01. This is the index. Every claim links to the document that owns it, and every
+STATUS 2026-08-02. This is the index. Every claim links to the document that owns it, and every
 number states the population it was measured on. Anything not listed here is not established.
 
 ## The one idea everything else follows from
@@ -25,8 +25,11 @@ because linearity is a property of the PDE and not of HotSpot.
 
 | claim | number | population | owner |
 | --- | --- | --- | --- |
-| the frozen error budget covered only linearisation | with the boundary matched, model form is **0-60x** the 0.01 K contract | dev, 3 arch x 2 workloads | `MODEL_FORM_ISOLATED.md` |
-| HotSpot agrees with an independent FEM once the boundary is matched | **+-0.15 K** at the nominal map, **0-0.60 K** over the polytope | same | `MODEL_FORM_ISOLATED.md` |
+| the frozen error budget covered only linearisation | model form is **25-106x** the 0.01 K contract over the polytope, **20-86x** at the nominal map | dev, 3 arch x 2 workloads | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
+| model form exceeds the refinement tail | **1.4-11.8x**, band **0.251-1.061 K** polytope-wide, per row, one-sided | same | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
+| HotSpot reads colder than an independent FEM, one-signed | `T_FEM - T_grid512` = **+0.21 to +0.93 K on all six** at the nominal map | same | `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` |
+| the FEM reference satisfies an analytical identity | `mean(T_top) = T_amb + r_convec*P` to solver precision; the 3.0e-4 residual is a predicted slab offset, ratio **1.000** on all six | same | `FEM_ANALYTICAL_VERIFICATION.md` |
+| a lumped sink boundary would move the band | **0.26-1.01 K** -- a sensitivity to a BC HotSpot does not use, not a correction | same | `LUMPED_BOUNDARY_SENSITIVITY.md` |
 
 | the refinement tail is bounded | successive ratios 1.8-2.8 per doubling, observed order `p ~ 1`, so the tail past `grid512` is no larger than the last measured step | same | `ROBUST_FEASIBLE_FRONTIER.md` |
 | GPU and CPU operators are the same map | parity **exactly 0.0 K/W** at `grid128`, `grid256`, `grid512` | 3 designs | `ARCHIVE_CENSUS_RUN_LOG.md` |
@@ -46,17 +49,19 @@ because linearity is a property of the PDE and not of HotSpot.
 | "the 8 K gap is a package mismatch" | refuted, configs identical | — |
 | "the 8 K gap is cell-max vs block-average" | refuted, the same-run gap is **+0.21 K median** | 40x too small |
 | "the 8 K gap is the six-workload set" | refuted for temperature (+0.30 K); **confirmed for EDYP** (971 vs 811) | — |
-| "HotSpot systematically underestimates, one-signed on six points" | **four of six negative**, residual +-0.15 K | the adapter used a distributed Robin where HotSpot uses a lumped node |
-| "model form is 25-106x the contract, 1.4-11.8x the tail" | **0-60x** and **0-11.8x**, zero on two of six | the boundary realisation was 47-100 % of it |
+| ~~"HotSpot systematically underestimates, one-signed on six points"~~ | **the withdrawal is VOID; the claim stands at +0.21 to +0.93 K, positive on all six** | it was withdrawn on the premise that HotSpot lumps its sink node. It does not -- see the last row of this table |
+| ~~"model form is 25-106x the contract, 1.4-11.8x the tail"~~ | **the withdrawal is VOID; both numbers stand** | same false premise. `0-60x` / `0-11.8x` are properties of a lumped-boundary comparison, now owned by `LUMPED_BOUNDARY_SENSITIVITY.md` |
 | "the reciprocity break costs ~2.3 K, comparable to the model-form band" | **+0.002 to +0.071 K**, measured by symmetrising | a relative entrywise figure times a scale is not an effect on a max of weighted sums |
 | "the boundary term is at most a third of the band" | ~~it was most of it~~ -- **there is no boundary-realisation mismatch at all** | HotSpot distributes `r_convec` by cell area (`temperature_grid.c:1054`), which is the uniform Robin already used. Both the "at most a third" reading AND the withdrawal it led to are void |
 
 ## Provisional -- do not quote outside this repository
 
-**The 0.25-1.06 K model-form band.** It contains a boundary-realisation term bounded at ~0.35 K by
-the sink-top spread, so it bounds model form rather than measuring it. **`+32.1 %` and "5 of 6
-certify" are no longer provisional**: both now hold at the cell endpoint without any band folded in.
-What remains conditional is the band's composition. The frontier numbers were computed on
+**The 0.25-1.06 K model-form band is no longer provisional either.** It was held here on the belief
+that a boundary-realisation term sat inside it; HotSpot distributes `r_convec` by cell area, so the
+distributed-Robin comparison was like-for-like and there is no such term to subtract. **`+32.1 %`
+and "5 of 6 certify" are also no longer provisional**: both hold at the cell endpoint without any
+band folded in. What remains conditional is the ENDPOINT, not the band. The frontier numbers were
+computed on
 **block-average rows**, and the 330 K limit
 is not about block averages. Three independent routes agree on +32.1 %, but all three share that
 endpoint, so their agreement is not evidence about it. The tightest point has **0.31 K** of slack
@@ -78,11 +83,14 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
    itself); `arch_c`/transformer certifies with +4.03 K. The `arch_b -> arch_c` switch and the
    +32.1 % price therefore **survive without the block-average assumption**. **All six dev points: 5 of 6 certify**, gap +0.21 to +0.62 K.
    `CELL_ENDPOINT_RESULT.md`.
-3. ~~**The three declared-equivalent FEM assumptions.**~~ **CLOSED.** Source depth **+0.0201 K** and
-   void filler **+0.0000 K** are safe. The Robin realisation was **not**, and it is now separated
-   rather than bounded: the lumped node is constructed exactly (pin the top, shift the response by
-   `r_convec`) and the boundary term measures **0.260 - 1.005 K** -- larger than model form itself on
-   four of six points. Historical framing below.
+3. ~~**The three declared-equivalent FEM assumptions.**~~ **CLOSED, and all three are safe.** Source
+   depth **+0.0201 K** and void filler **+0.0000 K** were always safe. The Robin realisation was
+   believed unsafe for two rounds and is now **confirmed safe at source**: `temperature_grid.c:1054`
+   and `temperature_block.c:207` both divide `r_convec` proportional to cell area, which IS the
+   uniform Robin the adapter used. The exact lumped-node construction still exists and measures
+   **0.260 - 1.005 K**, but that is a sensitivity to a boundary condition HotSpot does not use
+   (`LUMPED_BOUNDARY_SENSITIVITY.md`), not a term inside the band. Guarded by
+   `_assert_convection_is_distributed`. Historical framing below.
 
    **The three declared-equivalent FEM assumptions -- MEASURED, and one of them is not safe.**
    On `arch_c`/resnet50 at n=192 against a 321.7263 K baseline: source in the top 10 % of the die
