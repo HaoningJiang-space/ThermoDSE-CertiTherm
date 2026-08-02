@@ -50,9 +50,11 @@ because linearity is a property of the PDE and not of HotSpot.
 
 ## Provisional -- do not quote outside this repository
 
-**`+32.1 %`, "5 of 6 certify", and the 0.25-1.06 K model-form band.** The band contains an
-unseparated boundary-realisation term of about -0.73 K (see item 3 below), so it bounds model form
-rather than measuring it. The frontier numbers are computed on **block-average rows**, and the 330 K limit
+**The 0.25-1.06 K model-form band.** It contains a boundary-realisation term bounded at ~0.35 K by
+the sink-top spread, so it bounds model form rather than measuring it. **`+32.1 %` and "5 of 6
+certify" are no longer provisional**: both now hold at the cell endpoint without any band folded in.
+What remains conditional is the band's composition. The frontier numbers were computed on
+**block-average rows**, and the 330 K limit
 is not about block averages. Three independent routes agree on +32.1 %, but all three share that
 endpoint, so their agreement is not evidence about it. The tightest point has **0.31 K** of slack
 against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at risk.
