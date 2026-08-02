@@ -85,9 +85,40 @@ fictitious time and reading a lower average power.
    * If it may not, `L` must be tied to the schedule exactly, which needs complementarity
      (`L_r <= path + M(1 - z)`) and more binaries.
 
-   **This is a physical modelling question, not a solver question, and it is now the first thing
-   Gate 1 owes.** Getting it wrong in the permissive direction produces designs certified on time
-   the machine never spends idle.
+   **This is a physical modelling question, not a solver question.** Getting it wrong in the
+   permissive direction produces designs certified on time the machine never spends idle.
+
+### RESOLVED, and by the scheme's own structure rather than by a new constraint
+
+The tension looks unavoidable and is not. Write it out:
+
+* using an **over**-estimate `L_master >= L_true` makes the master row
+  `sum_i R_ji E_i <= 11.85 L_master` **weaker** than the true row, so **every truly feasible point is
+  master-feasible**. That is exactly the definition of a relaxation — and it is also exactly the
+  false-ACCEPT direction.
+* using an **under**-estimate is fail-closed but makes the master a **restriction**, which destroys
+  the optimality argument: the true optimum can be excluded and never seen.
+
+So one cannot pick the conservative side without losing the theorem. **The resolution is that the
+master is not what certifies.** The scheme replays the master's optimum against the true evaluator,
+and the arbiter is the replay:
+
+* master optimum **passes replay** → it is feasible for the true problem *and* attains the relaxation
+  bound, so `z_true <= f(x*) = z_master <= z_true` and it is the **global optimum**;
+* master optimum **fails replay** → a cut is generated at that point and the loop repeats.
+
+A false ACCEPT therefore requires trusting the master **without** replay, which the scheme never
+does. The optimistic direction is not a defect here; it is the property that makes the bound valid.
+
+**What this converts the requirement into.** Not a tighter master, but a hard condition on the
+replay: **replay must use the TRUE latency and the TRUE energy, from the evaluator, never the
+master's model of them.** If replay ever inherits the master's `L`, the arbiter and the proposer
+become the same object and the argument collapses. That is a one-line invariant to enforce and to
+test, and it replaces the open modelling question above.
+
+The idling question does not disappear, but it stops being a soundness issue and becomes a
+*modelling fidelity* one: if the evaluator forbids idling and the master assumes it, the master
+merely proposes points that replay rejects — wasted iterations, not wrong certificates.
 
 ## What this does and does not change
 
