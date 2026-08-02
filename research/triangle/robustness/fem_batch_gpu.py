@@ -80,7 +80,7 @@ class Assembled:
     difference between two assemblies rather than the identity under test.
     """
 
-    __slots__ = ("solver", "stiffness", "mixed", "selector", "dof_of_cell", "right_hand_sides",
+    __slots__ = ("stiffness", "mixed", "selector", "dof_of_cell", "right_hand_sides",
                  "boundary_load", "convection", "power", "volumes", "problem", "timings")
 
     def __init__(self, **fields):
@@ -229,21 +229,40 @@ def assemble_batch(problems, *, gpu_device: int = 0) -> "Assembled":
     volumes = selector.T @ (mixed_gpu.T @ cp.ones((mixed_gpu.shape[0], 1)))[dof_of_cell]
     timings["host_to_device_s"] = time.perf_counter() - started
 
-    started = time.perf_counter()
-    solver = nvs.DirectSolver(matrix)
-    solver.plan()
-    timings["plan_s"] = time.perf_counter() - started
-    started = time.perf_counter()
-    solver.factorize()
-    timings["factorization_s"] = time.perf_counter() - started
-
     return Assembled(
-        solver=solver, stiffness=matrix, mixed=mixed_gpu, selector=selector,
+        stiffness=matrix, mixed=mixed_gpu, selector=selector,
         dof_of_cell=dof_of_cell, right_hand_sides=right_hand_sides,
         boundary_load=np.asarray(boundary_load.array).copy(),
         convection=np.asarray(convection.array).copy(),
         power=power, volumes=volumes, problem=problem, timings=timings,
     )
+
+
+def factorise_and_solve(built: "Assembled", right_hand_sides):
+    """One plan, one factorisation, one multi-RHS solve. Times each separately.
+
+    `nvmath`'s `DirectSolver` takes the right-hand side at construction, so the columns must be known
+    before the factorisation exists. That is why the gate CONCATENATES the forward loads and the
+    adjoint covectors into a single `b`: it makes "the adjoint reuses the factorisation" a measured
+    fact rather than a comment, since there is demonstrably only one.
+    """
+
+    import cupy as cp
+    import nvmath.sparse.advanced as nvs
+
+    timings = {}
+    started = time.perf_counter()
+    solver = nvs.DirectSolver(built.stiffness, right_hand_sides)
+    solver.plan()
+    timings["plan_s"] = time.perf_counter() - started
+    started = time.perf_counter()
+    solver.factorize()
+    timings["factorization_s"] = time.perf_counter() - started
+    started = time.perf_counter()
+    solutions = solver.solve()
+    cp.cuda.runtime.deviceSynchronize()
+    timings["solve_s"] = time.perf_counter() - started
+    return solutions, timings
 
 
 def solve_batch_gpu(problems, *, gpu_device: int = 0):
@@ -253,11 +272,8 @@ def solve_batch_gpu(problems, *, gpu_device: int = 0):
 
     built = assemble_batch(problems, gpu_device=gpu_device)
     timings, problem = built.timings, built.problem
-
-    started = time.perf_counter()
-    solutions = built.solver.solve(built.right_hand_sides)
-    cp.cuda.runtime.deviceSynchronize()
-    timings["solve_s"] = time.perf_counter() - started
+    solutions, solve_timings = factorise_and_solve(built, built.right_hand_sides)
+    timings.update(solve_timings)
 
     # POSTPROCESS AS TWO PRODUCTS, ON THE DEVICE. This is what used to be 65 % of the run.
     started = time.perf_counter()
@@ -282,37 +298,41 @@ def solve_batch_gpu(problems, *, gpu_device: int = 0):
     )
 
 
-def adjoint_rows(built: "Assembled", rows):
-    """Rows of the response operator obtained by ADJOINT solves against the same factorisation.
+def adjoint_covectors(built: "Assembled", rows):
+    """`c_j` for each requested region, as columns of a dense right-hand side.
 
-    The output functional for region `j` is the volume average
-    `T_j = (S^T M^T u)_j / vol_j`, so its covector is `c_j = M S e_j / vol_j` and the exact response
-    row is `r_j = (K^-T c_j)^T F`, where `F` maps a per-region volumetric source to a load vector by
-    the SAME `M S` product. `K` is symmetric -- the bilinear form is
-    `inner(k grad u, grad v) dx + h u v ds` -- so `K^-T c_j` reuses the existing factorisation
-    verbatim; no second plan, no second factorize.
-
-    Returns `(rows x regions)` in units of K per unit VOLUMETRIC source, matching `assemble_batch`'s
-    `power` convention. Ambient is excluded: this is the linear part only.
+    The output functional for region `j` is the volume average `T_j = (S^T M^T u)_j / vol_j`, so its
+    covector is `c_j = M S e_j / vol_j` -- routed through the DG0 dof ordering by exactly the same
+    `dof_of_cell` indirection the forward load uses, because a mismatch there is precisely the
+    false-ACCEPT defect this gate exists to catch.
     """
 
     import cupy as cp
 
-    n_regions = built.selector.shape[1]
-    indicator = cp.zeros((n_regions, len(rows)), dtype=cp.float64)
+    indicator = cp.zeros((built.selector.shape[1], len(rows)), dtype=cp.float64)
     for column, region in enumerate(rows):
         indicator[int(region), column] = 1.0
-    # c_j = M S e_j / vol_j, routed through the DG0 dof ordering exactly as the forward load is.
-    cell_side = built.selector @ indicator                       # (cells x rows)
     dof_side = cp.zeros((built.mixed.shape[1], len(rows)), dtype=cp.float64)
-    dof_side[built.dof_of_cell] = cell_side
+    dof_side[built.dof_of_cell] = built.selector @ indicator
     covectors = built.mixed @ dof_side                           # (dofs x rows)
     covectors /= built.volumes.ravel()[cp.asarray([int(r) for r in rows])][None, :]
+    return covectors
 
-    duals = built.solver.solve(covectors)                        # lambda_j, one column each
-    cp.cuda.runtime.deviceSynchronize()
 
-    # r_j = lambda_j^T F, and F's column for region i is `M S e_i` -- the same product, transposed.
+def adjoint_rows_from_duals(built: "Assembled", duals):
+    """`r_j = lambda_j^T F` given the dual fields `lambda_j = K^-T c_j`.
+
+    `K` is symmetric here -- the bilinear form is `inner(k grad u, grad v) dx + h u v ds` -- so the
+    dual solve is another right-hand side against the same factorisation, which is the whole
+    economic finding. `F`'s column for region `i` is `M S e_i`, the same product transposed, so the
+    read-back is one more pair of sparse products and no new form.
+
+    Returns `(rows x regions)` in K per unit VOLUMETRIC source, matching `assemble_batch`'s `power`
+    convention. Ambient is excluded: this is the linear part only.
+    """
+
+    import cupy as cp
+
     dof_integrals = built.mixed.T @ duals                        # (dg dofs x rows)
     return cp.asnumpy((built.selector.T @ dof_integrals[built.dof_of_cell]).T)
 
@@ -433,12 +453,24 @@ def main() -> None:
     report["forward_parity_tol_k"] = PARITY_TOL_K
     report["forward_parity_pass"] = bool(np.isfinite(parity) and parity <= PARITY_TOL_K)
 
-    # GATE 2 -- the adjoint row identity, which is the whole point.
+    # GATE 2 -- the adjoint row identity, which is the whole point. Forward loads and adjoint
+    # covectors go into ONE right-hand side, so there is demonstrably one factorisation for both.
+    import cupy as cp
+
     built = assemble_batch(problems)
+    covectors = adjoint_covectors(built, powered)
+    combined = cp.concatenate((built.right_hand_sides, covectors), axis=1)
+    solutions, combined_timings = factorise_and_solve(built, combined)
+    duals = solutions[:, built.right_hand_sides.shape[1]:]
+
+    dof_integrals = built.mixed.T @ solutions[:, : built.right_hand_sides.shape[1]]
+    combined_average = cp.asnumpy(
+        (built.selector.T @ dof_integrals[built.dof_of_cell]) / built.volumes
+    ).T
     forward_rows = np.asarray([
-        (fast[i + 1] - fast[0]) for i in range(len(powered))
+        (combined_average[i + 1] - combined_average[0]) for i in range(len(powered))
     ], dtype=float).T                                     # (regions_out x impulses), K per watt
-    adjoint = adjoint_rows(built, powered)                # (rows x regions), K per volumetric
+    adjoint = adjoint_rows_from_duals(built, duals)       # (rows x regions), K per volumetric
     predicted = np.asarray([
         [adjoint[r, region] / volumes[region] for region in powered]
         for r in range(len(powered))
@@ -456,17 +488,29 @@ def main() -> None:
         np.isfinite(delta) and scale > 0 and delta / scale <= ADJOINT_TOL_REL
     )
 
-    # THE ECONOMIC CLAIM UNDER TEST, measured rather than argued.
-    timings = diagnostics["timings_s"]
-    report["timings_s"] = timings
-    factorisation = float(timings.get("plan_s", 0.0) + timings.get("factorization_s", 0.0))
-    report["shared_factorisation_s"] = factorisation
-    report["forward_solve_s"] = float(timings.get("solve_s", 0.0))
-    report["adjoint_saves_factorisation"] = False       # K is symmetric; the factorisation is reused
+    # THE ECONOMIC CLAIM UNDER TEST, measured rather than argued. `forward_only` factorised for the
+    # impulse loads alone; `combined` factorised once for the impulse loads AND the adjoint
+    # covectors. If lazy row generation saved the dominant cost, these would differ.
+    forward_only = diagnostics["timings_s"]
+    report["timings_s"] = {"forward_only": forward_only, "combined": combined_timings}
+    def _factor(t):
+        return float(t.get("plan_s", 0.0) + t.get("factorization_s", 0.0))
+    report["factorisation_s_forward_only"] = _factor(forward_only)
+    report["factorisation_s_with_adjoint"] = _factor(combined_timings)
+    report["solve_s_forward_only"] = float(forward_only.get("solve_s", 0.0))
+    report["solve_s_with_adjoint"] = float(combined_timings.get("solve_s", 0.0))
+    report["rhs_columns_forward_only"] = int(built.right_hand_sides.shape[1])
+    report["rhs_columns_with_adjoint"] = int(combined.shape[1])
+    report["factorisation_share_forward_only"] = (
+        _factor(forward_only) / max(_factor(forward_only) + float(forward_only.get("solve_s", 0.0)),
+                                    1e-30)
+    )
+    report["adjoint_avoids_factorisation"] = False      # K is symmetric; the factorisation is reused
     report["note"] = (
         "K is symmetric, so an adjoint row is one more right-hand side against the SAME "
         "factorisation. Lazy row generation cannot avoid the factorisation, which is the cost "
-        "that dominates; it can only avoid additional triangular solves."
+        "that dominates; it can only avoid additional triangular solves. Compare "
+        "factorisation_share_forward_only against any claimed speedup."
     )
 
     print(json.dumps(report, indent=1), flush=True)
