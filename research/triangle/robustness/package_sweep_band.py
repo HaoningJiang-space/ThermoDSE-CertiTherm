@@ -90,10 +90,18 @@ def main() -> None:
                     continue
                 power = np.asarray(placed, dtype=float)
                 polytope = activity_bounded_power_space(capture_blocks, power, activity_span=span)
+                # `total` comes from the polytope's OWN equality row, not from a second sum of the
+                # power vector: two definitions of one number is a policing problem, and passing it
+                # in the wrong position silently sent `a_ub` where the scalar belonged.
+                b_eq = np.asarray(polytope.b_eq, dtype=float).ravel()
+                if b_eq.size != 1:
+                    skipped.append(f"{arch}/{workload}/{package}: {b_eq.size} total-power rows")
+                    continue
                 hotter, colder = one_sided_containment_bounds(
                     coarse_rows, fine_rows, coarse_ambient, fine_ambient,
                     np.asarray(polytope.lower_w, dtype=float),
                     np.asarray(polytope.upper_w, dtype=float),
+                    float(b_eq[0]),
                     np.asarray(polytope.a_ub, dtype=float),
                     np.asarray(polytope.b_ub, dtype=float),
                 )
