@@ -136,8 +136,13 @@ def test_a_non_finite_grid_is_refused_rather_than_returned(tmp_path) -> None:
         _read_grid(path, 3)
 
 
-def test_a_negative_refinement_budget_is_refused() -> None:
+def test_a_negative_refinement_budget_is_refused(tmp_path) -> None:
+    from pathlib import Path
+
     from CertiTherm.gpu_hotspot import GpuHotSpotBackend
 
+    exporter, solver = tmp_path / "hotspot", tmp_path / "solver"
+    exporter.write_text("x")
+    solver.write_text("y")
     with pytest.raises(ValueError, match="cannot be negative"):
-        GpuHotSpotBackend(Path("/x"), Path("/y"), max_refinements=-1)
+        GpuHotSpotBackend(Path(exporter), Path(solver), max_refinements=-1)
