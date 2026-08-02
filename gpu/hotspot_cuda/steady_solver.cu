@@ -44,6 +44,17 @@ struct SystemHeader {
   std::uint64_t layers;
 };
 
+// The raw grid field, in its own file and its own format so the block output is untouched.
+#pragma pack(push, 1)
+struct GridHeader {
+  char magic[7];
+  std::uint8_t version;
+  std::uint64_t scalar_bytes;
+  std::uint64_t nodes;
+  std::uint64_t rhs;
+};
+#pragma pack(pop)
+
 struct OutputHeader {
   char magic[8];
   std::uint32_t version;
@@ -415,9 +426,14 @@ int active_count(const std::vector<int>& active) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc < 4 || argc > 8) {
+    // The upper bound was 8 while `max_refinements` reads argv[8], so the refinement budget was
+    // UNREACHABLE -- any attempt to pass it was rejected as too many arguments and the default was
+    // silently used instead. Found by reading the argument handling, not by a failure, because the
+    // default happened to be the wanted value.
+    if (argc < 4 || argc > 10) {
       std::cerr << "usage: " << argv[0]
-                << " SYSTEM.bin OUTPUT.bin STATS.tsv [device] [rtol] [atol] [max_iters]\n";
+                << " SYSTEM.bin OUTPUT.bin STATS.tsv [device] [rtol] [atol] [max_iters]"
+                   " [max_refinements] [GRID.bin]\n";
       return 2;
     }
     const std::string system_path = argv[1];
@@ -429,6 +445,12 @@ int main(int argc, char** argv) {
     const int max_iterations = argc > 7 ? std::stoi(argv[7]) : 10000;
     // Restarts, not retries: each one re-anchors the recurrence on an exactly computed residual.
     const int max_refinements = argc > 8 ? std::stoi(argv[8]) : 4;
+    // OPTIONAL RAW GRID OUTPUT. `d_x` is the full grid solution -- the block temperatures below are
+    // computed FROM it by a sparse mapping -- so the cell field already exists on the device and is
+    // simply discarded. Emitting it lets a CELL-level operator be built on the GPU at the same cost
+    // as a block-level one, instead of one CPU HotSpot invocation per block. Written to a SEPARATE
+    // file so the existing `CTHGO01` output keeps its format and its receipt.
+    const std::string grid_path = argc > 9 ? argv[9] : std::string();
     if (!(rtol > 0.0) || !(atol >= 0.0) || max_iterations <= 0 || max_refinements < 0)
       throw std::runtime_error("invalid solver tolerance, iteration limit or refinement budget");
 
@@ -636,6 +658,27 @@ int main(int argc, char** argv) {
                           block_temperature.size() * sizeof(double),
                           cudaMemcpyDeviceToHost),
                "read block temperatures");
+
+    if (!grid_path.empty()) {
+      std::vector<double> grid(elements);
+      cuda_check(cudaMemcpy(grid.data(), d_x, grid.size() * sizeof(double),
+                            cudaMemcpyDeviceToHost),
+                 "read grid solution");
+      GridHeader grid_header{};
+      std::memcpy(grid_header.magic, "CTHGG01", 7);
+      grid_header.version = 1;
+      grid_header.scalar_bytes = sizeof(double);
+      grid_header.nodes = header.nodes;
+      grid_header.rhs = rhs;
+      std::ofstream grid_stream(grid_path, std::ios::binary);
+      if (!grid_stream)
+        throw std::runtime_error("cannot open GPU grid output");
+      grid_stream.write(reinterpret_cast<const char*>(&grid_header), sizeof(grid_header));
+      grid_stream.write(reinterpret_cast<const char*>(grid.data()),
+                        static_cast<std::streamsize>(grid.size() * sizeof(double)));
+      if (!grid_stream)
+        throw std::runtime_error("cannot write GPU grid output");
+    }
 
     cuda_check(cudaEventRecord(stop_event), "record stop event");
     cuda_check(cudaEventSynchronize(stop_event), "synchronize stop event");
