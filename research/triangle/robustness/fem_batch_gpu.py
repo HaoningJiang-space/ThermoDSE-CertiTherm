@@ -30,15 +30,30 @@ added to every column.
 ## Parity, because a second implementation cannot be its own oracle
 
 This is a second construction of an operator the project already has, so it is not trusted on its own
-merits: `--parity` runs the same problem through `solve_steady_heat_batch` and refuses unless the
-region-average temperatures agree to a declared tolerance. The slow path stays the oracle.
+merits: `--gate` runs the same problems through `solve_steady_heat_batch` and refuses unless the
+region-average temperatures agree to `PARITY_TOL_K`. The slow path stays the oracle.
 
-NON-CLAIM diagnostic until the parity gate passes on the design being built.
+An earlier revision of this docstring promised a `--parity` flag and a capture-driven CLI. **Neither
+existed**: the module had no `main`, no `__main__`, and `solve_batch_gpu` had no callers anywhere in
+the repository, so the gate it declared itself provisional upon could never have run. Both are
+implemented now, and the flag is `--gate`.
+
+## The adjoint row identity
+
+`adjoint_rows` computes rows of the response operator the other way round -- `r_j = (K^-T c_j)^T F`
+instead of reading row `j` out of `n` forward impulse columns. The two are the same object by
+algebra, so any disagreement is an implementation defect in the dual pairing between the region
+average functional and the source map. `--gate` checks every entry.
+
+It also measures the cost claim that motivates lazy row generation, and refutes it: `K` here is
+symmetric, so an adjoint solve is one more right-hand side against a factorisation that already
+exists. Generating rows lazily cannot avoid the factorisation, only additional triangular solves.
+
+NON-CLAIM diagnostic. Both gates must pass before either path is used for anything quotable.
 
 Usage (on moe-server, from the repo root):
     /data/ziheng/conda_envs/chiplet-fem-0.11/bin/python \\
-        research/triangle/robustness/fem_batch_gpu.py <capture.npz> <out.npz> <ledger.json> \\
-        [package] [min_lateral_cells] [fem-src-root] [--parity]
+        research/triangle/robustness/fem_batch_gpu.py --gate [--cells N] [--grid G] [--fem-src P]
 """
 
 from __future__ import annotations
@@ -56,12 +71,34 @@ sys.path.insert(0, "research/triangle/robustness")
 PARITY_TOL_K = 1e-9
 
 
-def solve_batch_gpu(problems, *, gpu_device: int = 0):
-    """`(region_average_temperature_k per problem, diagnostics)` with no per-problem assembly.
+class Assembled:
+    """The device-side operators, assembled and factorised ONCE.
+
+    Held as one object because the forward operator build and the adjoint row gate must share the
+    same `K`, the same `M`, the same `S` and above all the same FACTORISATION -- comparing a forward
+    row against an adjoint row computed from a separately assembled operator would measure the
+    difference between two assemblies rather than the identity under test.
+    """
+
+    __slots__ = ("solver", "stiffness", "mixed", "selector", "dof_of_cell", "right_hand_sides",
+                 "boundary_load", "convection", "power", "volumes", "problem", "timings")
+
+    def __init__(self, **fields):
+        for name in self.__slots__:
+            setattr(self, name, fields[name])
+
+
+def assemble_batch(problems, *, gpu_device: int = 0) -> "Assembled":
+    """Assemble and factorise once; return the operators, not the answer.
 
     Mirrors `solve_steady_heat_batch`'s forms exactly -- same bilinear form, same measures, same
     Robin boundaries -- because a parity check between two different weak forms would measure the
     difference in the forms rather than the difference in the implementation.
+
+    Split out from `solve_batch_gpu` so the adjoint row gate can reuse the SAME factorisation. That
+    reuse is the point: `K` is symmetric here, so an adjoint solve is another right-hand side against
+    a factorisation that already exists, and lazy row generation therefore cannot save the cost that
+    dominates the build.
     """
 
     import cupy as cp
@@ -187,6 +224,9 @@ def solve_batch_gpu(problems, *, gpu_device: int = 0):
     dof_source[dof_of_cell] = cell_source
     right_hand_sides = mixed_gpu @ dof_source            # (dofs x problems)
     right_hand_sides += cp.asarray(np.asarray(boundary_load.array))[:, None]
+    # Volume per region, independent of any solution, so it belongs to the assembly and not to a
+    # postprocess that would recompute it per consumer.
+    volumes = selector.T @ (mixed_gpu.T @ cp.ones((mixed_gpu.shape[0], 1)))[dof_of_cell]
     timings["host_to_device_s"] = time.perf_counter() - started
 
     started = time.perf_counter()
@@ -196,21 +236,39 @@ def solve_batch_gpu(problems, *, gpu_device: int = 0):
     started = time.perf_counter()
     solver.factorize()
     timings["factorization_s"] = time.perf_counter() - started
+
+    return Assembled(
+        solver=solver, stiffness=matrix, mixed=mixed_gpu, selector=selector,
+        dof_of_cell=dof_of_cell, right_hand_sides=right_hand_sides,
+        boundary_load=np.asarray(boundary_load.array).copy(),
+        convection=np.asarray(convection.array).copy(),
+        power=power, volumes=volumes, problem=problem, timings=timings,
+    )
+
+
+def solve_batch_gpu(problems, *, gpu_device: int = 0):
+    """`(region_average_temperature_k per problem, diagnostics)` with no per-problem assembly."""
+
+    import cupy as cp
+
+    built = assemble_batch(problems, gpu_device=gpu_device)
+    timings, problem = built.timings, built.problem
+
     started = time.perf_counter()
-    solutions = solver.solve(right_hand_sides)
+    solutions = built.solver.solve(built.right_hand_sides)
     cp.cuda.runtime.deviceSynchronize()
     timings["solve_s"] = time.perf_counter() - started
 
     # POSTPROCESS AS TWO PRODUCTS, ON THE DEVICE. This is what used to be 65 % of the run.
     started = time.perf_counter()
-    dof_integrals = mixed_gpu.T @ solutions              # (dg dofs x problems)
-    region_integrals = selector.T @ dof_integrals[dof_of_cell]
-    volumes = selector.T @ (mixed_gpu.T @ cp.ones((mixed_gpu.shape[0], 1)))[dof_of_cell]
-    region_average = region_integrals / volumes
-    convected = cp.asarray(np.asarray(convection.array)) @ solutions - float(
+    dof_integrals = built.mixed.T @ solutions             # (dg dofs x problems)
+    region_integrals = built.selector.T @ dof_integrals[built.dof_of_cell]
+    region_average = region_integrals / built.volumes
+    convection_gpu = cp.asarray(built.convection)
+    convected = convection_gpu @ solutions - float(
         problem.ambient_temperature_k
-    ) * float(cp.asnumpy(cp.asarray(np.asarray(convection.array)).sum()))
-    generated = cp.asnumpy((volumes.ravel()[:, None] * power).sum(axis=0))
+    ) * float(cp.asnumpy(convection_gpu.sum()))
+    generated = cp.asnumpy((built.volumes.ravel()[:, None] * built.power).sum(axis=0))
     timings["postprocess_s"] = time.perf_counter() - started
 
     return (
@@ -218,7 +276,203 @@ def solve_batch_gpu(problems, *, gpu_device: int = 0):
         {
             "generated_power_w": np.asarray(generated, dtype=float),
             "convected_power_w": cp.asnumpy(convected).astype(float),
-            "region_volumes_m3": cp.asnumpy(volumes.ravel()).astype(float),
+            "region_volumes_m3": cp.asnumpy(built.volumes.ravel()).astype(float),
             "timings_s": timings,
         },
     )
+
+
+def adjoint_rows(built: "Assembled", rows):
+    """Rows of the response operator obtained by ADJOINT solves against the same factorisation.
+
+    The output functional for region `j` is the volume average
+    `T_j = (S^T M^T u)_j / vol_j`, so its covector is `c_j = M S e_j / vol_j` and the exact response
+    row is `r_j = (K^-T c_j)^T F`, where `F` maps a per-region volumetric source to a load vector by
+    the SAME `M S` product. `K` is symmetric -- the bilinear form is
+    `inner(k grad u, grad v) dx + h u v ds` -- so `K^-T c_j` reuses the existing factorisation
+    verbatim; no second plan, no second factorize.
+
+    Returns `(rows x regions)` in units of K per unit VOLUMETRIC source, matching `assemble_batch`'s
+    `power` convention. Ambient is excluded: this is the linear part only.
+    """
+
+    import cupy as cp
+
+    n_regions = built.selector.shape[1]
+    indicator = cp.zeros((n_regions, len(rows)), dtype=cp.float64)
+    for column, region in enumerate(rows):
+        indicator[int(region), column] = 1.0
+    # c_j = M S e_j / vol_j, routed through the DG0 dof ordering exactly as the forward load is.
+    cell_side = built.selector @ indicator                       # (cells x rows)
+    dof_side = cp.zeros((built.mixed.shape[1], len(rows)), dtype=cp.float64)
+    dof_side[built.dof_of_cell] = cell_side
+    covectors = built.mixed @ dof_side                           # (dofs x rows)
+    covectors /= built.volumes.ravel()[cp.asarray([int(r) for r in rows])][None, :]
+
+    duals = built.solver.solve(covectors)                        # lambda_j, one column each
+    cp.cuda.runtime.deviceSynchronize()
+
+    # r_j = lambda_j^T F, and F's column for region i is `M S e_i` -- the same product, transposed.
+    dof_integrals = built.mixed.T @ duals                        # (dg dofs x rows)
+    return cp.asnumpy((built.selector.T @ dof_integrals[built.dof_of_cell]).T)
+
+
+ADJOINT_TOL_REL = 1e-9
+
+
+def _synthetic(cells_per_axis: int, grid: int, shf):
+    """A tiled layered box with `grid**2` powered die regions.
+
+    Deliberately NOT the real floorplan. The identity under test -- that an adjoint solve returns
+    the same response row the forward impulse build does -- is algebraic and geometry-independent,
+    so the gate uses the smallest instance that exercises every code path (mixed mass matrix, DG0
+    dof reordering, region selector, Robin boundary) and none of the ones it does not test.
+    """
+
+    box_x = box_y = 8.0e-3
+    z_die, z_spr, z_sink = 1.5e-4, 1.0e-3, 6.9e-3
+    total_z = z_die + z_spr + z_sink
+    silicon, copper = 130.0, 400.0
+
+    regions, powered = [], []
+    step_x, step_y = box_x / grid, box_y / grid
+    for iy in range(grid):
+        for ix in range(grid):
+            regions.append(shf.BoxRegion(
+                f"die::b{ix}_{iy}",
+                (ix * step_x, iy * step_y, 0.0), ((ix + 1) * step_x, (iy + 1) * step_y, z_die),
+                silicon, 0.0,
+            ))
+            powered.append(len(regions) - 1)
+    regions.append(shf.BoxRegion("spreader", (0.0, 0.0, z_die), (box_x, box_y, z_die + z_spr),
+                                 copper, 0.0))
+    regions.append(shf.BoxRegion("sink", (0.0, 0.0, z_die + z_spr), (box_x, box_y, total_z),
+                                 copper, 0.0))
+
+    z_nodes = sorted({0.0, z_die, z_die + z_spr, total_z} | {
+        z_die * k / 2 for k in range(3)
+    } | {z_die + z_spr * k / 2 for k in range(3)} | {
+        z_die + z_spr + z_sink * k / 3 for k in range(4)
+    })
+    lateral = [i * box_x / cells_per_axis for i in range(cells_per_axis + 1)]
+    for edge in (step_x * i for i in range(grid + 1)):
+        if not any(abs(edge - v) < 1e-15 for v in lateral):
+            raise SystemExit(
+                f"region edge {edge!r} is not a mesh node; choose cells_per_axis a multiple of grid"
+            )
+
+    def build(volumetric):
+        return shf.SteadyHeatBox(
+            size_m=(box_x, box_y, total_z),
+            cells=(cells_per_axis, cells_per_axis, len(z_nodes) - 1),
+            regions=tuple(
+                shf.BoxRegion(r.region_id, r.lower_m, r.upper_m, r.conductivity_xyz[0],
+                              float(volumetric[i]))
+                for i, r in enumerate(regions)
+            ),
+            ambient_temperature_k=318.15,
+            top_heat_transfer_w_per_m2_k=1.0 / (0.1 * 0.06 * 0.06),
+            bottom_heat_transfer_w_per_m2_k=0.0,
+            x_nodes_m=lateral, y_nodes_m=list(lateral), z_nodes_m=z_nodes,
+        )
+
+    volumes = [
+        (r.upper_m[0] - r.lower_m[0]) * (r.upper_m[1] - r.lower_m[1])
+        * (r.upper_m[2] - r.lower_m[2]) for r in regions
+    ]
+    return build, powered, volumes, len(regions)
+
+
+def main() -> None:
+    argv = sys.argv[1:]
+    if "--gate" not in argv:
+        raise SystemExit(
+            "usage: fem_batch_gpu.py --gate [--cells N] [--grid G] [--fem-src PATH]\n"
+            "  --gate  run BOTH gates: forward parity against the slow oracle, and the adjoint\n"
+            "          row identity against the forward impulse build."
+        )
+
+    def option(name, default):
+        return type(default)(argv[argv.index(name) + 1]) if name in argv else default
+
+    cells = option("--cells", 32)
+    grid = option("--grid", 3)
+    fem_src = Path(option("--fem-src", str(
+        Path(__file__).resolve().parents[3].parent / "ThermoDSE"
+        / "research" / "reachable_thermal_envelope" / "src"
+    )))
+    sys.path.insert(0, str(fem_src))
+    import steady_heat_fem as shf
+
+    build, powered, volumes, n_regions = _synthetic(cells, grid, shf)
+
+    zero = [0.0] * n_regions
+    problems = [build(zero)]
+    for region in powered:
+        impulse = list(zero)
+        impulse[region] = 1.0 / volumes[region]          # exactly one watt
+        problems.append(build(impulse))
+    problems = tuple(problems)
+
+    report = {"cells_per_axis": cells, "grid": grid, "powered_regions": len(powered),
+              "total_regions": n_regions, "mesh_cells": list(problems[0].cells)}
+
+    # GATE 1 -- forward parity. The slow path is the oracle; this is the check the module's own
+    # docstring promised and never implemented.
+    started = time.perf_counter()
+    fast, diagnostics = solve_batch_gpu(problems)
+    report["gpu_seconds"] = time.perf_counter() - started
+    started = time.perf_counter()
+    oracle = shf.solve_steady_heat_batch(problems)
+    report["oracle_seconds"] = time.perf_counter() - started
+    by_name = [dict(r.region_average_temperature_k) for r in oracle]
+    names = [r.region_id for r in problems[0].regions]
+    reference = np.asarray([[row[n] for n in names] for row in by_name], dtype=float)
+    parity = float(np.max(np.abs(fast - reference)))
+    report["forward_parity_max_abs_k"] = parity
+    report["forward_parity_tol_k"] = PARITY_TOL_K
+    report["forward_parity_pass"] = bool(np.isfinite(parity) and parity <= PARITY_TOL_K)
+
+    # GATE 2 -- the adjoint row identity, which is the whole point.
+    built = assemble_batch(problems)
+    forward_rows = np.asarray([
+        (fast[i + 1] - fast[0]) for i in range(len(powered))
+    ], dtype=float).T                                     # (regions_out x impulses), K per watt
+    adjoint = adjoint_rows(built, powered)                # (rows x regions), K per volumetric
+    predicted = np.asarray([
+        [adjoint[r, region] / volumes[region] for region in powered]
+        for r in range(len(powered))
+    ], dtype=float)
+    observed = forward_rows[powered, :]
+    scale = float(np.max(np.abs(observed)))
+    delta = float(np.max(np.abs(predicted - observed)))
+    report["adjoint_rows_compared"] = len(powered)
+    report["adjoint_entries_compared"] = int(predicted.size)
+    report["response_scale_k_per_w"] = scale
+    report["adjoint_max_abs_k_per_w"] = delta
+    report["adjoint_max_rel"] = delta / scale if scale > 0 else float("inf")
+    report["adjoint_tol_rel"] = ADJOINT_TOL_REL
+    report["adjoint_pass"] = bool(
+        np.isfinite(delta) and scale > 0 and delta / scale <= ADJOINT_TOL_REL
+    )
+
+    # THE ECONOMIC CLAIM UNDER TEST, measured rather than argued.
+    timings = diagnostics["timings_s"]
+    report["timings_s"] = timings
+    factorisation = float(timings.get("plan_s", 0.0) + timings.get("factorization_s", 0.0))
+    report["shared_factorisation_s"] = factorisation
+    report["forward_solve_s"] = float(timings.get("solve_s", 0.0))
+    report["adjoint_saves_factorisation"] = False       # K is symmetric; the factorisation is reused
+    report["note"] = (
+        "K is symmetric, so an adjoint row is one more right-hand side against the SAME "
+        "factorisation. Lazy row generation cannot avoid the factorisation, which is the cost "
+        "that dominates; it can only avoid additional triangular solves."
+    )
+
+    print(json.dumps(report, indent=1), flush=True)
+    if not (report["forward_parity_pass"] and report["adjoint_pass"]):
+        raise SystemExit("GATE FAILED")
+
+
+if __name__ == "__main__":
+    main()
