@@ -129,6 +129,27 @@ Z_CELLS_PER_LAYER["sink"] = int(os.environ.get("CERTITHERM_FEM_SINK_Z_CELLS", "8
 # refused by the energy-balance gate at both 8 and 24-32 z-cells, so the failure is the material
 # contrast degrading coercivity, not the mesh.
 PROBE_SINK_TOP = os.environ.get("CERTITHERM_FEM_PROBE_SINK_TOP") == "1"
+# HotSpot's lumped sink-to-ambient node, constructed EXACTLY rather than approached.
+#
+# Scaling the sink conductivity towards the isothermal limit fails: it raises the material contrast
+# to 1e6-1e7, the solve loses its energy balance, and refining the mesh does not rescue it because
+# the problem is coercivity and not resolution. It also changes lateral sink spreading, so it never
+# isolated the boundary realisation in the first place.
+#
+# The exact construction needs no new boundary condition. **Every face except the top is adiabatic**
+# -- the bottom has `h = 0` and the sides carry the natural condition -- so a problem with the top
+# pinned to a constant and everything else insulated has a solution that shifts RIGIDLY with that
+# constant. Therefore:
+#
+#   1. pin the top at ambient (`h` large, so Robin degenerates to Dirichlet) and solve once;
+#   2. all heat leaves through the top, so the total flux is exactly the dissipated power `P`;
+#   3. the lumped relation `Q = (T_s - T_inf) / r` gives `T_s = T_inf + r P`;
+#   4. the lumped solution is the pinned field plus the constant `r P`.
+#
+# One solve, exact, and `h` is a SURFACE coefficient rather than a volume contrast -- which is why
+# this is well conditioned where conductivity scaling was not.
+LUMPED_SINK = os.environ.get("CERTITHERM_FEM_LUMPED_SINK") == "1"
+LUMPED_SINK_H_W_PER_M2_K = float(os.environ.get("CERTITHERM_FEM_LUMPED_H", "1e7"))
 
 
 def _floorplan_blocks(text: str):
@@ -412,7 +433,9 @@ def main() -> None:
             regions=void + tuple(die_regions) + passive,
             ambient_temperature_k=ambient_k,
             # HotSpot's `r_convec` is a lumped sink-to-ambient resistance over the whole sink top.
-            top_heat_transfer_w_per_m2_k=1.0 / (r_convec * s_sink * s_sink),
+            top_heat_transfer_w_per_m2_k=(
+                LUMPED_SINK_H_W_PER_M2_K if LUMPED_SINK else 1.0 / (r_convec * s_sink * s_sink)
+            ),
             bottom_heat_transfer_w_per_m2_k=0.0,
             x_nodes_m=x_nodes, y_nodes_m=y_nodes, z_nodes_m=z_nodes,
         )
@@ -499,6 +522,13 @@ def main() -> None:
     response = np.empty((len(blocks), len(blocks)), dtype=float)
     for index in range(len(blocks)):
         response[:, index] = die_temperatures(results[index + 1]) - ambient_row
+    # Step 4 of the lumped construction, and it belongs in the RESPONSE rather than the ambient.
+    # `T(p) = u_pinned(p) + r * sum(p)` and `r * sum(p)` is LINEAR in `p`, so the ambient row -- the
+    # zero-power solve -- is unchanged and every response entry gains exactly `r_convec`, each
+    # impulse being one watt. Putting the shift on the ambient instead would have made the operator
+    # depend on the nominal map and stopped it being affine at all.
+    lumped_shift = r_convec if LUMPED_SINK else 0.0
+    response += lumped_shift
 
     # ENERGY FIRST. A geometry or boundary mismatch shows up as a temperature difference and would
     # be read as model-form error, so the ledger records the residual for every solve and the run
@@ -545,6 +575,8 @@ def main() -> None:
         "worst_impulse_power_error_w": worst_impulse_w,
         "zero_solve_offset_from_ambient_k": zero_offset_k,
         "hotspot_inputs_checked": hotspot_inputs,
+        "lumped_sink": LUMPED_SINK,
+        "lumped_shift_k_per_w": lumped_shift,
         # THE QUANTITY THAT BOUNDS THE LUMPED-VERSUS-DISTRIBUTED GAP. A uniform Robin coefficient
         # already reproduces the lumped total-flux relation with the MEAN top temperature; the only
         # thing the lumped node adds is that the top is isothermal. So the spread across the top is
