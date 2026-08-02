@@ -106,17 +106,39 @@ output regions, whose `j` index the `i` index cannot reach:
 | `GPU_FORWARD_REGION_AVERAGE_PARITY` | PASS |
 | `REGION_AVERAGE_ADJOINT_REGRESSION` | PASS |
 | `STIFFNESS_SYMMETRY` | PASS (now measured, see below) |
-| `CELL_ROW_PAIRING` | **UNTESTED** |
+| `CELL_ROW_PAIRING` | PASS (closed 2026-08-02, see below) |
+| `MUTATIONS_DETECTED` | PASS |
 | `ITERATIVE_FACTOR_REUSE` | **UNTESTED** |
 | `EXACT_MAPPING_TO_POWER_MILP` | **UNRESOLVED** |
 | `CERTITHERM_OPT_KILL_CONDITION` | **NOT CLEARED** |
 
-**The decisive gap: every compared row is a REGION AVERAGE, two of them whole passive layers.**
-CertiTherm-Opt generates the row of a violating **cell**. No cell covector is constructed or compared
-anywhere here, so a correct spreader average says nothing about a misindexed 262 144-cell separator —
-which is exactly the false-ACCEPT direction the gate was built to close. The maximum error also now
-sits at the CPU-vs-GPU parity level, so the adjoint-specific discrepancy is *below the resolution of
-the forward comparison*: this is a cross-implementation regression, not an independent 1e-13 result.
+**The decisive gap has been closed.** Peer review was right that every compared row was a REGION
+AVERAGE — two of them whole passive layers — while CertiTherm-Opt generates the row of a violating
+**cell**, and that a correct spreader average says nothing about a misindexed 262 144-cell separator.
+`cell_covectors_independently` now builds cell covectors from **UFL cell tags** — a `dx` measure
+restricted to one tagged cell, integrated against the P1 test function, using **no `M`, no `S` and no
+`dof_of_cell`** — while the forward side still uses them, so the two constructions can disagree:
+
+| cells/axis | cell rows | entries | cell adjoint vs forward |
+| --- | --- | --- | --- |
+| 24 | 24 | 216 | **7.72e-14** |
+| 96 | 24 | 384 | **2.13e-13** |
+
+**And the comparison is proven able to fail.** Three defects the gate exists to catch are injected
+on every run and each must break agreement, or the run refuses:
+
+| injected defect | relative error produced | vs the 1e-9 criterion |
+| --- | --- | --- |
+| swap two output cells | 5.2e-3 – 1.2e-2 | 5 000 000× |
+| **mis-scale one cell volume by 1e-6** | **8.5e-7 – 8.8e-7** | **~900×** |
+| permute the source index | 1.1e-1 – 1.4e-1 | 10⁸× |
+
+The volume mutation is the tight one and it still clears the threshold by ~900×, so the gate has
+real resolution rather than a tolerance wide enough to swallow the defects it names.
+
+One caveat stands: for the REGION-average block the maximum error sits at the CPU-vs-GPU parity
+level, so that part is a cross-implementation regression rather than an independent 1e-13 result.
+The cell block is not subject to this — its covectors come from a different assembly path.
 
 **`K` symmetry is now measured, not assumed.** The adjoint path solves `K lambda = c` and calls it
 `K^-T c`; every argument in the module rested on `K = K^T` justified only by reading the bilinear
