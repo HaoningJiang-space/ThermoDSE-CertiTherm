@@ -347,3 +347,72 @@ here implied it could; that is void — the sign of `limit - a_j` controls only 
 than forwards: one obstruction (the ratio) is genuinely removed, one (the latency representation) is
 now known to be blocking rather than resolved, and the energy-definition question is reopened on a
 firmer footing than the one I closed it with.
+
+---
+
+# B, closed: the idle question has a decisive answer and the max is over TWO terms
+
+## Why "idle allowed" cannot be the contract — the certificate would be vacuous
+
+As `L` grows, `p = E/L -> 0`, so `T -> ambient`. **With unbounded idle, every architecture is
+thermally certifiable — just run it slowly enough.** The feasibility question this whole project
+asks would be degenerate: the answer would always be SAFE and the observation-sufficiency headline
+would be about nothing.
+
+So "idle allowed" is admissible **only** with an explicit deadline or throughput constraint that
+bounds `L` from above. No such constraint exists anywhere in this pipeline: the captures carry a
+latency produced by the schedule, and the certificate reads a power map derived from it. **The
+contract implicit in every number already committed is therefore NO IDLE**, and stating it is a
+correction of record-keeping, not a change of model.
+
+This also disposes of the earlier hedge. It is not that the EDYP objective *probably* keeps `L`
+tight; it is that a model permitting fictitious idle answers a different and empty question.
+
+## The exact encoding is one binary per round, not a big-M family
+
+`ThermoDSE/core/evaluator.py:58`:
+
+```python
+cyc_list = [cyc_core, cyc_nop_out]
+latency  = cyc_nop_in + max(cyc_list)
+```
+
+**The max is over exactly two terms.** So `L_r = a_r + max(u_r, v_r)` with
+`a_r = cyc_nop_in`, `u_r = cyc_core`, `v_r = cyc_nop_out`, and the exact encoding is one binary
+`z_r` with four rows:
+
+```
+L_r >= a_r + u_r
+L_r >= a_r + v_r
+L_r <= a_r + u_r + M_r (1 - z_r)
+L_r <= a_r + v_r + M_r  z_r
+```
+
+`z_r = 1` selects `u_r` as the bottleneck. `M_r` is any bound on `|u_r - v_r|`, and a finite one is
+immediate: both are cycle counts bounded by the round's total issued work. **Rounds number in the
+tens**, so this is a few dozen binaries and a few hundred rows — negligible beside the
+`O(|E| C**2)` transport variables that dominate the mapping MILP anyway.
+
+**And the binary has a directly observable ground truth.** `evaluator.py:64` already records
+
+```python
+self.bottleneck.append(cyc_list.index(max(cyc_list)))
+```
+
+so every `z_r` the MILP chooses can be checked against what the evaluator actually did, on a real
+mapping, without instrumenting anything. That is the cheapest possible validation of the encoding
+and it should be the first row of the component-by-component ledger.
+
+## Status change
+
+`L_r >= q_rk` being an epigraph rather than an equality was the blocking defect. With the contract
+declared (**no idle**) and the encoding exact (**one binary per round**), it is closed at a cost
+that does not change the tractability picture.
+
+`EXACT_MAPPING_TO_POWER_MILP` remains **UNRESOLVED**, now for one reason only: the *variable* energy
+`E_var` still carries the hyperedge and state behaviour — grouped multicast, placement-dependent
+reuse-source selection, buffer retention/eviction, DRAM fallback — and the energy-domain question
+reopened by the D withdrawal, namely whether the target is today's defective compute-domain trace
+or a corrected trace conserving DRAM/NoP/NoC. **That correction is a prerequisite for the MILP, not
+a refinement of it**, because a master fitted to a trace missing DRAM and NoP would generate cuts
+for a thermal object nobody intends to certify.
