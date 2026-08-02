@@ -152,9 +152,10 @@ def main() -> None:
 
     print(f"cells/axis={cells} grid={grid}  dofs={V.dofmap.index_map.size_global}  "
           f"contrast={k_cu / k_si:.3g} (NO void here: the favourable case)")
-    print(f"{'source':>8s} {'max rise (K)':>14s} {'max z_h (K)':>14s} {'vacuity':>10s}")
+    print(f"{'source':>8s} {'max rise (K)':>14s} {'max z_h (K)':>14s} {'vacuity':>10s} "
+          f"{'equilibrated':>12s}")
 
-    factors = []
+    factors, equilibrated_factors = [], []
     for src in range(grid * grid):
         source = fem.Function(Q)
         volume = float(step * step * z_die)
@@ -190,17 +191,46 @@ def main() -> None:
         )
         zh = majorant.solve()
 
+        # WHAT EQUILIBRATION WOULD BUY, measured before implementing it. An equilibrated flux
+        # reconstruction (Braess-Schoberl, Ern-Vohralik) builds an H(div)-conforming flux whose
+        # interior jumps are IDENTICALLY ZERO, so the `dS` term vanishes and nothing else changes.
+        # Dropping that one term is therefore an exact model of equilibration's BEST CASE -- it
+        # cannot do better, because the volume and Robin terms are untouched by it.
+        #
+        # This is the gate that decides whether equilibration is worth implementing at all. The
+        # naive factor is already measured at 21-64x; if the volume-only factor is still above 1,
+        # the face term was not the whole problem and the pointwise route dies here instead of
+        # after a week of patch-problem code.
+        equilibrated_load = abs(source) * v * dx + abs(robin_residual) * v * ds(1)
+        equilibrated = LinearProblem(
+            bilinear,
+            equilibrated_load,
+            petsc_options={"ksp_type": "preonly", "pc_type": "lu"},
+            petsc_options_prefix=f"eq{src}_",
+        )
+        zq = equilibrated.solve()
+
         rise = float(np.max(uh.x.array) - ambient)
         zmax = float(np.max(zh.x.array))
+        qmax = float(np.max(zq.x.array))
         factors.append(zmax / rise if rise > 0 else float("inf"))
-        print(f"{src:8d} {rise:14.6f} {zmax:14.6f} {factors[-1]:10.4f}")
+        equilibrated_factors.append(qmax / rise if rise > 0 else float("inf"))
+        print(f"{src:8d} {rise:14.6f} {zmax:14.6f} {factors[-1]:10.4f} {equilibrated_factors[-1]:12.4f}")
 
+    def _stats(values):
+        return min(values), sorted(values)[len(values) // 2], max(values)
+
+    naive = _stats(factors)
+    equil = _stats(equilibrated_factors)
     print()
-    print(f"vacuity factor  min={min(factors):.4f}  median={sorted(factors)[len(factors)//2]:.4f}  "
-          f"max={max(factors):.4f}")
+    print(f"NAIVE          min={naive[0]:.4f}  median={naive[1]:.4f}  max={naive[2]:.4f}")
+    print(f"EQUILIBRATED   min={equil[0]:.4f}  median={equil[1]:.4f}  max={equil[2]:.4f}   "
+          f"(best case: the dS term removed exactly)")
+    print(f"the face term is {naive[1] / equil[1]:.1f}x of the rest, at the median")
     print()
-    print("A factor near or above 1 means the majorant is the size of the signal: the naive residual")
-    print("route cannot certify anything and equilibration is mandatory, not an optimisation.")
+    print("A factor near or above 1 means the majorant is the size of the signal. The naive route is")
+    print("already known vacuous at 21-64x; the EQUILIBRATED column is the decision. Above 1 kills the")
+    print("pointwise route now; near or below 1 makes a Braess-Schoberl reconstruction worth writing.")
 
 
 if __name__ == "__main__":
