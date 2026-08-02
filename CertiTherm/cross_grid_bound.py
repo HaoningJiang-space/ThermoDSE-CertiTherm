@@ -122,6 +122,16 @@ def _extreme_lp(
     # in doubt -- the placed power map satisfies every constraint by construction. Dividing by the
     # largest coefficient leaves the argmax untouched and removes the conditioning problem; the
     # optimum is scaled back at the end.
+    # THE SAME NaN DEFECT, THIRD LOCATION IN THIS FILE. `np.max(np.abs(objective))` is NaN if any
+    # coefficient is, `NaN == 0.0` is False so the constant-objective branch does not fire, and
+    # `-objective / NaN` hands `linprog` an all-NaN objective. HiGHS may then fail (fine) or return
+    # a "successful" solve of a problem nobody posed (not fine). Refuse before scaling.
+    if not (np.all(np.isfinite(objective)) and np.all(np.isfinite(lower))
+            and np.all(np.isfinite(upper)) and np.isfinite(total)):
+        raise ValueError(
+            "the polytope or the objective carries a non-finite entry; a supremum over it is not "
+            "a number, and the objective scaling below would pass it to the solver"
+        )
     scale = float(np.max(np.abs(objective)))
     # A CONSTANT OBJECTIVE STILL GOES THROUGH THE SOLVER. Returning 0.0 early looked obviously
     # right -- every feasible point attains it -- but it skipped the feasibility question, so an

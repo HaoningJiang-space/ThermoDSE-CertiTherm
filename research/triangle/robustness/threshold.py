@@ -102,6 +102,7 @@ and the bracket is only as tight as the ladder given.
 
 from __future__ import annotations
 
+import math
 import json
 import sys
 import time
@@ -228,6 +229,10 @@ def main() -> None:
     ladder_radii = (
         sorted(float(v) for v in sys.argv[5].split(",")) if len(sys.argv) > 5 else ()
     )
+    # `NaN <= 0.0` and `NaN > 1.0` are BOTH False, so a non-finite radius passes this whole
+    # disjunction and is accepted as a valid ladder rung. Finiteness is a separate question.
+    if any(not math.isfinite(r) for r in ladder_radii):
+        raise ValueError(f"a ladder radius is non-finite: {list(ladder_radii)!r}")
     if any(r <= 0.0 or r > 1.0 for r in ladder_radii):
         raise SystemExit("ladder radii must lie in (0, 1]")
     if len(sys.argv) > 3 and sys.argv[3] != "-":

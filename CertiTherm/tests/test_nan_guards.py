@@ -67,3 +67,27 @@ def test_the_bounded_power_projection_still_accepts_a_finite_total():
     out = _bounded_power(1.0, np.array([1.0, 1.0]), np.array([1.0, 1.0]))
     assert np.all(np.isfinite(out))
     assert float(np.sum(out)) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_the_lp_branch_refuses_a_non_finite_objective_before_scaling():
+    """`_extreme_lp` runs whenever `a_ub` is non-empty, and scales by `max|objective|`.
+
+    A NaN coefficient makes that scale NaN, `NaN == 0.0` is False so the constant-objective branch
+    does not fire, and `-objective / NaN` reaches the solver. Named explicitly so that tripping the
+    greedy path's guard instead would fail this test rather than satisfy it.
+    """
+
+    from CertiTherm.cross_grid_bound import _extreme_lp
+
+    objective = np.array([1.0, math.nan, 3.0])
+    with pytest.raises(ValueError, match="non-finite"):
+        _extreme_lp(objective, np.zeros(3), np.full(3, 2.0), 3.0,
+                    np.ones((1, 3)), np.array([3.0]))
+
+
+def test_the_lp_branch_still_solves_a_finite_problem():
+    from CertiTherm.cross_grid_bound import _extreme_lp
+
+    value = _extreme_lp(np.array([1.0, 2.0, 3.0]), np.zeros(3), np.full(3, 2.0), 3.0,
+                        np.ones((1, 3)), np.array([3.0]))
+    assert math.isfinite(value)
