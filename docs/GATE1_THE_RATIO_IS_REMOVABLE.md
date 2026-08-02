@@ -1,4 +1,8 @@
-# Gate 1, step 1: the `E(x)/L(x)` obstruction is removable, and what replaces it
+# Gate 1, step 1: one obstruction removed, one found to be blocking, two claims withdrawn
+
+**READ THE WITHDRAWALS AT THE END BEFORE ANYTHING ELSE.** Claims B, C and D below are withdrawn or
+narrowed after round-3 peer review; the text is kept in place so the reasoning that failed stays
+visible, but it must not be quoted without its retraction.
 
 ANALYSIS 2026-08-02. NON-CLAIM. Prompted by peer review, which correctly identified that ThermoDSE's
 power is `energy / mapping-dependent latency` and that **McCormick does not linearise a ratio** — a

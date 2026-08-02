@@ -263,6 +263,18 @@ condition for the commit, not an extra review stage. It exists because a publish
 extrapolation was wrong by ~84x while the contradicting measurement sat in a document cited
 by the same commit.
 
+**Grepping for a SCRIPT is not enough — grep for the ANSWER.** The rule above was followed and the
+failure happened anyway: no duplicate script was written, but `docs/THERMODSE_ENDPOINT_AUDIT.md`,
+committed one day earlier, had already decomposed the exact discrepancy that was then "discovered"
+from scratch — to **zero residual**, and reporting the very same `13.68 W` the new measurement
+produced. The re-derivation compared two quantities that document proves are not comparable
+(`latency_ms` is 1.8x too large; the aligned ptrace has no DRAM, no NoP after alignment, and 33.41 %
+excess NoC), so it was arithmetically correct and scientifically ill-posed, and it produced a
+mechanism attribution that the existing audit rules out. **Before measuring a discrepancy, search
+`docs/` for that discrepancy by its quantities, not for a script by its name** — and when a number
+you compute matches one already committed, that is a signal you are re-running someone's experiment,
+not confirming it.
+
 **Before writing a new script, grep the repository for the capability.** Four duplications
 of existing verified code happened in a single round: a transient runner and resampler that
 `CertiTherm/transient.py` already provided, a trace-alignment rule `trace_runner.py` already
