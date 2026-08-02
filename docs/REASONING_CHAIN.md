@@ -78,7 +78,10 @@ against a measured cell-versus-block gap of 0.21-0.76 K, so it is genuinely at r
 3. **The three declared-equivalent FEM assumptions -- MEASURED, and one of them is not safe.**
    On `arch_c`/resnet50 at n=192 against a 321.7263 K baseline: source in the top 10 % of the die
    moves the peak **+0.0201 K**; a near-adiabatic void instead of still air moves it **+0.0000 K**.
-   Those two are safe. **The Robin realisation is bounded at ~0.35 K.** The uniform Robin already
+   Those two are safe. **The Robin realisation is the same size as the band.** Per case on all six
+   points, `spread / band` is 0.55 - 1.59, median 0.98, three of six at or above 1; the spread is a
+   near-constant 9.7 - 10.9 % of the total rise. An earlier single-design reading of "at most a
+   third" was wrong in direction and magnitude. Historical: The uniform Robin already
    reproduces the lumped total-flux relation with the MEAN top temperature, so the two realisations
    differ only by the sink-top SPREAD, measured at **0.345 K** across a 3.578 K rise. The
    conductivity-scaling run's -0.7340 K exceeds that and therefore also changes lateral sink
