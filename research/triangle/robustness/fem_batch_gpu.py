@@ -497,6 +497,18 @@ def main() -> None:
     unpowered = [r for r in probe_rows if r not in set(powered)]
 
     built = assemble_batch(problems)
+
+    # `K` SYMMETRY, MEASURED RATHER THAN ASSUMED. The adjoint path solves `K lambda = c` and calls
+    # it `K^-T c`, which is only the same thing if `K = K^T`. Every argument in this module rests on
+    # that -- the shared factorisation, the reciprocity reading, the identity itself -- and until
+    # now it was justified by inspecting the bilinear form, never by looking at the assembled
+    # matrix. An assembly bug that broke symmetry would make the gate pass while the adjoint row
+    # was wrong.
+    difference = (built.stiffness - built.stiffness.T)
+    magnitude = float(abs(built.stiffness).max())
+    asymmetry = float(abs(difference).max()) / magnitude if magnitude > 0 else float("inf")
+    report["stiffness_asymmetry_rel"] = asymmetry
+    report["stiffness_symmetric"] = bool(np.isfinite(asymmetry) and asymmetry <= 1e-12)
     covectors = adjoint_covectors(built, probe_rows)
     combined = cp.concatenate((built.right_hand_sides, covectors), axis=1)
     solutions, combined_timings = factorise_and_solve(built, combined)
@@ -559,8 +571,27 @@ def main() -> None:
         "factorisation_share_forward_only against any claimed speedup."
     )
 
+    # WHAT THIS GATE DOES AND DOES NOT ESTABLISH, recorded as separate statuses so that no reader
+    # can promote a region-average regression into a verdict about the cell-row mechanism.
+    report["status"] = {
+        "GPU_FORWARD_REGION_AVERAGE_PARITY": "PASS" if report["forward_parity_pass"] else "FAIL",
+        "REGION_AVERAGE_ADJOINT_REGRESSION": "PASS" if report["adjoint_pass"] else "FAIL",
+        "STIFFNESS_SYMMETRY": "PASS" if report["stiffness_symmetric"] else "FAIL",
+        # The proposed mechanism generates the row of a violating CELL. No cell covector is built
+        # or compared anywhere in this file; every compared row is a region average, two of them
+        # whole passive layers. A correct spreader average says nothing about a misindexed
+        # 262144-cell separator.
+        "CELL_ROW_PAIRING": "UNTESTED",
+        # `factorise_and_solve` discards its solver, and the gate knows every adjoint column in
+        # advance. A real lazy loop discovers them one at a time and must carry the factorisation
+        # across iterations; that is not implemented here, so it is not demonstrated.
+        "ITERATIVE_FACTOR_REUSE": "UNTESTED",
+        "EXACT_MAPPING_TO_POWER_MILP": "UNRESOLVED",
+        "CERTITHERM_OPT_KILL_CONDITION": "NOT CLEARED",
+    }
     print(json.dumps(report, indent=1), flush=True)
-    if not (report["forward_parity_pass"] and report["adjoint_pass"]):
+    if not (report["forward_parity_pass"] and report["adjoint_pass"]
+            and report["stiffness_symmetric"]):
         raise SystemExit("GATE FAILED")
 
 

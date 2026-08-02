@@ -39,10 +39,11 @@ The direction also matters and it runs against the proposal at this scale:
 | adjoint | a **row** — all power blocks | `m` = 262 144 `grid512` cells |
 
 The full operator costs **182 solves in 30 s sharing one factorisation** and returns every cell row
-free. Adjoint generation wins only when the active row count is below `n`, against a total that is
-already 30 s. **The real motivation for laziness is MILP constraint count (262 144 rows is not
-solvable), not thermal solve count** — a defensible reason, but a different one, and it must be
-stated as such.
+free. So the honest comparison is `T_fact + (I+k) T_tri` against `T_fact + n T_tri` for `I`
+verification iterations and `k` generated rows: laziness saves triangular solves whenever
+`I + k < n`, and never saves the factorisation. **MILP constraint count is an additional motivation
+— 262 144 rows is not solvable — but it is not the only one**, and an earlier revision of this file
+wrongly said it was.
 
 ## Run it
 
@@ -63,7 +64,8 @@ Options: `--cells N` lateral cells per axis (must be a multiple of `--grid`), `-
 Both gates in one process, against one synthetic layered box:
 
 * **forward parity** — `solve_batch_gpu` against `solve_steady_heat_batch`, refusing above
-  `PARITY_TOL_K = 1e-9`. This is the gate the module's docstring declared itself provisional upon
+  `PARITY_TOL_REL` relative to the rise above ambient, with the absolute figure still reported.
+  This is the gate the module's docstring declared itself provisional upon
   and which **had never been implemented**: there was no `main`, no `__main__`, and
   `solve_batch_gpu` had no callers anywhere in the repository.
 * **adjoint identity** — every entry of every adjoint row against the forward impulse build,
@@ -73,7 +75,7 @@ The instance is deliberately **not** the real floorplan. The identity is algebra
 geometry-independent, so the gate uses the smallest box that exercises every path it must test —
 mixed mass matrix, DG0 dof reordering, region selector, Robin boundary — and nothing it does not.
 
-## Result, first run 2026-08-02 on `moe-server` at `d29e8ac`+
+## Result, first run 2026-08-02 on `moe-server`; strengthened and re-measured at `d9d6a12`
 
 | cells/axis | rows | parity abs | parity rel | adjoint rel | entries | factorisation share |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -96,17 +98,44 @@ output regions, whose `j` index the `i` index cannot reach:
 | 96 | 18 (2) | 288 | 1.22e-10 | **1.22e-10** | 1.32e-10 |
 | 160 | 66 (2) | 4224 | 4.25e-10 | **4.25e-10** | 4.52e-10 |
 
-**Gate 0 PASSES.** The maximum error sits *on* the unpowered rows — the one block that is not a
-restatement of source-to-source reciprocity — and tracks the CPU-vs-GPU parity level, so the adjoint
-identity holds as tightly as the two implementations agree with each other and cannot hold tighter.
-The dual pairing is correct, so the CertiTherm-Opt mechanism is not blocked by an implementation
-defect.
+**What this establishes, and it is narrower than "Gate 0 passes".** Peer review (2026-08-02, at
+`d9d6a12`) was right that the earlier heading overclaimed. Recorded per component instead:
 
-**And the economics are refuted, measured rather than argued.** The factorisation is **92–98 % of
-the linear-algebra cost**, and the share *grows* with mesh size because factorisation is superlinear
-while triangular solves are linear. Doubling the right-hand sides from 65 to 129 columns to carry
-64 adjoint rows changed the solve from 0.027 s to 0.077 s against a 1.45 s factorisation. **Lazy row
-generation cannot save the cost that dominates.**
+| | |
+| --- | --- |
+| `GPU_FORWARD_REGION_AVERAGE_PARITY` | PASS |
+| `REGION_AVERAGE_ADJOINT_REGRESSION` | PASS |
+| `STIFFNESS_SYMMETRY` | PASS (now measured, see below) |
+| `CELL_ROW_PAIRING` | **UNTESTED** |
+| `ITERATIVE_FACTOR_REUSE` | **UNTESTED** |
+| `EXACT_MAPPING_TO_POWER_MILP` | **UNRESOLVED** |
+| `CERTITHERM_OPT_KILL_CONDITION` | **NOT CLEARED** |
+
+**The decisive gap: every compared row is a REGION AVERAGE, two of them whole passive layers.**
+CertiTherm-Opt generates the row of a violating **cell**. No cell covector is constructed or compared
+anywhere here, so a correct spreader average says nothing about a misindexed 262 144-cell separator —
+which is exactly the false-ACCEPT direction the gate was built to close. The maximum error also now
+sits at the CPU-vs-GPU parity level, so the adjoint-specific discrepancy is *below the resolution of
+the forward comparison*: this is a cross-implementation regression, not an independent 1e-13 result.
+
+**`K` symmetry is now measured, not assumed.** The adjoint path solves `K lambda = c` and calls it
+`K^-T c`; every argument in the module rested on `K = K^T` justified only by reading the bilinear
+form. `stiffness_asymmetry_rel` is now computed from the assembled matrix and gates the run.
+
+**On the economics, narrowed after review.** On these synthetic instances the factorisation is
+**92–98 % of measured linear-algebra time**, so laziness cannot eliminate that shared cost. Doubling
+the right-hand sides from 65 to 129 columns to carry 64 adjoint rows changed the solve from 0.027 s
+to 0.077 s against a 1.45 s factorisation.
+
+**Two things previously claimed here are withdrawn.** The share does **not** grow monotonically with
+the mesh — measured 94.8, 92.2, 98.4, 98.1, 97.8 % — and mesh size, region count and RHS count move
+together, so no scaling exponent is identified. And "constraint count is the only defensible
+motivation" ignores the real comparison, which is `T_fact + (I+k) T_tri` against `T_fact + n T_tri`:
+if `I + k < n`, laziness *does* save triangular solves even when the wall-time saving is small. What
+survives is only that it cannot save the factorisation. Settling it needs the real 1.4 M-cell matrix
+with synchronised timers and a solver object demonstrably reused across iterations; `factorise_and_solve`
+currently discards its solver and the gate knows every adjoint column in advance, so cross-iteration
+reuse is not demonstrated.
 
 Three defects were found in `fem_batch_gpu.py` by running it for the first time, all latent in code
 that had no callers: `nvs.DirectSolver(matrix)` against an API that requires `(a, b)`; a return
@@ -156,6 +185,25 @@ binary assignment `x[t,c]`:
    the latency/ordering part of the mapping MILP, which is the host problem's difficulty and not the
    certificate's.
 
-**What this does NOT settle:** that a mapping MILP with an exact objective and a usable bound can be
-built at all. `ThermoDSE/core/schedule.py` is greedy and provides no bound, so the host problem has
-to be written from scratch. That is Gate 1, and it is where the direction can still die.
+**What this does NOT settle, and peer review was right to press it.** Three things:
+
+* **The `C**2` aggregation does not remove the edge variables.** `y[c,c']` is *defined* by
+  `sum_e w_e y[e,c,c']` with `sum_c' y[e,c,c'] = x[u,c]`, so the `O(|E| C**2)` transport variables
+  still have to exist in the MILP; only the *thermal rows* reference the `C**2` aggregate. The claim
+  "the thermal rows never see the blow-up" holds; "the bilinearity is cheap" does not.
+* **Average power contains a RATIO that McCormick cannot linearise.** ThermoDSE divides energy by
+  total mapping-dependent latency (`core/statistic.py:230,287`), and latency itself contains maxima
+  and bandwidth effects (`core/evaluator.py:59`). `E(x)/L(x)` is not a bilinear form. This is a
+  harder obstruction than the pair products and was missed in the first analysis.
+* **The evaluator does more than fixed DAG-edge unicast** — grouped multicast, placement-dependent
+  reuse-source selection, buffer retention/eviction, DRAM fallback (`core/evaluator.py:81`). A
+  compact chiplet-pair energy model would be a **new abstraction**, not an exact reformulation of
+  this evaluator, and if the master used it while replay used ThermoDSE, the generated thermal cuts
+  would not be globally valid in the master's variables.
+
+So the relaxation-bound theorem stays correct, but only under conditions not yet discharged: every
+feasible design must remain in the master, the objective must be represented identically, and every
+generated cut must be globally valid. **Gate 1 must therefore begin with a component-by-component
+equality test between the MILP's power and ThermoDSE's on adversarial mappings**, before any solver
+work. `ThermoDSE/core/schedule.py` is also greedy and provides no bound, so the host must be written
+from scratch regardless.

@@ -120,11 +120,21 @@ def main() -> None:
     }
     flips = [r for r in results if r["sign_flipped_at_nominal"]]
     report["any_sign_flip"] = bool(flips)
+    # FAIL CLOSED ON AN EMPTY SWEEP. "no sign flip was observed" is true of zero observations, so
+    # a run that skipped everything would otherwise print a verdict that reads as corroboration.
+    # An absent test must not look like a passed one.
+    if not results:
+        report["verdict"] = "UNRESOLVED: no (architecture, workload, package) point produced a band"
+        print(json.dumps(report, indent=1), flush=True)
+        raise SystemExit(
+            f"the sweep compared nothing -- {len(skipped)} points were skipped, so the preregistered "
+            "sign-flip reading has NOT been tested"
+        )
     report["verdict"] = (
         "WITHDRAW 'HotSpot systematically underestimates': sign flipped on "
         + ", ".join(f"{r['architecture']}/{r['workload']}/{r['package']}" for r in flips)
         if flips else
-        "no sign flip on any package; the one-signed reading survives this test"
+        f"no sign flip across {len(results)} points; the one-signed reading survives this test"
     )
     print(json.dumps(report, indent=1), flush=True)
 
