@@ -87,12 +87,48 @@ evidence with it — the partial pre-fix output was preserved under a
 `artifacts/dev.failed-before-<fix-commit>` label rather than deleted, which is the right
 pattern if you ever hit an analogous failure: keep partial evidence, label it, don't erase it).
 
-## Disk hygiene
+## What the host actually is (measured 2026-08-02)
 
-Check headroom before a big job: `ssh moe-server 'df -h /data /'`. Monitor the
-configured remote data root rather than a hard-coded user directory. Clean up stale experiment
-directories **by exact name**, after their evidence has been archived/re-verified — never a
-blind recursive deletion of the experiment root.
+`hpclab03`, **52 cores**, **125 GB RAM** (≈108 GB available), **2× NVIDIA A800 80 GB**.
+Verify rather than assume before sizing a job:
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=15 moe-server \
+  'hostname; nproc; free -g | head -2; nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader; df -h /data | tail -1'
+```
+
+**The box is shared.** A measured FEM comparison in this repo was polluted exactly this way —
+306 s vs 265 s with 9 other jobs contending for the 52 cores, which made the runtime comparison
+uninterpretable. Before timing anything, check contention (`uptime`, `nvidia-smi`) and record it
+in the ledger; a timing number without a contention record is not evidence.
+
+## Disk hygiene — currently acute
+
+**`/data` measured at 95 % full: 3.1 T used of 3.5 T, ~170 G free.** That is not headroom for a
+large sweep. Check before every big job:
+
+```bash
+ssh moe-server 'df -h /data /'
+```
+
+Monitor the configured remote data root rather than a hard-coded user directory. Clean up stale
+experiment directories **by exact name**, after their evidence has been archived/re-verified —
+never a blind recursive deletion of the experiment root. `/data` is shared with other users;
+do not reclaim space outside this project's own directories.
+
+## Provenance a claim-grade run must carry
+
+Adopted after `HEAD` moved more than a dozen times during one round's analysis, and a
+cell-endpoint run was found not to have bound its starting SHA. **A run started from a moving
+checkout is not attributable and cannot be repaired afterwards.**
+
+Before starting: an isolated worktree at a pinned SHA, clean tree, submodules verified
+(`git submodule status --recursive`). Every result artifact records: the starting SHA, the
+input and config digests, the binary digest, the exit status — and, because the locked
+dependency set is what makes the suite reproducible, **the interpreter actually used**. A local
+system interpreter without the pinned `.venv` fails `test_precheck.py` on a missing `tabulate`
+that `requirements.lock` pins at 0.9.0; a test summary that does not name its interpreter cannot
+be compared against one that does.
 
 ## Getting results back
 

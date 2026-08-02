@@ -94,9 +94,40 @@ repo's `HotSpot` was once committed as a `120000` symlink blob into another user
 home-directory path, which silently breaks on any other machine/clone. Fix: `git rm` the
 symlink, then `git submodule add` the real upstream URL and pin it properly.
 
+## `origin` can be deliberately far behind — check before "catching it up"
+
+`origin` is the **public** GitHub repo and pushing to it is a publication decision, not a
+sync chore. It has sat 150+ commits behind `moe` for a whole round while corrections,
+withdrawals and reversals settled — that is the intended state, not drift. Before pushing
+`origin`, confirm with the user that the round is meant to be published, and check the
+things that make a public push irreversible:
+
+```bash
+git rev-list --count origin/<branch>..HEAD          # how much is about to become public
+git log origin/<branch>..HEAD --format='%h %s' | grep -iE 'withdraw|retract|revers|void'
+```
+
+If that grep is non-empty, at least one claim changed direction inside the range. Verify the
+*final* state of each such claim propagated into `docs/REASONING_CHAIN.md` before publishing —
+a withdrawal that reached the index while its reversal did not is a documented failure mode
+of this repo, and the index is what outside readers cite.
+
 ## Incident playbook: leaked credential
 
-If a token/secret is pasted in chat, found in a diff, or found already committed:
+**This has now happened three times with the same GitHub PAT**, and the third arrival was not
+in chat or a diff — it was **inside a hook / settings configuration block**. So the scan
+surface is wider than commits and messages:
+
+```bash
+grep -rlE 'ghp_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9-]{20,}' \
+  .claude/ .codex/ ~/.claude/settings*.json 2>/dev/null
+```
+
+Expect this to recur. A token re-pasted after being reported revoked is **not** evidence it
+is dead — treat every appearance as live until the owner confirms revocation at the provider.
+
+If a token/secret is pasted in chat, appears in a hook/settings block, is found in a diff, or
+is found already committed:
 
 1. Refuse to write it into any file, skill, commit, or config — no exceptions, regardless of
    whether it looks like a repeat of something already flagged before.
