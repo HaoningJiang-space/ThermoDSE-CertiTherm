@@ -416,3 +416,76 @@ reopened by the D withdrawal, namely whether the target is today's defective com
 or a corrected trace conserving DRAM/NoP/NoC. **That correction is a prerequisite for the MILP, not
 a refinement of it**, because a master fitted to a trace missing DRAM and NoP would generate cuts
 for a thermal object nobody intends to certify.
+
+---
+
+# The energy-domain question is ANSWERED in the repository, and the answer prescribes an artifact
+
+Read properly this time. `docs/THERMODSE_ENDPOINT_AUDIT.md` does not merely explain why my
+measurement was ill-posed — **it answers the question the D withdrawal reopened, and it specifies
+the check I should have implemented instead of re-deriving one.**
+
+## The answer
+
+Three distinct energies, an identity rather than an equality (audit §2), on `arch_c`/resnet50:
+
+| quantity | mJ | what it is |
+| --- | ---: | --- |
+| `optimization_energy_mj` | 7.967035 | what EDYP ranks by — compute **excluded** |
+| `excluded_compute_mj` | 1.254866 | `e_comp` |
+| **`thermal_dissipated_energy_mj`** | **9.221901** | **what actually heats the die** |
+
+**"A thermal trace must be built from the dissipated value"** — audit §2, already committed. So the
+certificate's energy target was never ambiguous, and my "decision" restated an answer that existed.
+
+But the dissipated value is not what reaches HotSpot either (audit §3, zero residual):
+
+```
+dissipated - DRAM - NoP + NoC over-count = energy reaching HotSpot
+9.2218e9   - 3.7405e9 - 1.0052e9 + 1.3560e8 = 4.6118e9 pJ
+```
+
+DRAM is **40.56 %** never written; NoP is **10.90 %** written then dropped by name alignment; NoC is
+over-counted by **+33.41 %** and spread **uniformly** over IO blocks, which erases the spatial
+information a spatial trace exists to carry.
+
+## Why my measurement showed 4–79 %, exactly
+
+Recomputing the audit's own closure: `4.6118 mJ / 0.337058 ms = 13.683 W` against its reported
+`sum(placed_power_w) = 13.68 W` — **residual 0.0025 W, i.e. rounding.** The invariant closes
+perfectly with **cycle-derived latency and post-loss energy**. My version used the **endpoint**
+latency, which audit §1 proves is 1.8× too large, and pre-loss energy. Both errors push the same
+way. There was never a new phenomenon.
+
+## The artifact the audit prescribed and nobody built
+
+Audit §"Consequences", item 2, verbatim:
+
+> `_capture` should gain a fail-closed invariant check (`sum(placed_power_w) * latency ~= dissipated
+> energy`). Such a check would have caught both defects at the point they were introduced.
+
+**Grepped: it is not implemented.** `thermodse_bridge.py` only *comments* on the 10.90 % NoP loss
+(`:100`). So a recommendation that would have prevented both endpoint defects — and would have
+prevented my whole withdrawn section — has sat unimplemented since 2026-08-01.
+
+**That, not the MILP, is the next artifact.** Its exact form, from the audit's own closure:
+
+```
+sum(placed_power_w) * (cycles / clk_freq)  ==  dissipated - DRAM - NoP + NoC_overcount
+```
+
+with every term taken from `research/triangle/energy_ledger.py`, which already probes each source by
+isolation and whose linearity was verified at **0.000e+00 W** column error. Every quantity needed
+exists; nothing new has to be measured.
+
+**Why it outranks the MILP.** A master fitted to a trace missing 40.56 % DRAM and 10.90 % NoP, with
+NoC over-counted 33.41 % and spatially flattened, would generate cuts for a thermal object nobody
+intends to certify — and would do so *convincingly*, because understating heat leaves every output
+plausible. That is the audit's own explanation for why nothing caught these defects, and it applies
+verbatim to the proposed scheme.
+
+## Status
+
+`EXACT_MAPPING_TO_POWER_MILP` stays **UNRESOLVED**, but the reason is now singular and actionable:
+**the trace the certificate is built on does not conserve the energy it claims to.** Fixing that is
+the prerequisite. The hyperedge/state behaviour in `E_var` is the second item and is downstream of it.
