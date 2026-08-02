@@ -206,6 +206,9 @@ GRADED_MESH = os.environ.get("CERTITHERM_FEM_GRADED_MESH") == "1"
 
 # The assembly this adapter's uniform Robin coefficient is equivalent to. Both HotSpot models divide
 # the convective resistance by cell area, which is `h = 1 / (r_convec * s_sink^2)` applied uniformly.
+# The PINNED SUBMODULE SOURCE, not the build directory. `paths.HOTSPOT` is the compiled binary at
+# `.build/hotspot/hotspot`, and its parent holds object files, not the `.c` files this guard reads.
+HOTSPOT_SOURCE = ROOT / "HotSpot"
 _CONVECTION_ASSEMBLY = {
     "temperature_grid.c": "model->config.r_convec *",
     "temperature_block.c": "r_amb = r_convec * (s_sink * s_sink) / area",
@@ -414,7 +417,7 @@ def main() -> None:
         TEMPLATE / "example.config", TEMPLATE / "example.materials"
     )
     # Checked unless this run is DELIBERATELY modelling the other boundary condition.
-    convection_assembly = None if LUMPED_SINK else _assert_convection_is_distributed(HOTSPOT.parent)
+    convection_assembly = None if LUMPED_SINK else _assert_convection_is_distributed(HOTSPOT_SOURCE)
 
     _space, block_ids, placed, floorplan_text = _power_space(capture)
     blocks = _floorplan_blocks(floorplan_text)
