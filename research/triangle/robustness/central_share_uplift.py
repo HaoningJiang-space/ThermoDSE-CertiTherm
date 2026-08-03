@@ -80,6 +80,48 @@ NOP_SHARE = NOP_PJ / (DRAM_PJ + NOP_PJ)
 MISSING_OVER_ARRIVING = 9.2218e9 / 4.6118e9 - 1.0
 
 FRAME = ("eblk0", "eblk1", "eblk2", "eblk3")
+
+
+def _core_grid(block_ids):
+    """`(cxlen, cylen)` recovered from the block census, refusing if it is not consistent.
+
+    `gen_all_ptrace_3D` names per-core blocks `<name>_<j*cxlen + i>`, and `gen_sys_floorplan` emits
+    `blockX` only when `i < cxlen-1`, `blockY` only when `j < cylen-1`, `blockXY` when both. So
+
+        |io_0| = cx*cy,   |blockX| = (cx-1)*cy,   |blockY| = cx*(cy-1),   |blockXY| = (cx-1)*(cy-1)
+
+    which is over-determined -- four counts for two unknowns. Solving from two and CHECKING the other
+    two is the point: the NoC over-count factor is `4*cx*cy / ((cy-1)*2*cx + (cx-1)*2*cy)`, it differs
+    per architecture (1.3333 at 4x4, 1.2903 at 4x5), and a silently wrong grid would scale every
+    corrected number by an unnoticed factor.
+    """
+
+    import re
+    from collections import Counter
+
+    kinds = Counter(re.sub(r"_\d+$", "", b) for b in block_ids)
+    cores, bxy = kinds.get("io_0", 0), kinds.get("blockXY", 0)
+    if cores <= 0:
+        raise SystemExit("no io_0 blocks: cannot recover the core grid")
+    # (cx-1)(cy-1) = cx*cy - (cx+cy) + 1
+    total = cores + 1 - bxy
+    disc = total * total - 4 * cores
+    if disc < 0:
+        raise SystemExit(f"core-grid census is inconsistent: |io_0|={cores}, |blockXY|={bxy}")
+    root = int(round(disc ** 0.5))
+    if root * root != disc:
+        raise SystemExit(f"core grid is not integral: |io_0|={cores}, |blockXY|={bxy}")
+    cx, cy = (total + root) // 2, (total - root) // 2
+    for name, expected in (("blockX", (cx - 1) * cy), ("blockY", cx * (cy - 1))):
+        if kinds.get(name, 0) != expected:
+            cx, cy = cy, cx                       # the census does not say which axis is which
+            break
+    if kinds.get("blockX", 0) != (cx - 1) * cy or kinds.get("blockY", 0) != cx * (cy - 1):
+        raise SystemExit(
+            f"core grid {cx}x{cy} contradicts the census "
+            f"(blockX={kinds.get('blockX')}, blockY={kinds.get('blockY')})"
+        )
+    return cx, cy
 LIMIT_K = 330.0
 MARGIN_K = 0.05
 LINEARISATION_K = 0.01
@@ -116,7 +158,8 @@ def main() -> None:
           f"missing/arriving = {MISSING_OVER_ARRIVING:.4f}   activity span = {span}")
     print(f"certifying ceiling = {LIMIT_K} - {MARGIN_K} - {LINEARISATION_K} = {ceiling:.2f} K\n")
     print(f"{'case':22s} {'sup_p peak':>10s} {'slack':>8s} {'dP':>7s} "
-          f"{'NoP@area':>9s} {'verdict':>8s} {'all@area':>9s} {'verdict':>8s}")
+          f"{'NoP@area':>9s} {'verdict':>8s} {'all@area':>9s} {'verdict':>8s} "
+          f"{'grid':>5s} {'overcnt':>7s} {'dNoC':>8s} {'NET':>8s} {'verdict':>8s}")
 
     rows = []
     for arch in ("arch_a", "arch_b", "arch_c"):
@@ -168,17 +211,34 @@ def main() -> None:
 
             uplift_nop = float(np.max(response @ (weight * dP * NOP_SHARE)))
             uplift_all = float(np.max(response @ (weight * dP)))
+
+            # NoC over-count: every io_* column got p_noc/divisor, and there are 4*cx*cy of them, so
+            # the trace carries columns/divisor times the source. Correcting it REMOVES heat, so its
+            # contribution to the uplift is negative. It does NOT repair the uniform spreading, which
+            # destroys the spatial information and whose sign the audit calls indeterminate.
+            cx, cy = _core_grid(block_ids)
+            divisor = (cy - 1) * 2 * cx + (cx - 1) * 2 * cy
+            columns = 4 * cx * cy
+            overcount = columns / divisor
+            is_io = np.array([b.startswith("io_") for b in block_ids])
+            noc_fix = np.where(is_io, placed * (1.0 / overcount - 1.0), 0.0)
+            delta_noc = float(np.max(response @ (placed + noc_fix)) - np.max(response @ placed))
+            net = uplift_all + delta_noc
+
             ok = lambda u: "OK" if u < slack else "VACUOUS"
             print(f"{arch}/{workload:12s} {peak:10.4f} {slack:8.4f} {dP:7.2f} "
-                  f"{uplift_nop:9.3f} {ok(uplift_nop):>8s} {uplift_all:9.3f} {ok(uplift_all):>8s}")
-            rows.append((f"{arch}/{workload}", slack, uplift_nop, uplift_all))
+                  f"{uplift_nop:9.3f} {ok(uplift_nop):>8s} {uplift_all:9.3f} {ok(uplift_all):>8s} "
+                  f"{cx}x{cy} {overcount:7.4f} {delta_noc:8.3f} {net:8.3f} {ok(net):>8s}")
+            rows.append((f"{arch}/{workload}", slack, uplift_nop, uplift_all, net))
 
     if rows:
         print()
-        n_nop = sum(1 for _, s, u, _ in rows if u < s)
-        n_all = sum(1 for _, s, _, u in rows if u < s)
-        print(f"survive with the ESTABLISHED NoP share placed by area: {n_nop} of {len(rows)}")
-        print(f"survive with ALL missing power placed by area:         {n_all} of {len(rows)}")
+        n_nop = sum(1 for _, s, u, _, _ in rows if u < s)
+        n_all = sum(1 for _, s, _, u, _ in rows if u < s)
+        n_net = sum(1 for _, s, _, _, u in rows if u < s)
+        print(f"survive with the NoP share alone placed by area:        {n_nop} of {len(rows)}")
+        print(f"survive with BOTH missing sources placed by area:       {n_all} of {len(rows)}")
+        print(f"survive NET, i.e. both placed AND the NoC over-count removed: {n_net} of {len(rows)}")
         print()
         print("The NoP column is the established destination. The all-missing column assumes the")
         print("DRAM share also lands centrally, which its commented-out placing code does not say.")
