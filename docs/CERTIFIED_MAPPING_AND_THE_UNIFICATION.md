@@ -65,6 +65,34 @@ architecture change that does rescue it (`mtxu_h` 128 → 192, certified 329.612
 `CERTIFIED_SEARCH_RESULT.md`). The two levels are independent and their gains add: the architecture
 level buys feasibility at an EDYP price, the mapping level buys **0.02–0.52 K at no price at all**.
 
+## The composition, measured on all four corners
+
+`composed_result.py` runs both levels end to end on `arch_b`/transformer — the design the incumbent
+refuses — and reports every corner rather than the favourable one.
+
+| architecture | mapping | EDYP | certified peak | slack | |
+| --- | --- | ---: | ---: | ---: | --- |
+| ThermoDSE | ThermoDSE | 13.8628 | 331.5584 | **−1.6184** | **REFUTED** — the incumbent |
+| ThermoDSE | certified | 13.8628 | 331.0423 | −1.1023 | REFUTED |
+| certified | ThermoDSE | 15.0792 | 329.6121 | +0.3279 | CERTIFIED |
+| **certified** | **certified** | **15.0792** | **329.1662** | **+0.7738** | **CERTIFIED** |
+
+| | gain |
+| --- | ---: |
+| mapping level alone (free) | **0.5160 K** |
+| architecture level alone (`+8.77 %` EDYP) | **1.9462 K** |
+| both | **2.3921 K** |
+| **additivity residual** | **−0.0701 K** |
+
+> **The two levels are additive to 70 mK — sub-additive by 3 %.** Composing them takes the design
+> from `−1.618 K` (refused) to `+0.774 K` of slack, and **more than doubles** the slack the
+> architecture change alone buys, at **no additional EDYP**: the last `0.446 K` is a permutation.
+
+That residual is the quantitative form of the independence claim. It is small but **negative**, so the
+gains do not quite add — the architecture change moves the argmax cell, and the mapping optimised for
+the old geometry is not quite the one the new geometry wants. Reporting it is what distinguishes a
+measured composition from an assumed one.
+
 ## The lower bound was wrong first, in the direction that would have flattered the incumbent
 
 The first version applied the rearrangement inequality to per-group column **sums** paired with

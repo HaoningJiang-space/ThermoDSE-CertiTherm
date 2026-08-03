@@ -183,3 +183,27 @@ so `UNRESOLVED`-grade, and it is not the load-bearing row.)
 **Still missing.** `e_total` at the cell endpoint. No model-form band is folded into any table above,
 and folding it in moves the found design's `+0.328 K` slack into `UNRESOLVED`. It is the single number
 most likely to overturn this round and it is the binding action.
+
+
+## 2026-08-04 (late) — the unification, and what it costs to state it honestly
+
+| what | owner |
+| --- | --- |
+| the incumbent's feasibility RULE, not its cap, is what disagrees: 7 of 10 admitted designs refuted, 0 the other way | `THE_NOMINAL_RULE_ADMITS_WHAT_THE_ENVELOPE_REFUTES.md` |
+| the disagreement exists at **every** envelope width, `|F_envelope|` 9→0 as it widens; at ±75 % nothing certifies | `THE_ENVELOPE_WIDTH_IS_NOT_WHERE_THE_DISAGREEMENT_COMES_FROM.md` |
+| `e_total` at the cell endpoint is **1.98-4.99 K** — 8-20x the block-row band, and it **empties G2's window for any `g <= 5 K`**; the realized `Δ` is `≤0.071 K`, so the sound bound is 70x loose | `E_TOTAL_AT_THE_CELL_ENDPOINT.md` |
+| the mapping level is where the certificate is free (0.79-2.9 ms) and it has an **exact** per-cell assignment lower bound; ThermoDSE's proxy is within 0.08-0.25 K of optimal on 5 of 6 and **1.65 K on the one that fails** | `CERTIFIED_MAPPING_AND_THE_UNIFICATION.md` |
+| composing the two levels: `−1.618 K` refused → `+0.774 K` certified, additive to **70 mK** | same |
+| the lowering's own freedom moves the certified peak by **0.715 K** total and the verdict does not flip | `lowering_sensitivity.py` |
+| fifteen attacks on the round, concessions first | `ADVERSARIAL_SELF_REVIEW.md` |
+
+**Four of my own defects were caught by this repository's own gates or by checking wiring rather than
+believing physics**, and each is recorded where it happened: a midpoint power map that inflated a unit
+impulse to 3.9 W (energy gate), unsnapped cell areas leaving 3.2e-6 W (same gate), an `endpoint_split`
+accepted and never used that reported its own sensitivity as exactly `0.0 K`, and a mapping "lower
+bound" of `345.32 K` above an attained `327.55 K`. The last two are the dangerous shape: a reassuring
+number from a disconnected knob, and a bound that would have made *any* heuristic look optimal.
+
+**Still missing.** `e_total` tightened to the rows that can attain the maximum — the sound bound is
+70x loose and that looseness is the only reason it kills the separator framing. Everything else in
+this round survives a measured `Δ`; nothing survives the loose bound.
