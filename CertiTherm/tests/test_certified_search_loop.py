@@ -60,7 +60,7 @@ def test_a_cheaper_refuted_candidate_never_becomes_the_incumbent():
     }
     score, _seen = _scorer(table)
     incumbent, current, spent = coordinate_descent(
-        {"a": "0", "b": "0"}, table[("0", "0")] | {"edyp": 10.0, "status": "CERTIFIED"},
+        {"a": "0", "b": "0"}, {"edyp": 10.0, "status": "CERTIFIED"},
         ADMISSIBLE, score, FIELDS, budget=20)
     assert incumbent["status"] == "CERTIFIED"
     assert incumbent["edyp"] == pytest.approx(9.0), (
