@@ -20,10 +20,14 @@ candidates and still picks `mtxu_h=128`, whose nominal peak is `329.973 ≤ 330`
 both feasible sets are functions of numbers already measured — so it needs no optimiser and carries no
 sampling noise.
 
-**A3. "Your envelope span 0.30 is a knob you chose."** **PARTLY SETTLED.** The robustness radius
-reports the whole curve rather than a verdict at one span, and monotone nesting is checked at run
-time. But the *search* and the feasible-set comparison were run at a single span. *Experiment:*
-repeat both across spans — each certificate is 12 ms, so it is post-processing. **Owed.**
+**A3. "Your envelope span 0.30 is a knob you chose."** **SETTLED**
+(`THE_ENVELOPE_WIDTH_IS_NOT_WHERE_THE_DISAGREEMENT_COMES_FROM.md`). Swept over seven widths: the two
+rules disagree at **every** one, including `s = 0.05`, where the incumbent's own optimum already
+reads `330.213` against a `329.94` ceiling. The span sets how many designs the disagreement catches
+(`|F_envelope|` falls 9 → 6 → 4 → 3 → 1 → 0), not whether it exists, and the price rises monotonically
+from `+1.6 %` to `+14.1 %` so a reader reads their own declaration off the curve. **Against the
+method:** at `s ≥ 0.75` nothing certifies at all, so the envelope is a real declaration with
+consequences rather than a free strengthening. Library hit rate on this run: **12/12**.
 
 **A4. "No model-form band is folded in."** **CONCEDED, and it is the single number most likely to
 overturn the round.** Folding in the measured 0.25-1.43 K band moves the found design's `+0.328 K`
