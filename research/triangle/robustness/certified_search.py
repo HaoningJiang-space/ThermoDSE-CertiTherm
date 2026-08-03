@@ -79,11 +79,13 @@ from research.triangle.robustness.cell_certificate_run import (               # 
 
 MARGIN_K = 0.05
 CEILING_K = THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K
-# NO field leaves the floorplan invariant in general (`geometry_factorisation.py` on `arch_b`), so
-# this order buys no library hits and is kept only because it tries the fields that move the power
-# map most directly, before those that restructure the chiplet grid.
-FIELD_ORDER = ("interval", "ubuf", "nop_bw", "dram_bw", "mtxu_h", "mtxu_w",
-               "cut_x", "cut_y", "chiplet_x", "chiplet_y")
+# NO field leaves the floorplan invariant (`geometry_factorisation.py` on `arch_b` and `arch_c`), so
+# no ordering buys library hits. What it can buy is budget: `interval` was tried first under the
+# withdrawn hit-rate rationale and left EDYP bit-identical across three values while moving the peak
+# 0.4 K, so it is now LAST. The fields that measurably moved energy or latency in the factorisation
+# probe come first.
+FIELD_ORDER = ("mtxu_h", "mtxu_w", "ubuf", "dram_bw", "nop_bw",
+               "cut_x", "cut_y", "chiplet_x", "chiplet_y", "interval")
 
 
 def _admissible_values():
@@ -115,14 +117,21 @@ def _edyp(energy_mj: float, latency_ms: float, die_yield: float) -> float:
 
 
 def coordinate_descent(seed, baseline, admissible, score, field_order, budget):
-    """First-improvement coordinate descent under a HARD feasibility constraint.
+    """Two-phase first-improvement coordinate descent under a HARD feasibility constraint.
 
-    Separated from the ThermoDSE plumbing so the loop's one load-bearing invariant is testable
-    without a simulator: **an uncertified candidate is never carried forward**. A penalised search
-    would let an infeasible design become the incumbent whenever its objective was good enough, and
-    then report the best objective it saw -- which is how a constrained problem silently turns into
-    an unconstrained one. Here `incumbent` starts as the baseline only if the baseline certifies, and
-    a trial replaces it only when it both certifies AND strictly improves EDYP.
+    **Phase 1 runs only while nothing certifies, and it minimises the CERTIFIED PEAK, not EDYP.**
+    Minimising EDYP from an infeasible start is searching for the cheapest point of a region the
+    search is not allowed to end in: on `arch_b`/transformer the baseline is refused by 1.618 K and
+    the first field tried moved the peak by 0.4 K while leaving EDYP bit-identical, so a
+    single-objective descent spent its budget on a coordinate that could neither close the gap nor
+    improve the objective. Phase 1 walks downhill in the constraint until it is satisfied; phase 2
+    then minimises EDYP among certified designs only.
+
+    The invariant is unchanged and is what the tests pin: **an uncertified candidate never becomes
+    the incumbent.** Phase 1 moves `current`, which is where the search continues from; it never
+    sets `incumbent`, which is what gets reported. A penalised search would conflate the two and
+    report the best objective it saw, which is how a constrained problem silently becomes an
+    unconstrained one.
 
     `score(arch, tag)` returns a result dict or `None` for UNRESOLVED. Returns
     `(incumbent, current, evaluated)`.
@@ -130,6 +139,7 @@ def coordinate_descent(seed, baseline, admissible, score, field_order, budget):
 
     incumbent = baseline if baseline["status"] == "CERTIFIED" else None
     current = dict(seed)
+    current_peak = float(baseline["certified_peak_k"])
     spent = 1
     improved = True
     while improved and spent < budget:
@@ -144,11 +154,20 @@ def coordinate_descent(seed, baseline, admissible, score, field_order, budget):
                 trial[name] = value
                 spent += 1
                 result = score(trial, f"{name}={value}")
-                if result is None or result["status"] != "CERTIFIED":
+                if result is None:
                     continue
-                if incumbent is None or result["edyp"] < incumbent["edyp"] - 1e-12:
+                if result["status"] == "CERTIFIED" and (
+                        incumbent is None or result["edyp"] < incumbent["edyp"] - 1e-12):
                     incumbent = result
                     current = trial
+                    current_peak = float(result["certified_peak_k"])
+                    improved = True
+                    break
+                if incumbent is None and float(result["certified_peak_k"]) < current_peak - 1e-9:
+                    # Phase 1: still infeasible, but strictly closer to the constraint. Move the
+                    # search point WITHOUT making it the incumbent -- it is not a result.
+                    current = trial
+                    current_peak = float(result["certified_peak_k"])
                     improved = True
                     break
             if improved:
