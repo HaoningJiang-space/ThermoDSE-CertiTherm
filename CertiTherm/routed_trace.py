@@ -614,8 +614,19 @@ def lower_routed_trace(
         rtol=1e-11,
         atol=1e-18,
     ):
+        # NAME THE ORDER AND THE MAGNITUDE. A refusal that says only "does not reconcile" cannot be
+        # told apart from a rounding tolerance that is too tight, and three archive designs were
+        # excluded from a census on this message with no way to know which it was.
+        got = np.asarray(physical_external_by_order_j, dtype=float)
+        want = np.asarray(core.unplaced_energy_j, dtype=float)
+        scale = np.maximum(np.abs(want), 1e-300)
+        relative = np.abs(got - want) / scale
+        worst = int(np.argmax(relative))
         raise ValueError(
-            "physical route energy does not reconcile with per-order monitor energy"
+            "physical route energy does not reconcile with per-order monitor energy: worst at "
+            f"order {worst} of {relative.size}, {got[worst]!r} against {want[worst]!r}, relative "
+            f"{relative[worst]:.6e} against rtol 1e-11; {int(np.count_nonzero(relative > 1e-11))} "
+            "orders disagree"
         )
     powers_w = energy_j / core.trace.durations_s[:, None]
     trace = PhaseTrace(core.trace.durations_s, powers_w)
