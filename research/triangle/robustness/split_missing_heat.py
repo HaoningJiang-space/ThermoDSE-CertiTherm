@@ -58,7 +58,9 @@ def _missing_over_admitted(root: Path):
         # finiteness check is separate and first.
         if not math.isfinite(ratio) or ratio <= 0.0:
             raise SystemExit(f"{row['arch_id']}/{row['workload']}: missing ratio {ratio!r}")
-        if not all(map(math.isfinite, shares)) or abs(sum(shares) - 1.0) > 1e-9:
+        # 1e-8 is the table's own precision (nine decimals, four shares), not a tolerance chosen to
+        # let the data through: the identity holds to 1e-12 before serialisation.
+        if not all(map(math.isfinite, shares)) or abs(sum(shares) - 1.0) > 1e-8:
             raise SystemExit(
                 f"{row['arch_id']}/{row['workload']}: source shares sum to {sum(shares)!r}, not 1; "
                 "the ledger does not classify all of the missing energy"
