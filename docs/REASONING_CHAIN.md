@@ -154,7 +154,7 @@ withdrawn.
 | the incumbent's own designs fail their own envelope: one refused at its **nominal** map, five with radius 0.49-1.16 | `THE_INCUMBENT_DESIGNS_DO_NOT_SURVIVE_THEIR_OWN_ENVELOPE.md` |
 | the assumed-uniform nuisance placement is **not an upper bound** — below the routed one on 4 of 6, by up to 1.25 K | `ROUTED_CERTIFICATE_AND_THE_BOUND_THAT_IS_NOT_ONE.md` |
 | the missing-energy fraction is **per case**, 0.3328-0.9997, and the value previously used was the largest | `PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`, `experiments/missing_energy_ledger.tsv` |
-| every nuisance parameter measured on all six: DRAM `kappa = 1.000` on 4 dies, frame carries **zero** | `THE_NUISANCE_PARAMETERS_ALL_MEASURED.md` |
+| every nuisance parameter measured on all six: DRAM `kappa = 1.000` on 4 dies, frame carries **zero** | `THE_NUISANCE_PARAMETERS_ARE_ALL_MEASURED.md` |
 | the impulse loop parallelises **bit-identically**, 1333 s → 89 s | `THE_IMPULSE_LOOP_IS_PARALLEL.md` |
 | leg-by-leg status, including the two refuted premises | `THREE_LEGS_STATUS.md` |
 
