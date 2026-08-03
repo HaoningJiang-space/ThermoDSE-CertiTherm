@@ -25,6 +25,13 @@ area. So the placement is
 and the uplift is `max_j (R q)_j` — one matrix-vector product against an operator already built. No
 new floorplan, no new solve, no frozen input changed.
 
+**The uplift is compared against the POLYTOPE slack, not the nominal one.** The certified quantity is
+`max_j sup_p T_j(p)` over the declared activity span, not the peak at the placed map; an earlier
+version of this script compared against the nominal peak and read `arch_b/transformer` as `+1.164 K`
+of slack where the certificate has `-0.3618`. Adding a fixed `q` shifts every row, so
+`max_j [sup_p T_j(p) + (Rq)_j] <= max_j sup_p T_j(p) + max_j (Rq)_j` and the comparison is
+conservative in the right direction.
+
 **What this is NOT.** It is a planar reduction, not a stacked model: the interposer physically sits
 below the die, and this puts its heat into the die blocks above it. That is the same abstraction the
 executed HotSpot model already makes (block mode, one layer, no `-model_3D`), so it is consistent
@@ -53,6 +60,10 @@ import sys
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from CertiTherm.cross_grid_bound import _extreme_rows          # noqa: E402
+from CertiTherm.measurements import activity_bounded_power_space  # noqa: E402
 
 # Audit ledger, docs/THERMODSE_ENDPOINT_AUDIT.md section 3, in pJ. The ledger closes to zero residual.
 DRAM_PJ = 3.7405e9
@@ -92,12 +103,13 @@ def main() -> None:
     operators = Path(_option(argv, "--operators", "/data/ziheng/certicheck/cellcert"))
     captures = Path(_option(argv, "--captures",
                             "/data/ziheng/experiments/certitherm-v3-dev-final-c9c42ec/output/captures"))
+    span = float(_option(argv, "--span", "0.30"))
 
     ceiling = LIMIT_K - MARGIN_K - LINEARISATION_K
     print(f"NoP share of the missing energy = {NOP_SHARE:.4f}   "
-          f"missing/arriving = {MISSING_OVER_ARRIVING:.4f}")
+          f"missing/arriving = {MISSING_OVER_ARRIVING:.4f}   activity span = {span}")
     print(f"certifying ceiling = {LIMIT_K} - {MARGIN_K} - {LINEARISATION_K} = {ceiling:.2f} K\n")
-    print(f"{'case':22s} {'peak':>9s} {'slack':>8s} {'dP':>7s} "
+    print(f"{'case':22s} {'sup_p peak':>10s} {'slack':>8s} {'dP':>7s} "
           f"{'NoP@area':>9s} {'verdict':>8s} {'all@area':>9s} {'verdict':>8s}")
 
     rows = []
@@ -140,13 +152,18 @@ def main() -> None:
             weight = weight / weight.sum()
 
             dP = float(placed.sum()) * MISSING_OVER_ARRIVING
-            peak = float(np.max(ambient + response @ placed))
+            # The CERTIFIED quantity: max over rows of the supremum over the polytope, which is what
+            # CELL_ENDPOINT_RESULT.md reports. The nominal peak is 1.5 K lower on the tightest point.
+            space = activity_bounded_power_space(block_ids, placed, activity_span=span)
+            sup_rows = _extreme_rows(response, np.asarray(space.lower_w, dtype=float),
+                                     np.asarray(space.upper_w, dtype=float), float(placed.sum()))
+            peak = float(np.max(ambient + sup_rows))
             slack = ceiling - peak
 
             uplift_nop = float(np.max(response @ (weight * dP * NOP_SHARE)))
             uplift_all = float(np.max(response @ (weight * dP)))
             ok = lambda u: "OK" if u < slack else "VACUOUS"
-            print(f"{arch}/{workload:12s} {peak:9.3f} {slack:8.3f} {dP:7.2f} "
+            print(f"{arch}/{workload:12s} {peak:10.4f} {slack:8.4f} {dP:7.2f} "
                   f"{uplift_nop:9.3f} {ok(uplift_nop):>8s} {uplift_all:9.3f} {ok(uplift_all):>8s}")
             rows.append((f"{arch}/{workload}", slack, uplift_nop, uplift_all))
 
