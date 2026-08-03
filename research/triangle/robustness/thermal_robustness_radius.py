@@ -38,8 +38,11 @@ assumed, because a non-monotone sweep would mean the polytope construction chang
 ## Fail-closed
 
 A design is `CERTIFIED` at a span, `REFUTED` at it, or the run is `UNRESOLVED` -- never a fabricated
-radius. A design that fails at span 0 is `REFUTED_AT_NOMINAL` with radius `0.0` reported as a refusal,
-not as a small radius, because those are different statements.
+radius. A design whose NOMINAL point already exceeds the ceiling is `REFUTED_AT_NOMINAL`; one that
+clears the nominal point but fails at the narrowest expressible envelope is `REFUTED_AT_MIN_SPAN`.
+Both carry radius `0.0`, and both are refusals rather than small radii -- "tolerates no variation"
+and "is infeasible" are different statements and collapsing them would report an infeasible design as
+a merely fragile one.
 
 NON-CLAIM diagnostic. Usage (moe-server, repo root):
     .venv/bin/python research/triangle/robustness/thermal_robustness_radius.py \\
