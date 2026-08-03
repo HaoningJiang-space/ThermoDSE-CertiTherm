@@ -30,6 +30,32 @@ and only then does phase 2 minimise EDYP among certified designs. The invariant 
 constrained search rather than a penalised one is pinned by tests in both directions: an uncertified
 candidate moves the search **point** and never the **incumbent**.
 
+## The complementary half: from a FEASIBLE baseline, EDYP goes down
+
+Seed `arch_c`/transformer, whose baseline already certifies. Same pipeline, same neighbourhood,
+budget 30, 0 UNRESOLVED.
+
+| | EDYP | certified peak | nominal peak | verdict |
+| --- | ---: | ---: | ---: | --- |
+| baseline `arch_c` | 18.4394 | 329.017 | 327.548 | CERTIFIED |
+| **found** (`mtxu_h` 128 → 256) | **18.1737** | **329.005** | 327.526 | CERTIFIED |
+
+**`EDYP ratio 0.9856` — 1.44 % cheaper, and the certified peak is 12 mK lower rather than higher.**
+The found design **strictly dominates** the incumbent's on both axes, which is the cleanest form the
+"and EDYP is not worse" half of the claim can take.
+
+**Both magnitudes are small and must be read as such.** 1.44 % EDYP is a real improvement but a modest
+one, and 12 mK of peak is two orders inside the model-form band — it is *not* worse, which is all that
+is claimed, and reading it as a thermal improvement would be over-reading noise. Together with the
+`arch_b` run the pair is the whole statement: **from an infeasible incumbent design the search reaches
+feasibility for `+8.77 %`; from a feasible one it reaches `−1.44 %` while staying feasible.**
+
+The search walked the whole `mtxu_h` axis here — every one of 96, 112, 128, 144, 176, 192, 208, 224,
+240, 256 certified, with peak falling monotonically to 328.602 at 240 and EDYP non-monotone — so the
+minimum is not at the peak-minimising end. That is exactly why the constraint has to be a **feasible
+set** and not a penalty: the cheapest certified design and the coolest certified design are different
+designs.
+
 ## The cost breakdown, which is leg 2's actual measurement
 
 | | seconds | share |
@@ -37,6 +63,9 @@ candidate moves the search **point** and never the **incumbent**.
 | operator builds (12 misses) | **1526** | 91.8 % |
 | ThermoDSE evaluations (40) | 134 | 8.1 % |
 | **the certificate itself (40)** | **2.786** | **0.17 %** |
+
+and on the `arch_c` run, independently: 1898 s of operator builds, 154 s of ThermoDSE, **2.669 s of
+certificate — 0.13 %**.
 
 **The certificate is 0.17 % of a certificate-constrained search.** That is the whole point of leg 1
 and it is now measured end to end rather than in isolation: the thermal *feasibility test* is free and
