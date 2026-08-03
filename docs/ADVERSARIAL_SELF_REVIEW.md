@@ -29,12 +29,16 @@ from `+1.6 %` to `+14.1 %` so a reader reads their own declaration off the curve
 method:** at `s ≥ 0.75` nothing certifies at all, so the envelope is a real declaration with
 consequences rather than a free strengthening. Library hit rate on this run: **12/12**.
 
-**A4. "No model-form band is folded in."** **CONCEDED, and it is the single number most likely to
-overturn the round.** Folding in the measured 0.25-1.43 K band moves the found design's `+0.328 K`
-slack into `UNRESOLVED`. *In flight:* `CERTITHERM_FEM_CELL_ENDPOINT=128` gives the FEM reference a
-cell-granular readout so the band can be measured **at the endpoint the certificate uses**, which no
-prior measurement did — every band so far is at block rows, and the cell endpoint sits 0.58-0.87 K
-above the block projection.
+**A4. "No model-form band is folded in."** **MEASURED** (`E_TOTAL_AT_THE_CELL_ENDPOINT.md`), and it
+splits into two answers that point opposite ways. The row-wise band at the cell endpoint is
+**1.98-4.99 K**, eight to twenty times the block-row band that was standing in for it — so the
+substitution was wrong by an order of magnitude in the permissive direction, and **G2's separator
+window is empty for any `g <= 5 K`**, which kills that framing at the endpoint without needing any
+candidate set. But the difference in the quantity a verdict actually reads is **≤ 0.071 K**, with the
+FEM *cooler* on two of three cases: the cells the models disagree about are not the hot ones. The
+sound a priori bound is therefore loose by a factor of **70**, and tightening it to the rows that can
+attain the maximum is the named next step. **`Δ` is a measurement on three designs and must never be
+used as a bound for one not measured.**
 
 **A5. "n is small."** 6 development points, 61 archive designs × 2 workloads, 2 search seeds at the
 time of writing. *In flight:* four more search seeds. **Still one package and one grid resolution.**
