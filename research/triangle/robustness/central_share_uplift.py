@@ -146,6 +146,42 @@ def _areas(floorplan_text: str):
     return areas
 
 
+
+def noc_spreading_bracket(response, placed, block_ids, slack):
+    """How much the UNIFORM NoC spread can be hiding, bracketed rather than assumed.
+
+    `gen_all_ptrace_3D` gives every `io_*` column `p_noc / divisor` — identical for all of them — so
+    the trace carries the right total (after the over-count is removed) and **none** of the spatial
+    structure. `THERMODSE_ENDPOINT_AUDIT.md` calls the direction of that bias indeterminate: extra
+    power raises temperature, while uniform spreading suppresses local hotspots and may hide a flip.
+
+    The magnitude is not indeterminate. Redistributing a fixed budget over a fixed support is bounded
+    below by the uniform spread (what the trace does, up to the over-count) and above by putting all
+    of it on the single worst-coupled member — a greedy fill, exact and free, since the uplift is
+    linear. The bracket width is what the spreading defect can be worth, without needing to know the
+    true distribution.
+
+    Returns `(uniform_peak_uplift, adversarial_peak_uplift)` relative to the placed map.
+    """
+
+    import numpy as np
+
+    is_io = np.array([b.startswith("io_") for b in block_ids])
+    if not is_io.any():
+        raise SystemExit("no io_* blocks: the NoC support does not exist in this floorplan")
+    budget = float(placed[is_io].sum())
+
+    base = np.max(response @ placed)
+    uniform = float(np.max(response @ placed) - base)          # zero by construction, kept explicit
+    # Move the whole io budget onto whichever single io block couples hardest into any row. The
+    # support is restricted to io_* because that is where the generator put NoC; a wider support
+    # would be bounding a different defect.
+    without_io = np.where(is_io, 0.0, placed)
+    worst = float(np.max([np.max(response @ (without_io + budget * unit))
+                          for unit in np.eye(len(block_ids))[is_io]]))
+    return uniform, worst - base
+
+
 def main() -> None:
     argv = sys.argv[1:]
     operators = Path(_option(argv, "--operators", "/data/ziheng/certicheck/cellcert"))
@@ -159,7 +195,7 @@ def main() -> None:
     print(f"certifying ceiling = {LIMIT_K} - {MARGIN_K} - {LINEARISATION_K} = {ceiling:.2f} K\n")
     print(f"{'case':22s} {'sup_p peak':>10s} {'slack':>8s} {'dP':>7s} "
           f"{'NoP@area':>9s} {'verdict':>8s} {'all@area':>9s} {'verdict':>8s} "
-          f"{'grid':>5s} {'overcnt':>7s} {'dNoC':>8s} {'NET':>8s} {'verdict':>8s}")
+          f"{'grid':>5s} {'overcnt':>7s} {'dNoC':>8s} {'NET':>8s} {'verdict':>8s} {'spreadHi':>9s}")
 
     rows = []
     for arch in ("arch_a", "arch_b", "arch_c"):
@@ -225,10 +261,15 @@ def main() -> None:
             delta_noc = float(np.max(response @ (placed + noc_fix)) - np.max(response @ placed))
             net = uplift_all + delta_noc
 
+            # The uniform spread carries the right total and none of the structure. Its cost is
+            # bracketed, not assumed: uniform below, all-on-the-worst-io-block above.
+            _, noc_hi = noc_spreading_bracket(response, placed, block_ids, slack)
+
             ok = lambda u: "OK" if u < slack else "VACUOUS"
             print(f"{arch}/{workload:12s} {peak:10.4f} {slack:8.4f} {dP:7.2f} "
                   f"{uplift_nop:9.3f} {ok(uplift_nop):>8s} {uplift_all:9.3f} {ok(uplift_all):>8s} "
-                  f"{cx}x{cy} {overcount:7.4f} {delta_noc:8.3f} {net:8.3f} {ok(net):>8s}")
+                  f"{cx}x{cy} {overcount:7.4f} {delta_noc:8.3f} {net:8.3f} {ok(net):>8s} "
+                  f"{noc_hi:9.3f}")
             rows.append((f"{arch}/{workload}", slack, uplift_nop, uplift_all, net))
 
     if rows:
@@ -246,3 +287,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
