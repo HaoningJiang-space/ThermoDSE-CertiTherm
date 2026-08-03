@@ -45,7 +45,7 @@ def _core_lowering(external_pj):
     )
 
 
-def _lower(core, event, cuts):
+def _lower(core, event, cuts, endpoint_split=0.5):
     return lower_routed_trace(
         core,
         floorplan=_augmented(),
@@ -54,6 +54,7 @@ def _lower(core, event, cuts):
         chiplet_cuts=cuts,
         noc_hop_cost_pj=2.0,
         nop_hop_cost_pj=2.0,
+        endpoint_split=endpoint_split,
     )
 
 
@@ -335,3 +336,44 @@ def test_masking_still_enforces_the_route_reconciliation():
             nop_hop_cost_pj=2.0,
             components=("core",),                      # NoC masked out, still must fail
         )
+
+
+def _noc_event():
+    return {
+        "order": 0, "kind": "core_to_core", "source": [0, 0], "destinations": [[1, 0]],
+        "dram_locations": [[0, 0], [3, 0]], "volume": 4.0,
+        "noc_energy_pj": 8.0, "nop_energy_pj": 0.0, "dram_energy_pj": 0.0,
+    }
+
+
+def test_the_endpoint_split_actually_reaches_the_placement():
+    """A knob accepted at the top and dropped on the way down reports a FALSE NEGATIVE.
+
+    `endpoint_split` was added to `lower_routed_trace`'s signature and not threaded to
+    `_place_edge_energy`, so a sensitivity sweep over five values produced bit-identical power
+    vectors and reported the split's influence as exactly `0.0 K`. That reads as "the modelling
+    freedom does not matter" and it is the most dangerous shape a wrong result can take: a
+    reassuring number from a disconnected knob. This test asserts the two endpoints move.
+    """
+    core = _core_lowering([8.0, 0.0, 0.0])
+    quarter = _lower(core, _noc_event(), (1, 1), endpoint_split=0.25)
+    three_q = _lower(core, _noc_event(), (1, 1), endpoint_split=0.75)
+    index = {name: i for i, name in enumerate(quarter.floorplan.block_ids)}
+    a, b = index["io_2_0"], index["io_0_1"]
+
+    eq, et = quarter.trace.energy_j(), three_q.trace.energy_j()
+    assert eq[a] == pytest.approx(2e-12), "the first endpoint did not take its declared share"
+    assert eq[b] == pytest.approx(6e-12), "the second endpoint did not take the complement"
+    assert et[a] == pytest.approx(6e-12) and et[b] == pytest.approx(2e-12), (
+        "the split did not reverse when the parameter did; it is not wired"
+    )
+    # Conservation must hold at every split: the parameter moves heat, it does not create it.
+    assert eq.sum() == pytest.approx(et.sum())
+    assert eq.sum() == pytest.approx(13e-12)
+
+
+def test_a_split_outside_the_unit_interval_is_refused():
+    core = _core_lowering([8.0, 0.0, 0.0])
+    for bad in (-0.1, 1.1, float("nan")):
+        with pytest.raises(ValueError, match="endpoint_split"):
+            _lower(core, _noc_event(), (1, 1), endpoint_split=bad)

@@ -590,6 +590,7 @@ def lower_routed_trace(
                         block_index=index,
                         nx=nx,
                         ny=ny,
+                        endpoint_split=endpoint_split,
                     )
 
         dram_j = float(event["dram_energy_pj"]) * batch_factor * 1e-12
