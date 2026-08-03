@@ -22,6 +22,7 @@ Usage (on moe-server, from the repo root):
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -31,10 +32,41 @@ sys.path.insert(0, ".")
 
 from CertiTherm.cross_grid_bound import _extreme_rows
 from CertiTherm.experiments import _power_space
+from CertiTherm.tabular import read_rows as _rows
 
-# From the audit closure: dissipated 9.2218 mJ against 4.6118 mJ reaching HotSpot.
-MISSING_OVER_ARRIVING = 9.2218 / 4.6118 - 1.0
+# THE MISSING FRACTION IS PER CASE, AND USING ONE VALUE FOR ALL SIX WAS THE SINGLE POINT OF FAILURE.
+# This constant used to be `9.2218 / 4.6118 - 1.0 = 0.9997`, the audit closure for ONE architecture,
+# applied to every case by scaling with total power. `research/triangle/energy_ledger.py` measures it
+# per case, and the true span is 0.3328 to 0.9997 -- a factor of three. 0.9997 is the LARGEST of the
+# six, so every uplift computed from it was overstated, in the direction that makes the certificate
+# look stricter than it is. Every document that quoted a scaled-`Q` number is withdrawn; see
+# `docs/PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`.
+#
+# It is read from the committed ledger and there is NO fallback: a case absent from the table is a
+# refusal, not a default, because the default is exactly what went wrong.
+MISSING_ENERGY_LEDGER = Path("experiments") / "missing_energy_ledger.tsv"
 CROSS_SOLVER_BAND_K = (0.2997, 1.4332)          # docs/PACKAGE_SWEEP_RESULT.md, all three packages
+
+
+def _missing_over_admitted(root: Path):
+    """`{(workload, arch): ratio}` from the committed ledger, checked rather than trusted."""
+    table = {}
+    for row in _rows(root / MISSING_ENERGY_LEDGER):
+        ratio = float(row["missing_over_admitted"])
+        shares = [float(row[f"{s}_share_of_missing"]) for s in ("dram", "nop", "noc", "core")]
+        # A ratio a certificate is built from must not be NaN, and `NaN <= 0` is False, so the
+        # finiteness check is separate and first.
+        if not math.isfinite(ratio) or ratio <= 0.0:
+            raise SystemExit(f"{row['arch_id']}/{row['workload']}: missing ratio {ratio!r}")
+        if not all(map(math.isfinite, shares)) or abs(sum(shares) - 1.0) > 1e-9:
+            raise SystemExit(
+                f"{row['arch_id']}/{row['workload']}: source shares sum to {sum(shares)!r}, not 1; "
+                "the ledger does not classify all of the missing energy"
+            )
+        table[(row["workload"], row["arch_id"])] = ratio
+    if not table:
+        raise SystemExit(f"{MISSING_ENERGY_LEDGER} is empty")
+    return table
 
 # NON-UNIFORMITY ALLOWANCE. The uniform-density cap `q_i <= Q * A_i / A(S)` with the total equality
 # `sum q_i = Q` is a SINGLETON, not a set: summing the caps gives exactly `Q`, so every `q_i` is
@@ -89,11 +121,18 @@ GUESSED_GUARD_BANDS_K = (3.0, 5.0)
 def main() -> None:
     root, artifacts = Path(sys.argv[1]), Path(sys.argv[2])
     packages = sys.argv[3].split(",") if len(sys.argv) > 3 else ["default", "standard", "enhanced"]
+    missing_ratio = _missing_over_admitted(Path("."))
     results = []
     for package in packages:
       for capture in sorted((artifacts / "captures").glob("*.npz")):
           name = capture.stem
           workload, arch = name.split("--")
+          if (workload, arch) not in missing_ratio:
+              raise SystemExit(
+                  f"{arch}/{workload} has no row in {MISSING_ENERGY_LEDGER}. A missing fraction is "
+                  "measured per case, never defaulted -- defaulting it is the error this table exists "
+                  "to prevent. Run research/triangle/energy_ledger.py for this case first."
+              )
           operator = root / "g512" / f"{arch}--{package}.npz"
           if not operator.exists():
               continue
@@ -108,7 +147,7 @@ def main() -> None:
 
           frame_area, centre_area, areas = _geometry(floorplan, blocks)
           frame_fraction = frame_area / (frame_area + centre_area)
-          missing_w = MISSING_OVER_ARRIVING * float(power.sum())
+          missing_w = missing_ratio[(workload, arch)] * float(power.sum())
 
           # PLACED: the frame share, area-weighted over eblk0..3.
           is_frame = np.asarray([b.startswith("eblk") for b in blocks])
@@ -195,6 +234,7 @@ def main() -> None:
               "critical_kappa": critical,
               "workload": workload, "architecture": arch, "package": package,
               "frame_fraction": frame_fraction,
+              "missing_over_admitted": missing_ratio[(workload, arch)],
               "missing_w": missing_w,
               "peak_with_frame_share_k": peak,
               "guaranteed_rise_k": guaranteed,
@@ -256,7 +296,8 @@ def main() -> None:
             "UNRESOLVED: arch_b certified=%s, arch_c certified=%s, arch_c slack %.3f K vs band %.4f K"
             % (b["certified_at_uniform_density"], c["certified_at_uniform_density"], c["slack_k"], band_hi)
         )
-    print(json.dumps({"missing_over_arriving": MISSING_OVER_ARRIVING,
+    print(json.dumps({"missing_over_admitted": {f"{a}/{w}": r
+                                                for (w, a), r in sorted(missing_ratio.items())},
                       "cross_solver_band_k": CROSS_SOLVER_BAND_K,
                       "summary": summary,
                       "results": results, "verdict": verdict}, indent=1), flush=True)

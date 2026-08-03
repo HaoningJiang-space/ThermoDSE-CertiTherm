@@ -1,0 +1,7 @@
+arch_id	workload	source_energy_mj	hotspot_admitted_energy_mj	missing_over_admitted	dram_share_of_missing	nop_share_of_missing	noc_share_of_missing	core_share_of_missing	noc_admitted_fraction
+arch_a	resnet50	8.489639	4.754978	0.785421	1.080363	0.000000	-0.080347	-1.562e-05	1.311168
+arch_a	transformer	22.523699	16.899483	0.332804	1.229520	0.000000	-0.229566	4.545e-05	1.312649
+arch_b	resnet50	9.215253	5.054020	0.823351	0.898994	0.144394	-0.043383	-5.442e-06	1.289833
+arch_b	transformer	22.880700	16.737726	0.367014	0.903628	0.242544	-0.146185	1.308e-05	1.290391
+arch_c	resnet50	9.221901	4.611632	0.999704	0.811336	0.218045	-0.029413	3.203e-05	1.334119
+arch_c	transformer	23.670592	15.122834	0.565222	0.775046	0.306638	-0.081674	-1.004e-05	1.333685
