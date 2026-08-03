@@ -90,6 +90,26 @@ def _cell_field(config: Path, floorplan: Path, blocks, power, model_id: str, wor
     return field
 
 
+def _gpu_backend_from_env():
+    """The GPU HotSpot backend when `CERTITHERM_GPU_HOTSPOT` names its two binaries, else None.
+
+    Same gate `CertiTherm/hotspot.py` uses, read here rather than threaded through every caller,
+    because this driver's only decision is CPU-loop versus one batched solve and the answer is an
+    environment fact, not an argument.
+    """
+
+    import os
+
+    exporter = os.environ.get("CERTITHERM_GPU_HOTSPOT_EXPORTER")
+    solver = os.environ.get("CERTITHERM_GPU_HOTSPOT_SOLVER")
+    if not (exporter and solver):
+        return None
+    from CertiTherm.gpu_hotspot import GpuHotSpotBackend
+
+    return GpuHotSpotBackend(exporter=Path(exporter), solver=Path(solver),
+                             device=int(os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0]))
+
+
 def cell_operator(config, floorplan, blocks, model_id, work, workers: int = 1):
     """Response matrix over CELLS: one impulse per block, exactly as the block operator costs.
 
@@ -113,6 +133,37 @@ def cell_operator(config, floorplan, blocks, model_id, work, workers: int = 1):
 
     size = int(model_id[4:].split("-")[0])
     zero = np.zeros(len(blocks))
+
+    # GPU FIRST, and the docstring above is stale for THIS repository. It says "HotSpot has no GPU
+    # build", but `CertiTherm/gpu_hotspot.build_grid_operator_gpu` exists, is wired into
+    # `hotspot.py:207` behind `CERTITHERM_GPU_HOTSPOT`, and `docs/ARCHIVE_CENSUS_RUN_LOG.md:48`
+    # records its parity against the pinned binary as **exactly 0.0 K/W, bit-identical**, at
+    # grid128/256/512. So the endpoint is HotSpot's either way and the comparison with
+    # `docs/CELL_ENDPOINT_RESULT.md` is preserved.
+    #
+    # What changes is the shape of the work: the loop below launches ONE HotSpot subprocess PER
+    # BLOCK -- 233 of them here -- while the GPU builder solves every unit response in one batch
+    # against one factorised system and, with `grid_output` set, writes the raw grid field for each
+    # right-hand side. That raw field is exactly what `_cell_field` reconstructs per subprocess.
+    backend = _gpu_backend_from_env()
+    if backend is not None:
+        from CertiTherm.gpu_hotspot import _read_grid, build_grid_operator_gpu
+        from CertiTherm.hotspot import HotSpotModel
+
+        grid_path = Path(work) / f"{model_id}-grid.bin"
+        _blocks_response, _blocks_ambient, _digest, _units = build_grid_operator_gpu(
+            HOTSPOT, Path(config), Path(floorplan), TEMPLATE / "example.materials",
+            HotSpotModel.parse(model_id), Path(work), backend, grid_output=grid_path,
+        )
+        fields = _read_grid(grid_path, len(blocks) + 1)          # column 0 is the zero solve
+        if fields.shape[0] != size * size:
+            raise SystemExit(
+                f"the GPU grid has {fields.shape[0]} nodes but {model_id} declares {size * size}; "
+                "the cell operator would be assembled against the wrong lattice"
+            )
+        ambient = fields[:, 0].copy()
+        return fields[:, 1:] - ambient[:, None], ambient
+
     ambient = _cell_field(config, floorplan, blocks, zero, model_id, work, f"{model_id}-amb")
     response = np.empty((size * size, len(blocks)), dtype=float)
 
