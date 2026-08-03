@@ -148,6 +148,15 @@ domain and carry `1.54e4` into G-B explicitly.
 > `3.08`). It falls only as `h^0.770`, because the absolute-jump measure has total mass `O(1)` under
 > refinement — reaching a factor of 1 needs `h` 64.7x smaller, `~1.07e10` dofs.
 >
+> **STEP 2 (same run): equilibration is the best case and the best case is 1.0012.** Dropping the
+> `dS` term exactly — the optimistic limit of an `H(div)` reconstruction — leaves the factor at
+> **1.0001-1.0016**, because `div(sigma_h + k grad u_h) = -f` regenerates the volume term for ANY
+> reconstruction, and `a(z,v) = int f v` is the rise itself. **The comparison-principle route is
+> closed structurally.** With the max-norm route already closed on its constants, the registered
+> fallback fires: abandon the pointwise operator claim; the cell-average certificate is what remains.
+> Not established: that no third mechanism exists — that was submitted for review and Codex was at
+> its usage limit.
+>
 > **Equilibration is therefore mandatory rather than an optimisation** — and it delivers a guaranteed
 > **energy**-norm bound, while the certificate needs `L^infinity`. The repaired route is
 > "equilibrated flux + a max-norm conversion", which is the research problem, not a step. It must be
