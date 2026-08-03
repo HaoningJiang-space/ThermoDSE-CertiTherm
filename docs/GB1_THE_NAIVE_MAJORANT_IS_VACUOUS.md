@@ -310,10 +310,18 @@ touches, and it is vacuous for at least one source even at the median-friendly r
 volume residual is written honestly as `f + div(k grad u_h)`, and the P1-versus-P2 comparison isolates
 which term sets the rate — which is the fact that closes the route.
 
-**Two defects in the probe, recorded rather than fixed** (they do not affect any committed number,
-which used the default path): `--no-faces` is parsed and never used, so its banner lies when passed;
-and the P2 section reports only summary factors, not the per-source rises the P1 table showed, so the
-"~6.4 K rise" behind the "~5.5 K half-width" is not independently checkable from what is committed.
+**Two defects in the probe. One is now fixed, one remains open** (neither affects any committed
+number, which used the default path).
+
+* **Fixed 2026-08-03:** `--no-faces` was parsed and never reached the load — both columns are built
+  unconditionally, `majorant_load` with the `dS` term and `equilibrated_load` without it — so the
+  flag controlled nothing while its banner printed `faces=DROPPED` beside a `vacuity` column that
+  still included them. Removed rather than wired up, because the columns it was meant to select
+  between are both already reported. A switch that appears to change behaviour and does not is worse
+  than an absent one.
+* **Open:** the P2 section reports only summary factors, not the per-source rises the P1 table
+  showed, so the "~6.4 K rise" behind the "~5.5 K half-width" is not independently checkable from
+  what is committed.
 
 **Not established:** that no pointwise route exists. What is established is that *this* one does not,
 and that the next candidate must break the face term's `O(1)` mass rather than change the element.

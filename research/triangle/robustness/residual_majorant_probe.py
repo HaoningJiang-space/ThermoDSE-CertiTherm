@@ -73,11 +73,11 @@ def main() -> None:
     argv = sys.argv[1:]
     cells = _option(argv, "--cells", 24)
     grid = _option(argv, "--grid", 3)
-    # `--no-faces` drops the interior-jump term, which is the BEST CASE an equilibrated flux could
-    # achieve for it: a normal-trace-continuous sigma_h annihilates the face measures entirely. What
-    # survives is the volume term, and the structural claim under test is that it cannot be removed --
-    # div(sigma_h + k grad u_h) = -f for ANY H(div) reconstruction, so f reappears whatever is done.
-    no_faces = "--no-faces" in argv
+    # `--no-faces` was REMOVED rather than fixed. It was parsed and never reached the load: both
+    # columns are now built unconditionally in one pass -- `majorant_load` with the `dS` term and
+    # `equilibrated_load` without it -- so the flag controlled nothing while its banner printed
+    # `faces=DROPPED` beside a `vacuity` column that still included them. A switch that appears to
+    # change behaviour and does not is worse than an absent one.
     # THE ELEMENT FAMILY IS THE VARIABLE NOW. With P1 over DG0 coefficients `grad u_h` and `k` are
     # both constant per tetrahedron, so `div(k grad u_h) = 0` exactly and the volume residual is the
     # SOURCE ITSELF -- which is why the equilibrated factor measured exactly 1.0012 and certified
@@ -162,7 +162,7 @@ def main() -> None:
     )
 
     print(f"cells/axis={cells} grid={grid} degree={degree}  dofs={V.dofmap.index_map.size_global}  "
-          f"contrast={k_cu / k_si:.3g} (NO void: favourable)  faces={'DROPPED' if no_faces else 'included'}")
+          f"contrast={k_cu / k_si:.3g} (NO void: the favourable case)")
     print(f"{'source':>8s} {'max rise (K)':>14s} {'max z_h (K)':>14s} {'vacuity':>10s} "
           f"{'equilibrated':>12s} {'volume':>10s} {'robin':>9s} {'face':>9s}")
 
