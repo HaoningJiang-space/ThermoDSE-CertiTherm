@@ -56,6 +56,30 @@ minimum is not at the peak-minimising end. That is exactly why the constraint ha
 set** and not a penalty: the cheapest certified design and the coolest certified design are different
 designs.
 
+## All six seeds
+
+Every architecture–workload point in the frozen registry, same pipeline, same neighbourhood, budget
+30–40, **0 UNRESOLVED anywhere**.
+
+| seed | workload | baseline EDYP | baseline | found EDYP | **EDYP ratio** |
+| --- | --- | ---: | --- | ---: | ---: |
+| `arch_a` | resnet50 | 5.7641 | CERTIFIED | 5.5837 | **0.9687** |
+| `arch_a` | transformer | 22.3496 | CERTIFIED | 22.1343 | 0.9904 |
+| `arch_b` | resnet50 | 3.7190 | CERTIFIED | 3.6944 | 0.9934 |
+| **`arch_b`** | **transformer** | **13.8628** | **REFUTED** | **15.0792** | **1.0877** |
+| `arch_c` | resnet50 | 5.4066 | CERTIFIED | 5.2720 | 0.9751 |
+| `arch_c` | transformer | 18.4394 | CERTIFIED | 18.1737 | 0.9856 |
+
+**One of six baselines is infeasible over its own envelope; on the other five the constrained search
+finds a strictly cheaper certified design every time**, by `0.7 %` to `3.1 %`. So the `+8.77 %` is not
+a general price of certification — it is the price of *repairing* the one design that needed it, and
+where nothing needs repairing the certificate costs nothing and the search returns a small gain.
+
+One row deserves its own note: on `arch_a`/resnet50 the found design's certified peak is **hotter**
+(327.363 vs 326.977) and cheaper. That is the constrained objective behaving correctly — minimise
+EDYP *subject to* feasibility, not minimise temperature — and it is worth stating because a method
+that always cooled would be optimising the wrong thing.
+
 ## The cost breakdown, which is leg 2's actual measurement
 
 | | seconds | share |
@@ -64,8 +88,10 @@ designs.
 | ThermoDSE evaluations (40) | 134 | 8.1 % |
 | **the certificate itself (40)** | **2.786** | **0.17 %** |
 
-and on the `arch_c` run, independently: 1898 s of operator builds, 154 s of ThermoDSE, **2.669 s of
-certificate — 0.13 %**.
+and on the other five runs, independently: `arch_c`/transformer 1898 s / 154 s / **2.669 s**;
+`arch_a`/resnet50 **10 100 s** of operator builds against **4.982 s** of certificate — **0.049 %**;
+`arch_a`/transformer 9 858 s against 4.584 s. Across all six the certificate never exceeds **0.2 %**
+of the search.
 
 **The certificate is 0.17 % of a certificate-constrained search.** That is the whole point of leg 1
 and it is now measured end to end rather than in isolation: the thermal *feasibility test* is free and
