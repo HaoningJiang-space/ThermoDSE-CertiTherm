@@ -16,6 +16,16 @@ designs it is 0.0 % -- 61 designs, 61 distinct floorplans -- and only one of the
 (`interval`) leaves the floorplan invariant. The library still earns its place: it makes revisiting a
 geometry free inside a search loop, it makes the accounting explicit, and it makes cross-geometry
 reuse impossible by construction rather than by discipline.
+
+**Deliberately NOT in `experiments.py`'s operator cache source bundle.** That bundle exists to make a
+false HIT impossible: it hashes every module whose behaviour builds or validates the artifact, so a
+cache written under old logic cannot be accepted under new. This module participates in neither --
+`experiments.py` does not import it, and its store is a separate research-tier one addressed by a
+different key. Adding it would make that bundle sensitive to a module its artifact does not depend
+on, which invalidates caches spuriously without preventing any false hit.
+
+It is a leaf: numpy and the standard library only, no import from anything else in the package, so it
+cannot participate in a cycle.
 """
 
 from __future__ import annotations
