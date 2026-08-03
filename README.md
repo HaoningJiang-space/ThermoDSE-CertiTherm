@@ -21,6 +21,44 @@ This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
 EDA stage is sufficient to justify the resulting architecture choice.
 
+> # 2026-08-03 — CURRENT STATE. Read this before the 2026-08-01 banner below, which it supersedes.
+>
+> The withdrawal below is **still correct about the registry** and is retained on those terms. Four
+> things have happened since and none of them is in it.
+>
+> **1. The development result was restored at a stricter endpoint, and does not depend on a band.**
+> `docs/CELL_ENDPOINT_RESULT.md`: at the `grid128` cell endpoint, **5 of 6 development points
+> certify with no error band folded in at all**, and the refusal is the tightest point. The
+> `arch_b -> arch_c` switch and its **+32.1 %** price therefore no longer rest on the block-average
+> assumption that made them provisional.
+>
+> **2. Model form against an independent solver is 25-143x the frozen `0.01 K` contract, one-signed,
+> and its withdrawal was itself void.** `docs/MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md`. Two rounds
+> treated `r_convec`'s *name* as its specification and withdrew a valid finding; `temperature_grid.c`
+> divides it by cell area, which is the uniform Robin the FEM already used, so the comparison was
+> like-for-like all along. The FEM reference is separately verified against an analytical identity —
+> `mean(T_top) = T_amb + r_convec*P`, ratio **1.000** on all six points
+> (`docs/FEM_ANALYTICAL_VERIFICATION.md`).
+>
+> **3. The trace corrections are now priced, and they cost the headline its destination.**
+> `docs/THE_GENERATOR_PUTS_THE_MISSING_HEAT_CENTRALLY.md`. The trace omits ~half the dissipated
+> energy; `gen_all_ptrace_3D` writes its header central-first, so **both missing sources go to the
+> central block**, not to the frame. Priced by one matvec against operators already built — no Tier-2
+> action, no frozen input changed — **3 of 6 survive a fully corrected trace**. `arch_b -> arch_c`
+> does not reverse, but **`arch_c`/transformer becomes `UNRESOLVED`**, so the `+32.1 %` price is
+> quoted for a destination whose feasibility is not established.
+>
+> **4. The pointwise certificate is closed and the separator pilot is repaired.** A two-sided
+> pointwise envelope via a residual majorant is dead **structurally**: equilibration removes 97 % of
+> it and the factor lands on **1.0012**, because `div(sigma_h + k grad u_h) = -f` for any
+> reconstruction (`docs/GB1_THE_NAIVE_MAJORANT_IS_VACUOUS.md`). And the quality-separation pilot's
+> window collapses to `margin + e_total <= dist < g`, whose non-emptiness is candidate-independent
+> arithmetic and is **not** what binds — **none of the six development points lies in the band**
+> (`docs/G2_REPAIR_THE_WINDOW_IS_ONE_DIMENSIONAL.md`).
+>
+> **The index is `docs/REASONING_CHAIN.md`; the active contract is
+> `docs/ROUND_PLAN_FIXED_GEOMETRY.md`.** Anything not in the index is not established.
+
 > **2026-08-01 — the thermal half of this work is WITHDRAWN. `docs/BUDGETED_REGISTRY_DOES_NOT_CERTIFY.md`.**
 > With the operator's discretisation error budgeted the same fail-closed way the project budgets
 > linearisation, the development registry largely stops certifying: 4 of 18 architectures are refused

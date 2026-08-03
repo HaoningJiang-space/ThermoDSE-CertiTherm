@@ -8,10 +8,36 @@ target_venue:
   year: "TBD"
   mode: "research"
 stage:
-  current: "v7_transient_locality"
-  gate: "gate_closed_without_verdict_locality_result_recorded"
-  updated_at: "2026-07-27"
-active_contract: "docs/V6_DIRECTION_DECISION.md"
+  current: "fixed_geometry_mapping"
+  gate: "g1_trace_corrections_priced_g2_repaired_population_does_not_contain_a_separator"
+  updated_at: "2026-08-03"
+active_contract: "docs/ROUND_PLAN_FIXED_GEOMETRY.md"
+# Direction changed 2026-08-01 (docs/DIRECTION_FIXED_GEOMETRY.md): architecture-level DSE with an
+# internalised thermal constraint is demoted with a named obstruction -- a small geometric
+# displacement does not give a small coefficient perturbation once a material interface moves, and
+# 64 archive designs induce 64 distinct geometries with zero shared. The direction is
+# thermal-constrained mapping on a FIXED geometry.
+#
+# Where the round stands, 2026-08-03:
+#   * The pointwise operator certificate is CLOSED, structurally rather than for want of tightness:
+#     equilibration removes 97% of the residual majorant and the factor lands on 1.0012, because
+#     div(sigma_h + k grad u_h) = -f for any reconstruction. P2 moves it to 0.8545 and a mesh sweep
+#     is in flight; switching element family is itself Tier 2 and is not authorised.
+#     docs/GB1_THE_NAIVE_MAJORANT_IS_VACUOUS.md
+#   * The trace corrections are PRICED without any Tier-2 action, by one matvec against operators
+#     already built: both missing sources go to the central block by the generator's own column
+#     order, and 3 of 6 development points survive a fully corrected trace. arch_b -> arch_c does
+#     not reverse, but arch_c/transformer becomes UNRESOLVED, so the +32.1% price is quoted for a
+#     destination whose feasibility is not established.
+#     docs/THE_GENERATOR_PUTS_THE_MISSING_HEAT_CENTRALLY.md
+#   * G2 is REPAIRED and must not be run as previously written. The separator window collapses to
+#     margin + e_total <= dist < g, so its non-emptiness is candidate-independent arithmetic and is
+#     NOT the binding constraint; the population is. None of the six development points lies in the
+#     band. docs/G2_REPAIR_THE_WINDOW_IS_ONE_DIMENSIONAL.md
+#
+# The legacy ThermoDSE ptrace path is NOT valid evidence: see docs/THERMODSE_ENDPOINT_AUDIT.md.
+# HISTORICAL, superseded by the block above -- retained because V6's rejection still stands on its
+# own terms and the transient claim must not be quietly reopened.
 # V6 closed the physical-trace gate and REJECTED the broad transient claim: under block and
 # grid64-avg, periodic time structure changes no feasibility decision, thermal ordering or
 # selected architecture across the 2x3 matrix (largest uplift 0.144 K), while spatial model
