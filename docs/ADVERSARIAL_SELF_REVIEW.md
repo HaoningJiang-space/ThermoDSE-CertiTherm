@@ -47,10 +47,23 @@ closes it, and the residual-majorant route is closed at `1.0012` after equilibra
 (`GB1_THE_NAIVE_MAJORANT_IS_VACUOUS.md`). The remaining route is a comparison-principle
 supersolution, which is one-sided and matches what a fail-closed certificate needs. **Not done.**
 
-**B2. "`gridN-avg` breaks thermal reciprocity, so your `R` is not symmetric."** **KNOWN, quantified
-by `CertiTherm/reciprocity.py`, not folded in.** Maxwell–Betti says a physical `R` is symmetric;
-HotSpot's block-average grid mapping is not. *Experiment:* report the certified peak computed from
-`R` and from `(R + Rᵀ)/2` and bound the difference. **Owed.**
+**B2. "`gridN-avg` breaks thermal reciprocity, so your `R` is not symmetric."** **ALREADY MEASURED,
+and I listed it as owed — which is this project's own rule violated: grep for the ANSWER, not for a
+script.** `CertiTherm/reciprocity.py`'s docstring already reports the experiment I was about to
+design. Symmetrising the operator moves the certifying quantity `max_j sup_p T_j(p)` by
+**+0.0142 to +0.0711 K** at `grid128-avg`, two orders of magnitude below a first estimate that
+multiplied the relative asymmetry by the operator scale — that estimate is recorded there as
+withdrawn. The asymmetry is entrywise while the certificate is a max over rows of a weighted sum, so
+the asymmetric parts align with neither the argmax row nor the extremal power vector and largely
+cancel.
+
+**And at the cell endpoint the objection largely dissolves, for a reason worth stating.** The
+asymmetry arises because assigning grid cells to blocks by membership is not the adjoint-consistent
+`L²` projection. At the cell endpoint there is no such assignment on the output side: `R` is
+`16 384 × 233`, not square, so Maxwell–Betti symmetry is not even a defined property of it. What
+survives is the **input** side — a block's power spread over the cells it covers — and that is the
+same non-adjoint mapping. *So the residue is real but smaller than the ≤0.07 K already measured, and
+the honest statement is that it is bounded by it rather than equal to it.* **Not owed; stated.**
 
 **B3. "Your routed lowering has its own free parameters."** **CONCEDED, named, unmeasured.**
 `io_die_aspect_ratio` is labelled *"a sensitivity parameter, not a discovered fact"* at
@@ -107,6 +120,8 @@ method.
 ## The three that would most change the paper
 
 1. **A4** — `e_total` at the cell endpoint. It can move two of six certifications to `UNRESOLVED`.
-2. **B3** — the routed lowering's own freedom. It is the input every verdict now rests on.
-3. **B2** — reciprocity. If `R`'s asymmetry is comparable to the margins, the certified quantity is
-   not the physical one.
+2. **A6/A3** — one package and one envelope span. Both are repeats on existing operators.
+3. **B3** — the routed lowering's own freedom, promoted here from second place because **B2 turned
+   out to be already answered at ≤0.07 K**. Two of its three parameters are matvecs on operators
+   already built, so the cost of settling it is minutes and the cost of not settling it is that every
+   verdict rests on an unmeasured input.
