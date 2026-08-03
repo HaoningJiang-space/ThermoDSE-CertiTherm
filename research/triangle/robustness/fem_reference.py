@@ -668,13 +668,20 @@ def main() -> None:
             f"{unowned} of {ownership.size} cells are owned by no region; the FEM box must be tiled "
             "and the solver would refuse after building the mesh"
         )
+    # The source regions are named `die::` at block granularity and `cell::` at cell granularity;
+    # the check is the same in both cases -- every source region must own at least one mesh cell, or
+    # its power is silently dropped. Getting the prefix wrong makes the check pass vacuously, which
+    # is why it is derived from the flag rather than hard-coded.
+    source_prefix = "cell::" if CELL_ENDPOINT_N else "die::"
+    expected_sources = CELL_ENDPOINT_N ** 2 if CELL_ENDPOINT_N else len(blocks)
     owned_die = {
         probe.regions[i].region_id for i in np.unique(ownership) if
-        probe.regions[i].region_id.startswith("die::")
+        probe.regions[i].region_id.startswith(source_prefix)
     }
-    if len(owned_die) != len(blocks):
+    if len(owned_die) != expected_sources:
         raise SystemExit(
-            f"only {len(owned_die)} of {len(blocks)} die blocks own any cell; the lateral mesh is "
+            f"only {len(owned_die)} of {expected_sources} source regions own any mesh cell; "
+            f"the lateral mesh is "
             "too coarse to resolve the floorplan and those blocks would get no power at all"
         )
     if _dry_run:
