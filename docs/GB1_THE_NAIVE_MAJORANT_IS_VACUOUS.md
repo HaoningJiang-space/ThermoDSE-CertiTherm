@@ -257,10 +257,17 @@ Two independent results, both after the section above was written.
 | 12 | 135 625 | **0.8545** |
 | 18 | — | timed out at 4 000 s |
 
-The measured rate is **`h^0.751`** — statistically the same as P1's naive **`h^0.770`**. That is
-exactly what the structural argument predicts and nobody drew the consequence: the `O(1)` mass of the
-absolute-jump measure is a statement about **faces**, and it does not depend on the element degree.
-P2 replaces the volume term; **the face term still sets the rate.**
+The measured rate is **`h^0.751`** — statistically the same as P1's naive **`h^0.770`**.
+
+**The attribution written here first was WRONG and is withdrawn.** It said "the face term still sets
+the rate". **The equilibrated load contains no `dS` term at all** — it is
+`|volume| dx + |robin| ds` — so its rate cannot be attributed to a term that was removed. What the
+coincidence of the two rates shows is only that *something* limits both at a similar order, and
+identifying it needs the three contributions solved separately, which is now what the probe does.
+
+"`the face term is O(1)`" and "`what survives its removal converges slowly`" are different claims.
+Only the first was ever derived; the second was measured and then explained by the first, which does
+not follow.
 
 Extrapolating on the measured rate, reaching the registered bar from `cells = 12` needs **24.2x**
 refinement in `h`, i.e. **~290 cells per axis** and **~1.9e9 dofs in 3-D** — on a synthetic box of
