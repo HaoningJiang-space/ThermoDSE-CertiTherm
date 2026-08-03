@@ -37,13 +37,19 @@ below the die, and this puts its heat into the die blocks above it. That is the 
 executed HotSpot model already makes (block mode, one layer, no `-model_3D`), so it is consistent
 with the pipeline rather than an improvement on it. A stacked model would be a different study.
 
-## Two brackets, because only one destination is established
+## Both columns are established; neither is an assumption
 
-* **NoP only** — `1.0052e9 / (3.7405e9 + 1.0052e9) = 21.18 %` of the missing energy. Its destination
-  is fixed by the generator, so this bracket is established.
-* **all missing** — the upper bracket, assuming the DRAM share also lands centrally. DRAM's own
-  placing code is commented out (`statistic.py:359-363`) and would have written `dram` plus four edge
-  strips, so its split is **not** established and this bracket is an assumption.
+`gen_all_ptrace_3D` writes its header **central first** —
+`'interposer\tinterposer_e0\t...'` — and then `p_itp, 0, 0, 0, 0`, so NoP goes wholly to the central
+block and the frame strips get zero. The commented-out DRAM block repeats the pattern with its own
+header line (`# str_ += 'dram\tdram_e0\t...'`) and `p_itp` accumulated from `dram_dict`, so **its
+intended placement is 100 % central too**.
+
+* **NoP only** — `21.18 %` of the missing energy. What the uncommented code places today.
+* **both** — the placement the generator states once the commented DRAM write is restored.
+
+An earlier version of this file called the second column an assumption, on a reading that had the
+column order backwards (`_e0` first). The header line is one line above the write and settles it.
 
 NON-CLAIM diagnostic. Reads committed operators and captures; writes nothing.
 
