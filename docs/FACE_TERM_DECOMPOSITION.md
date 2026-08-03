@@ -53,3 +53,66 @@ The P2 decomposition is running in the same session. It decides whether the face
 binding constraint once the volume identity is broken — which is the only configuration in which
 "attack the face term" is a well-posed instruction. Its `h^0.794` rate at P1 is the prior estimate
 of what an attack would have to beat.
+
+---
+
+# P2: the face term is NOT the barrier, and the goal is answered in the negative
+
+| degree | cells | VOLUME | ROBIN | FACE | equilibrated (= VOL + ROB) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 6 | **1.0000** | 0.0012 | 56.9458 | 1.0012 |
+| 1 | 12 | **1.0000** | 0.0012 | 32.8507 | 1.0012 |
+| 2 | 6 | 1.4379 | 0.0001 | 14.5339 | 1.4380 |
+| 2 | 12 | **0.8544** | ~0.0001 | — | 0.8545 |
+
+*(medians over 9 impulses; `EQUILIBRATED = VOLUME + ROBIN` to four decimals at every point, which
+confirms the decomposition is exact and the withdrawal in `GB1` was correct — the equilibrated
+column's rate is the VOLUME term's rate, and never had a face contribution to attribute it to.)*
+
+## Three measured rates, and the one that matters
+
+| term | rate |
+| --- | ---: |
+| VOLUME at P1 | **`h^0.000`** — exactly 1.0000 at both meshes, mesh-independent by identity |
+| FACE at P1 | `h^0.794` |
+| **VOLUME at P2** | **`h^0.751`** |
+
+**A degree-2 element should give roughly `h^2` on a smooth problem. It gives `h^0.751`.** That is
+the finding, and it is not about faces at all: the solution has **limited regularity at the material
+interfaces**, so raising the polynomial degree does not buy the order it would on a smooth domain.
+This box has conductivity contrast **3.08**; the real package has **1.54e4**.
+
+## The goal, answered
+
+The instruction was to attack the face term's `O(1)` mass to the limit. Pushed to the limit, the
+answer is that **the face term is not what stands in the way**, and the decomposition shows it twice:
+
+* **At P1**, driving the face contribution to exactly zero — the limit of any equilibrated flux
+  reconstruction — lands on `1.0012`, with the mesh-independent identity `VOLUME = 1.0000` beneath
+  it. The face term is **98.3 %** of the naive majorant and attacking it perfectly buys **nothing**.
+* **At P2**, the face term does fall by 2.3x (56.95 -> 14.53 at `cells=6`), so raising the degree
+  attacks it for free. But what is left converges at `h^0.751`, and that rate is **the volume term's**,
+  set by interface regularity — not by anything a flux reconstruction touches.
+
+So there is no configuration in which "attack the face term" is the binding move. Before the volume
+identity is broken it buys zero; after it is broken the volume term is already the slower one.
+
+## What the barrier actually is, and what would have to be attacked instead
+
+**Limited elliptic regularity at material interfaces.** The candidate attacks, in the order the
+measurements support:
+
+1. **Interface-fitted refinement / graded meshes at the material boundaries** — recover the
+   asymptotic order where the regularity is lost, rather than refining uniformly. This is the only
+   attack the `h^0.751` rate directly implicates, and it is cheap to test with the existing probe.
+2. **`|.|`-free majorant forms.** The `O(1)` mass exists *because* the absolute value destroys the
+   sign cancellation the true residual has. A majorant that keeps the sign would not have it — but
+   the two-sided pointwise bound is what forces `|.|`, so this is a change of the certificate's form,
+   not of its discretisation.
+3. **Higher degree still.** Refuted in advance by the rate: at P2 the order is already limited by
+   regularity rather than by the polynomial space, so P3 buys the same `h^0.751`.
+
+**Not established:** that no pointwise route exists. **Established:** that the face term is not the
+obstruction, that a perfect equilibrated flux reconstruction is worth exactly `1.0012 -> 1.0000` at
+P1 and nothing at all in rate, and that the barrier is regularity at the interfaces — on a
+contrast-3.08 box, four orders of magnitude milder than the real package.
