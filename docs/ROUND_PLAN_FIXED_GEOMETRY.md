@@ -65,29 +65,19 @@ is reported, not discovered later.
 
 ### G2 -- the quality separation pilot, NON-CLAIM
 
-One fixed architecture. `arch_b`/transformer as the near-limit positive case -- it is refused at the
-cell endpoint with the peak above the limit itself -- and `arch_b`/resnet50 as the slack negative
-control. Multiple genuinely legal mappings on that geometry. Three arms: the precomputed linear
-thermal constraint, a fixed guard band, and per-candidate HotSpot replay.
-
-**State the criterion as a window, not a margin or a span** -- the one durable idea salvaged from the
-withdrawn probe. A quality claim answers "is there a design the incumbent convention rejects and this
-method accepts", which is membership in `(L - g, L - margin - e_total]`. Three consequences: the
-window is **bounded above**, so an omitted source can push a candidate out of it, which is why G1
-precedes G2; the upper edge is **not yet a number at the certifying endpoint**, because the model-form
-band is measured at block rows while the certificate is evaluated at cell rows, so the pilot reports
-the interval over which a candidate stays inside rather than a verdict at one assumed value; and a
-**candidate is not a separator** until a legal-mapper reconstruction and an independent replay have
-both run.
-
-**Bar to clear -- GO:** at least one mapping accepted by the computed constraint, judged safe by
-independent replay, wrongly rejected by the guard band, with a better objective; and zero online
-thermal solves after the operator is built offline, with amortised cost reported including the
-offline build.
-
-**Bar to clear -- STOP:** if no such separator exists in a near-limit population, the "quality
-improvement" claim is dropped and only the finite-catalogue precomputation / screening direction
-survives. That is a real outcome and is to be written up, not retried.
+> **REPAIRED 2026-08-03, see `G2_REPAIR_THE_WINDOW_IS_ONE_DIMENSIONAL.md`. Do not run the version
+> below.** It had three defects: the upper edge `e_total` exists in no source file, the lower edge
+> `g` is unsourced, and the named "slack negative control" `arch_b`/resnet50 has a net margin of
+> **0.143 K** under the corrected trace — it is the tightest surviving case.
+>
+> The repair collapses the window to one dimension. With `dist = L - T`, a candidate is a separator
+> **iff** `margin + e_total <= dist < g`. So the window's non-emptiness is candidate-independent
+> arithmetic (`g > margin + e_total`), and it is **not** the binding constraint: at `g = 3` the
+> window is 1.5-2.7 K wide across the whole plausible `e_total` range. What binds is the population —
+> **none of the six development points lies in the band**, which is `archive-census-v1`'s failure
+> visible before the pilot rather than after it. G2 splits into `G2a` (screen for candidates with
+> `dist` in the band, over a population wider than the development split) and `G2b` (the separator
+> test, reported as the `(g, e_total)` region rather than a verdict at assumed constants).
 
 ### G3 -- only after G2 is GO
 
