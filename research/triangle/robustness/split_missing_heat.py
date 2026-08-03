@@ -36,6 +36,24 @@ from CertiTherm.experiments import _power_space
 MISSING_OVER_ARRIVING = 9.2218 / 4.6118 - 1.0
 CROSS_SOLVER_BAND_K = (0.2997, 1.4332)          # docs/PACKAGE_SWEEP_RESULT.md, all three packages
 
+# NON-UNIFORMITY ALLOWANCE. The uniform-density cap `q_i <= Q * A_i / A(S)` with the total equality
+# `sum q_i = Q` is a SINGLETON, not a set: summing the caps gives exactly `Q`, so every `q_i` is
+# forced to its bound and the only feasible placement is the uniform one. The "spread" it produces is
+# therefore the value AT an assumed placement, not a supremum over placements, and a certificate read
+# off it certifies uniform density rather than every admissible spreading. Verified numerically:
+# `sum(upper) == Q` to machine precision at n = 5, 50 and 181.
+#
+# `kappa` restores the set. `q_i <= kappa * Q * A_i / A(S)` says the heat is spread over the die and
+# no block carries more than `kappa` times its area share -- `kappa = 1` is exactly uniform (the
+# singleton), and `kappa >= A(S) / min_i A_i` readmits the point load. The greedy fill stays exact
+# because a box with a total equality is a fractional knapsack at every `kappa`.
+#
+# NO SOURCE IS CLAIMED FOR ANY PARTICULAR VALUE. What is reported instead is the CRITICAL kappa at
+# which each case stops certifying, which needs no provenance and turns the assumption into a
+# falsifiable condition: "this verdict holds unless some block carries more than K times its area
+# share".
+KAPPA_SWEEP = (1.0, 1.25, 1.5, 2.0, 3.0, 5.0, 10.0)
+
 
 def _geometry(floorplan_text: str, blocks):
     """`(frame_area, centre_area, per-block area)` from the capture's own floorplan."""
@@ -106,7 +124,7 @@ def main() -> None:
         # statement "the heat is spread over the die, we just do not know how evenly". The total
         # equality is unchanged, so the set still contains every admissible spreading.
         die_area = float(areas[die].sum())
-        upper = np.where(die, centre_w * areas / max(die_area, 1e-30), 0.0)
+        share = np.where(die, centre_w * areas / max(die_area, 1e-30), 0.0)
 
         nominal = rows @ (power + placed_nuisance) + ambient
         hottest = int(np.argmax(nominal))
@@ -132,9 +150,43 @@ def main() -> None:
         row = rows[hottest]
         m = float(row[die].min())
         guaranteed = centre_w * m
-        spread = float(_extreme_rows((row - m)[None, :], lower, upper, centre_w)[0])
+
+        def spread_at(kappa):
+            """`sup_q sum_i (R_ji - m) q_i` over the box `[0, kappa * share]` with `sum q = Q`.
+
+            At `kappa = 1` the box's own sum equals `Q`, so the greedy has no freedom and returns the
+            uniform-density value. Above 1 it is a genuine supremum over a non-degenerate set.
+            """
+            return float(_extreme_rows((row - m)[None, :], lower,
+                                       np.asarray(kappa) * share, centre_w)[0])
+
+        spread = spread_at(1.0)
+        by_kappa = {f"{k:g}": spread_at(k) for k in KAPPA_SWEEP}
+
+        # The critical kappa: where `peak + guaranteed + spread(kappa)` first reaches the limit.
+        # Monotone in kappa (a larger box can only raise a supremum), so a bisection is exact to
+        # tolerance and needs no provenance for kappa itself.
+        headroom = limit - (peak + guaranteed)
+        if headroom <= 0.0:
+            critical = 0.0                      # already refuted before any placement is considered
+        elif spread_at(KAPPA_SWEEP[-1]) <= headroom:
+            critical = float("inf")             # survives the whole swept range
+        else:
+            lo, hi = 1.0, float(KAPPA_SWEEP[-1])
+            if spread_at(lo) > headroom:
+                critical = 1.0                  # fails even at exact uniform density
+            else:
+                for _ in range(60):
+                    mid = 0.5 * (lo + hi)
+                    if spread_at(mid) <= headroom:
+                        lo = mid
+                    else:
+                        hi = mid
+                critical = lo
 
         results.append({
+            "spread_by_kappa_k": by_kappa,
+            "critical_kappa": critical,
             "workload": workload, "architecture": arch, "package": package,
             "frame_fraction": frame_fraction,
             "missing_w": missing_w,
@@ -145,7 +197,7 @@ def main() -> None:
             "upper_bound_k": peak + guaranteed + spread,
             "slack_k": limit - (peak + guaranteed + spread),
             "refuted_regardless_of_placement": bool(peak + guaranteed > limit),
-            "certified": bool(peak + guaranteed + spread <= limit),
+            "certified_at_uniform_density": bool(peak + guaranteed + spread <= limit),
         })
 
     if not results:
@@ -159,12 +211,13 @@ def main() -> None:
             continue
         band_hi = CROSS_SOLVER_BAND_K[1]
         verdict[workload] = (
-            "HEADLINE HOLDS: arch_b %s, arch_c certified with %.3f K against a %.4f K band"
+            "HEADLINE HOLDS AT UNIFORM DENSITY: arch_b %s, arch_c certified with %.3f K against a "
+            "%.4f K band, and stops certifying once some block carries more than %.3gx its area share"
             % ("refuted under EVERY placement" if b["refuted_regardless_of_placement"]
-               else "not certified", c["slack_k"], band_hi)
-            if (not b["certified"]) and c["certified"] and c["slack_k"] > band_hi else
+               else "not certified", c["slack_k"], band_hi, c["critical_kappa"])
+            if (not b["certified_at_uniform_density"]) and c["certified_at_uniform_density"] and c["slack_k"] > band_hi else
             "UNRESOLVED: arch_b certified=%s, arch_c certified=%s, arch_c slack %.3f K vs band %.4f K"
-            % (b["certified"], c["certified"], c["slack_k"], band_hi)
+            % (b["certified_at_uniform_density"], c["certified_at_uniform_density"], c["slack_k"], band_hi)
         )
     print(json.dumps({"missing_over_arriving": MISSING_OVER_ARRIVING,
                       "cross_solver_band_k": CROSS_SOLVER_BAND_K,
