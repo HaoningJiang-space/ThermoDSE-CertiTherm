@@ -617,8 +617,21 @@ def lower_routed_trace(
         # NAME THE ORDER AND THE MAGNITUDE. A refusal that says only "does not reconcile" cannot be
         # told apart from a rounding tolerance that is too tight, and three archive designs were
         # excluded from a census on this message with no way to know which it was.
-        got = np.asarray(physical_external_by_order_j, dtype=float)
-        want = np.asarray(core.unplaced_energy_j, dtype=float)
+        #
+        # AN ERROR PATH MUST NEVER BE ABLE TO RAISE. The first version of this message indexed the
+        # worst order without checking that the two arrays have the same length -- and they do not
+        # on the designs that fail, so the refusal died with an IndexError instead of printing. The
+        # shape check is therefore first, and the mismatch is itself the diagnosis: a per-order
+        # ledger of a different LENGTH is not a tolerance problem.
+        got = np.asarray(physical_external_by_order_j, dtype=float).ravel()
+        want = np.asarray(core.unplaced_energy_j, dtype=float).ravel()
+        if got.shape != want.shape:
+            raise ValueError(
+                "physical route energy does not reconcile with per-order monitor energy: the "
+                f"physical ledger has {got.size} orders and the monitor {want.size}. This is a "
+                "structural mismatch, not a tolerance one -- the two ledgers do not agree on how "
+                "many orders the workload has, so no per-order comparison is defined."
+            )
         scale = np.maximum(np.abs(want), 1e-300)
         relative = np.abs(got - want) / scale
         worst = int(np.argmax(relative))
@@ -628,6 +641,7 @@ def lower_routed_trace(
             f"{relative[worst]:.6e} against rtol 1e-11; {int(np.count_nonzero(relative > 1e-11))} "
             "orders disagree"
         )
+
     powers_w = energy_j / core.trace.durations_s[:, None]
     trace = PhaseTrace(core.trace.durations_s, powers_w)
     full_source_energy_j = core.represented_energy_j + route_total_j
