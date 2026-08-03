@@ -19,15 +19,15 @@ So the question is not whether the space factors but **along which coordinates**
 `geometry_factorisation.py` perturbs one design field at a time from `arch_a` and digests the
 resulting floorplan:
 
-| field | perturbation | floorplan, `arch_a` | floorplan, `arch_b` |
-| --- | --- | --- | --- |
-| `chiplet_x`, `chiplet_y`, `cut_x`, `cut_y` | +1 | **moves** | **moves** |
-| `mtxu_h`, `mtxu_w`, `ubuf`, `nop_bw`, `dram_bw` | x2 | **moves** | **moves** |
-| `interval` | +0.0003 m | *invariant* | **moves** |
+| field | perturbation | `arch_a` | `arch_b` | `arch_c` |
+| --- | --- | --- | --- | --- |
+| `chiplet_x`, `chiplet_y`, `cut_x`, `cut_y` | +1 | **moves** | **moves** | **moves** |
+| `mtxu_h`, `mtxu_w`, `ubuf`, `nop_bw`, `dram_bw` | x2 | **moves** | **moves** | **moves** |
+| `interval` | +0.0003 m | *invariant* | **moves** | **moves** |
 
 **Zero of ten, and the first measurement said one.** Measured on `arch_a` alone, `interval` left the
-floorplan byte-identical and this document said so. On `arch_b` it moves the floorplan like every
-other field. The reason is `arch_a`'s own configuration — `cut_x = cut_y = 1`, so there are no
+floorplan byte-identical and this document said so. On `arch_b` and `arch_c` it moves the floorplan like every
+other field — `geometry-invariant: NONE` on both. The reason is `arch_a`'s own configuration — `cut_x = cut_y = 1`, so there are no
 inter-chiplet gaps for the interval to space — and the invariance was that design's artefact, not a
 property of the parameter. **A one-base measurement was generalised to the design vector and it was
 wrong; the correction is measured on a second base, not argued.**
