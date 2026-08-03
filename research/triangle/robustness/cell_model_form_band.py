@@ -97,6 +97,26 @@ def main() -> None:
         np.asarray(polytope.b_ub, dtype=float),
     )
     nominal = (fem_rows - hs_rows) @ power + (fem_ambient - hs_ambient)
+
+    # TWO DIFFERENT QUANTITIES, AND THE PAPER MUST NOT CONFLATE THEM.
+    #
+    # `e_total = max_j sup_p (T_fem - T_hs)_j` is the ROW-WISE band -- the largest disagreement at
+    # any cell, under the worst power map for that cell. It is the quantity the block-row band used
+    # and it is what a certificate folds in if it wants `T_fem_j <= T_hs_j + e` for every row.
+    #
+    # `delta_certified = max_j sup_p T_fem_j - max_j sup_p T_hs_j` is the difference in the
+    # CERTIFIED QUANTITY itself. It is what actually moves a verdict, and it is far smaller whenever
+    # the two solvers disagree most on cells that are not the hottest -- which is exactly what the
+    # nominal peaks agreeing to 0.07 K while `at_nominal_max` reaches 2.6 K says is happening here.
+    #
+    # Both are reported. `e_total` is the sound thing to fold in row-wise; `delta_certified` is the
+    # honest measure of how much the choice of solver moves the answer. Quoting either alone
+    # misleads in a different direction.
+    from CertiTherm.cross_grid_bound import _extreme_rows
+    lower = np.asarray(polytope.lower_w, dtype=float)
+    upper = np.asarray(polytope.upper_w, dtype=float)
+    hs_sup = float(np.max(_extreme_rows(hs_rows, lower, upper, float(b_eq[0])) + hs_ambient))
+    fem_sup = float(np.max(_extreme_rows(fem_rows, lower, upper, float(b_eq[0])) + fem_ambient))
     band = float(np.max(hotter))
     if not math.isfinite(band):
         raise SystemExit("the band is not finite; UNRESOLVED rather than a number")
@@ -113,6 +133,9 @@ def main() -> None:
         "at_nominal_min_k": float(np.min(nominal)),
         "hotspot_nominal_peak_k": float(np.max(hs_rows @ power + hs_ambient)),
         "fem_nominal_peak_k": float(np.max(fem_rows @ power + fem_ambient)),
+        "hotspot_certified_peak_k": hs_sup,
+        "fem_certified_peak_k": fem_sup,
+        "delta_certified_k": fem_sup - hs_sup,
     }
     print(json.dumps(payload, indent=1, sort_keys=True))
     Path(str(fem_path).replace("-cell.npz", "-band.json")).write_text(
