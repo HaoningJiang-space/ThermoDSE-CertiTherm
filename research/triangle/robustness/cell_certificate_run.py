@@ -32,6 +32,7 @@ import math
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -89,20 +90,55 @@ def _cell_field(config: Path, floorplan: Path, blocks, power, model_id: str, wor
     return field
 
 
-def cell_operator(config, floorplan, blocks, model_id, work):
-    """Response matrix over CELLS: one impulse per block, exactly as the block operator costs."""
+def cell_operator(config, floorplan, blocks, model_id, work, workers: int = 1):
+    """Response matrix over CELLS: one impulse per block, exactly as the block operator costs.
+
+    THE IMPULSE LOOP IS EMBARRASSINGLY PARALLEL AND WAS RUNNING ON ONE CORE OF FIFTY-TWO. Each
+    impulse is an independent invocation of the pinned HotSpot binary with its own `-p`,
+    `-steady_file` and `-grid_steady_file` paths, tagged by index, so no two calls touch a shared
+    file and none shares process state. HotSpot itself is single-threaded C with a ~6 MB resident
+    set. Raising `workers` is therefore a SCHEDULING change and nothing else -- the binary is
+    deterministic and each call sees byte-identical inputs, so the response matrix is bit-identical
+    at every `workers`. That equality is checked, not asserted: see
+    `docs/THE_IMPULSE_LOOP_IS_PARALLEL.md`.
+
+    This is also why it is not a GPU question. HotSpot has no GPU build, and the endpoint has to be
+    HotSpot's or the number is not comparable with `docs/CELL_ENDPOINT_RESULT.md`. The GPU path
+    (`fem_batch_gpu.py`, one factorisation and a batched solve through cuDSS) is for the FEM
+    reference, which is a different model answering a different question.
+
+    A thread pool, not a process pool: the work is entirely inside `subprocess.run`, which releases
+    the GIL for its whole duration.
+    """
 
     size = int(model_id[4:].split("-")[0])
     zero = np.zeros(len(blocks))
     ambient = _cell_field(config, floorplan, blocks, zero, model_id, work, f"{model_id}-amb")
     response = np.empty((size * size, len(blocks)), dtype=float)
-    for index in range(len(blocks)):
+
+    def one(index):
         impulse = zero.copy()
         impulse[index] = 1.0
-        field = _cell_field(config, floorplan, blocks, impulse, model_id, work, f"{model_id}-{index}")
-        response[:, index] = field - ambient
-        if index % 25 == 0:
-            print(f"  {model_id}: impulse {index}/{len(blocks)}", flush=True)
+        return index, _cell_field(config, floorplan, blocks, impulse, model_id, work,
+                                  f"{model_id}-{index}")
+
+    if workers <= 1:
+        done = 0
+        for index in range(len(blocks)):
+            _, field = one(index)
+            response[:, index] = field - ambient
+            done += 1
+            if index % 25 == 0:
+                print(f"  {model_id}: impulse {index}/{len(blocks)}", flush=True)
+        return response, ambient
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for index, field in pool.map(one, range(len(blocks))):
+            response[:, index] = field - ambient
+            done += 1
+            if done % 25 == 0 or done == len(blocks):
+                print(f"  {model_id}: impulse {done}/{len(blocks)} ({workers} workers)", flush=True)
     return response, ambient
 
 

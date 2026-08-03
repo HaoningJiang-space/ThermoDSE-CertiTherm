@@ -39,7 +39,7 @@ rather than the cuDSS batch path.
 Usage (moe-server, repo root):
 
     .venv/bin/python research/triangle/robustness/routed_cell_certificate.py \\
-        <complete_trace.npz> <complete_floorplan.flp> <workspace> <out.json> [model] [span]
+        <complete_trace.npz> <complete_floorplan.flp> <workspace> <out.json> [model] [span] [workers]
 """
 
 from __future__ import annotations
@@ -117,6 +117,8 @@ def main() -> None:
     out_path = Path(sys.argv[4])
     model_id = sys.argv[5] if len(sys.argv) > 5 else "grid128-avg"
     span = float(sys.argv[6]) if len(sys.argv) > 6 else 0.30
+    # Scheduling only: the operator is bit-identical at every worker count, see cell_operator.
+    workers = int(sys.argv[7]) if len(sys.argv) > 7 else 1
 
     blocks, placed, horizon, receipts = _steady_power(trace_path)
     floorplan_text = floorplan_src.read_text(encoding="utf-8")
@@ -140,7 +142,7 @@ def main() -> None:
     operator = out_path.with_suffix(".npz")
     if not operator.exists():
         started = time.monotonic()
-        rows, ambient = cell_operator(config, floorplan, blocks, model_id, work)
+        rows, ambient = cell_operator(config, floorplan, blocks, model_id, work, workers)
         print("  built in %.0f s" % (time.monotonic() - started), flush=True)
         np.savez_compressed(
             operator, model_ids=np.asarray([model_id]), response_k_per_w=rows[None, :, :],

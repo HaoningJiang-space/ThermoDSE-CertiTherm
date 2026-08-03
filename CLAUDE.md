@@ -79,6 +79,29 @@ Per the parent workspace's execution authority, HotSpot builds, `make bootstrap`
 and must run on `moe-server` from a clean worktree at a committed revision, not locally.
 Locally you may edit files, read/inspect, and run lightweight static checks.
 
+### Where the load goes — GPU by default, and the two exceptions
+
+`moe-server` has two A800s and they are usually idle. **Anything this project assembles itself goes
+on the GPU**: `research/triangle/robustness/fem_batch_gpu.py` is the pattern — one mesh and stiffness
+assembly, one cuDSS factorisation, then every right-hand side as one batch. A new multi-RHS solve
+should reuse that path, not start from CPU SciPy. Do not call a task CPU-only before checking whether
+a GPU path is already committed; this repo has one and it is easy to miss.
+
+Two exceptions, and both are measured rather than assumed:
+
+* **The pinned HotSpot binary has no GPU build, and that is a comparability constraint.** Any operator
+  whose endpoint must match `docs/CELL_ENDPOINT_RESULT.md` runs the patched HotSpot C binary.
+  Substituting our own solver would change the object being certified, not just the hardware. The
+  correct optimisation there is **process-level parallelism**: `cell_operator` issues N independent
+  single-threaded HotSpot subprocesses (one per block impulse, distinct filenames, no shared state)
+  on a 52-core host, so the impulse loop parallelises exactly and bit-identically.
+* **Profile before tuning the GPU.** `docs/FEM_COST_IS_NOT_ON_THE_GPU.md` measured the FEM build: the
+  GPU solve is **0.2 %** of wall time, against 35 % mesh construction, 30 % per-problem postprocess
+  and 21 % RHS assembly. "The GPU is idle" there means it finished. Moving work *to* the GPU is the
+  default; optimising the GPU kernel needs a measurement first.
+
+Never compile C++/CUDA locally — builds and GPU runs go on `moe-server`, under `/data/$USER`.
+
 ## Architecture
 
 ### `CertiTherm/` — the active DSOS pipeline
