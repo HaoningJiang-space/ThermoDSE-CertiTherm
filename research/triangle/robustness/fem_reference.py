@@ -65,6 +65,7 @@ Usage (on moe-server, from the repo root):
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
@@ -581,48 +582,62 @@ def main() -> None:
         )
     )
 
-    # CELL OWNERSHIP, computed once. Each readout cell is assigned the block whose rectangle contains
-    # its midpoint -- the same midpoint rule `_region_indices` uses to assign mesh cells to regions,
-    # so the two agree by construction rather than by coincidence. A cell owned by no block is a
-    # refusal: the die footprint is fully tiled by the floorplan, and a hole would mean the readout
-    # grid and the floorplan disagree about where the die is.
-    cell_owner = None
+    # CELL POWER BY EXACT OVERLAP AREA, not by midpoint ownership.
+    #
+    # The first version assigned each cell to the block containing its midpoint and gave the cell
+    # that block's power DENSITY. That is wrong whenever a block is smaller than a cell -- the thin
+    # `io_*` strips are -- because the small block's density then covers the whole cell and its power
+    # is multiplied by `A_cell / A_block`. Measured: a unit impulse generated **3.9 W**, and the
+    # energy-balance gate refused every run rather than reporting a response matrix built from it.
+    #
+    # The correct mapping is the one HotSpot's own grid model uses: distribute each block's power to
+    # the cells it overlaps, in proportion to the overlap AREA. It is linear in the power vector, so
+    # it is a fixed weight matrix `W` with `cell_power = W @ power_w`, and it conserves power exactly
+    # because `sum_c W[c, b] = (sum_c overlap(c, b)) / A_b = 1` for any block inside the die. That
+    # identity is CHECKED at construction rather than trusted -- it is the whole reason the mapping
+    # is correct, and the previous version failed exactly it.
+    #
+    # Separability makes it cheap: a cell-block overlap is `overlap_x * overlap_y`, so each block
+    # costs two 1-D interval intersections rather than a scan over 16 384 cells.
+    cell_weights = None
     if CELL_ENDPOINT_N:
-        cell_owner = np.full((CELL_ENDPOINT_N, CELL_ENDPOINT_N), -1, dtype=np.int64)
-        for j in range(CELL_ENDPOINT_N):
-            my = die_height * (j + 0.5) / CELL_ENDPOINT_N
-            for i in range(CELL_ENDPOINT_N):
-                mx = die_width * (i + 0.5) / CELL_ENDPOINT_N
-                for index, (_n, x0, y0, x1, y1) in enumerate(blocks):
-                    if x0 <= mx <= x1 and y0 <= my <= y1:
-                        cell_owner[j, i] = index
-                        break
-        unowned = int(np.count_nonzero(cell_owner < 0))
-        if unowned:
+        ex = np.linspace(0.0, die_width, CELL_ENDPOINT_N + 1)
+        ey = np.linspace(0.0, die_height, CELL_ENDPOINT_N + 1)
+        cell_weights = np.zeros((CELL_ENDPOINT_N * CELL_ENDPOINT_N, len(blocks)), dtype=float)
+        for index, (_n, x0, y0, x1, y1) in enumerate(blocks):
+            area = (x1 - x0) * (y1 - y0)
+            if area <= 0.0:
+                raise SystemExit(f"block {_n!r} has non-positive area {area!r}")
+            ox = np.clip(np.minimum(ex[1:], x1) - np.maximum(ex[:-1], x0), 0.0, None)
+            oy = np.clip(np.minimum(ey[1:], y1) - np.maximum(ey[:-1], y0), 0.0, None)
+            cell_weights[:, index] = np.outer(oy, ox).ravel() / area
+        column_sums = cell_weights.sum(axis=0)
+        worst = float(np.max(np.abs(column_sums - 1.0)))
+        if not math.isfinite(worst) or worst > 1e-9:
             raise SystemExit(
-                f"{unowned} of {CELL_ENDPOINT_N ** 2} readout cells lie in no floorplan block; the "
-                "cell grid and the floorplan disagree about the die footprint"
+                f"the cell power map does not conserve power: worst column sums to "
+                f"{column_sums[int(np.argmax(np.abs(column_sums - 1.0)))]!r} instead of 1 "
+                f"(deviation {worst:.3e}). A block must lie inside the die footprint and the cell "
+                "grid must tile it."
             )
 
     def problem(power_w: np.ndarray) -> "SteadyHeatBox":
         die_regions = []
         if CELL_ENDPOINT_N:
-            # One region per readout cell, carrying the power DENSITY of its owning block. Density is
-            # the right invariant: it makes the total power on a block equal its own value regardless
-            # of how many cells cover it, which is checked below rather than assumed.
+            # One region per readout cell, carrying the power the overlap map assigns it. Density is
+            # that power over the cell's own volume, so the total is conserved by the check above.
+            cell_power = cell_weights @ np.asarray(power_w, dtype=float)
+            cw = die_width / CELL_ENDPOINT_N
+            ch = die_height / CELL_ENDPOINT_N
+            cell_area = cw * ch
             for j in range(CELL_ENDPOINT_N):
                 for i in range(CELL_ENDPOINT_N):
-                    index = int(cell_owner[j, i])
-                    _n, bx0, by0, bx1, by1 = blocks[index]
-                    block_area = (bx1 - bx0) * (by1 - by0)
                     die_regions.append(BoxRegion(
                         f"cell::{j:04d}::{i:04d}",
-                        (_snap(die_x0 + die_width * i / CELL_ENDPOINT_N),
-                         _snap(die_y0 + die_height * j / CELL_ENDPOINT_N), source_z0),
-                        (_snap(die_x0 + die_width * (i + 1) / CELL_ENDPOINT_N),
-                         _snap(die_y0 + die_height * (j + 1) / CELL_ENDPOINT_N), z_die[1]),
+                        (_snap(die_x0 + cw * i), _snap(die_y0 + ch * j), source_z0),
+                        (_snap(die_x0 + cw * (i + 1)), _snap(die_y0 + ch * (j + 1)), z_die[1]),
                         SILICON_K_W_PER_M_K,
-                        float(power_w[index]) / (block_area * die_volume),
+                        float(cell_power[j * CELL_ENDPOINT_N + i]) / (cell_area * die_volume),
                     ))
             return SteadyHeatBox(
                 size_m=(box_x, box_y, box_z),
