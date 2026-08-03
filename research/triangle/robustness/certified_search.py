@@ -110,6 +110,48 @@ def _edyp(energy_mj: float, latency_ms: float, die_yield: float) -> float:
     return energy_mj * latency_ms / die_yield
 
 
+def coordinate_descent(seed, baseline, admissible, score, field_order, budget):
+    """First-improvement coordinate descent under a HARD feasibility constraint.
+
+    Separated from the ThermoDSE plumbing so the loop's one load-bearing invariant is testable
+    without a simulator: **an uncertified candidate is never carried forward**. A penalised search
+    would let an infeasible design become the incumbent whenever its objective was good enough, and
+    then report the best objective it saw -- which is how a constrained problem silently turns into
+    an unconstrained one. Here `incumbent` starts as the baseline only if the baseline certifies, and
+    a trial replaces it only when it both certifies AND strictly improves EDYP.
+
+    `score(arch, tag)` returns a result dict or `None` for UNRESOLVED. Returns
+    `(incumbent, current, evaluated)`.
+    """
+
+    incumbent = baseline if baseline["status"] == "CERTIFIED" else None
+    current = dict(seed)
+    spent = 1
+    improved = True
+    while improved and spent < budget:
+        improved = False
+        for name in field_order:
+            for value in admissible[name]:
+                if spent >= budget:
+                    break
+                if str(current[name]) == str(value):
+                    continue
+                trial = dict(current)
+                trial[name] = value
+                spent += 1
+                result = score(trial, f"{name}={value}")
+                if result is None or result["status"] != "CERTIFIED":
+                    continue
+                if incumbent is None or result["edyp"] < incumbent["edyp"] - 1e-12:
+                    incumbent = result
+                    current = trial
+                    improved = True
+                    break
+            if improved:
+                break
+    return incumbent, current, spent
+
+
 class Evaluator:
     """One ThermoDSE evaluation, one operator (cached), one certificate."""
 
@@ -228,34 +270,8 @@ def main() -> None:
     if baseline is None:
         raise SystemExit("the baseline could not be evaluated; there is nothing to compare against")
 
-    # Coordinate descent, first-improvement, over the archive's own value sets. The incumbent is the
-    # cheapest CERTIFIED design seen; an uncertified incumbent is never carried forward, which is what
-    # makes this a constrained search rather than a penalised one.
-    incumbent = baseline if baseline["status"] == "CERTIFIED" else None
-    current = dict(seed)
-    spent = 1
-    improved = True
-    while improved and spent < budget:
-        improved = False
-        for name in FIELD_ORDER:
-            for value in admissible[name]:
-                if spent >= budget:
-                    break
-                if str(current[name]) == str(value):
-                    continue
-                trial = dict(current)
-                trial[name] = value
-                spent += 1
-                result = score(trial, f"{name}={value}")
-                if result is None or result["status"] != "CERTIFIED":
-                    continue
-                if incumbent is None or result["edyp"] < incumbent["edyp"] - 1e-12:
-                    incumbent = result
-                    current = trial
-                    improved = True
-                    break
-            if improved:
-                break
+    incumbent, current, spent = coordinate_descent(
+        seed, baseline, admissible, score, FIELD_ORDER, budget)
 
     library.write_manifest(output / "operator_manifest.json")
     payload = {
