@@ -19,20 +19,27 @@ So the question is not whether the space factors but **along which coordinates**
 `geometry_factorisation.py` perturbs one design field at a time from `arch_a` and digests the
 resulting floorplan:
 
-| field | perturbation | floorplan |
-| --- | --- | --- |
-| `chiplet_x`, `chiplet_y`, `cut_x`, `cut_y` | +1 | **moves** |
-| `mtxu_h`, `mtxu_w`, `ubuf`, `nop_bw`, `dram_bw` | x2 | **moves** |
-| **`interval`** | +0.0003 m | **invariant** |
+| field | perturbation | floorplan, `arch_a` | floorplan, `arch_b` |
+| --- | --- | --- | --- |
+| `chiplet_x`, `chiplet_y`, `cut_x`, `cut_y` | +1 | **moves** | **moves** |
+| `mtxu_h`, `mtxu_w`, `ubuf`, `nop_bw`, `dram_bw` | x2 | **moves** | **moves** |
+| `interval` | +0.0003 m | *invariant* | **moves** |
 
-**One of ten.** The chiplet interval changes NoP link length, hence NoP energy and the power vector,
-while leaving the augmented floorplan byte-identical — so along that one axis the operator is reused
-exactly and a candidate costs 12 ms. Along the other nine it must be rebuilt.
+**Zero of ten, and the first measurement said one.** Measured on `arch_a` alone, `interval` left the
+floorplan byte-identical and this document said so. On `arch_b` it moves the floorplan like every
+other field. The reason is `arch_a`'s own configuration — `cut_x = cut_y = 1`, so there are no
+inter-chiplet gaps for the interval to space — and the invariance was that design's artefact, not a
+property of the parameter. **A one-base measurement was generalised to the design vector and it was
+wrong; the correction is measured on a second base, not argued.**
+
+So no coordinate of this design vector is geometry-invariant, the space does not factor at all, and
+the library's hit rate on a search over it is ~0.
 
 An operator cache therefore cannot amortise a general search over this design vector, and leg 2 as
 written does not exist. Two redefinitions survive and both are honest:
 
-* **Restrict the search to a fixed geometry**, which is what `DIRECTION_FIXED_GEOMETRY` already
+* **Restrict the search to a fixed geometry**, which is now the ONLY option that amortises anything,
+  and which is what `DIRECTION_FIXED_GEOMETRY` already
   decided on independent grounds (cross-geometry `R` reuse costs 0.69-2.44 K against a model-form
   band of 0.25-1.06 K). The certificate is then 12 ms per candidate over the power-determining
   parameters, and the geometry is a declared input rather than a search variable.

@@ -18,9 +18,12 @@ EDYP terms), one operator (0 s on a library hit, 30-90 s on a miss), one certifi
 is why the library is content-addressed and why the neighbourhood ordering below prefers moves that
 are known to leave the floorplan invariant.
 
-**Measured, not assumed:** of the ten design fields only `interval` is geometry-invariant
-(`geometry_factorisation.py`), so exactly one axis is free and nine are not. The search reports its
-own hit rate rather than claiming one.
+**Measured, not assumed, and the first measurement was wrong.** On `arch_a` exactly one field
+(`interval`) left the floorplan invariant; on `arch_b` **all ten move it**, `interval` included --
+`arch_a` has `cut_x = cut_y = 1`, so it has no inter-chiplet gaps for the interval to space, and the
+invariance was that design's artefact. So **no coordinate of this design vector is
+geometry-invariant**, the space does not factor, and the library's hit rate on a search over it is
+~0. The search reports its measured hit rate rather than claiming one.
 
 ## The comparison, and the two ways it could be dishonest
 
@@ -76,8 +79,9 @@ from research.triangle.robustness.cell_certificate_run import (               # 
 
 MARGIN_K = 0.05
 CEILING_K = THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K
-# Only `interval` leaves the floorplan invariant, so it is tried first: those moves are library hits
-# and cost 7 s instead of 100. The rest follow in the order that changes the power map most directly.
+# NO field leaves the floorplan invariant in general (`geometry_factorisation.py` on `arch_b`), so
+# this order buys no library hits and is kept only because it tries the fields that move the power
+# map most directly, before those that restructure the chiplet grid.
 FIELD_ORDER = ("interval", "ubuf", "nop_bw", "dram_bw", "mtxu_h", "mtxu_w",
                "cut_x", "cut_y", "chiplet_x", "chiplet_y")
 
