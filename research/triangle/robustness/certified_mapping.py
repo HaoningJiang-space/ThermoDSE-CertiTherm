@@ -36,14 +36,21 @@ under a remapping, and the per-core groups permute. For cell `j`,
 
     T_j(pi) = (R p_fixed)_j + a_j + sum_i R_{j, pi(i)} q_i
 
-and the last term is minimised over all permutations by the **rearrangement inequality**: pair the
-largest task power with the smallest coefficient. So
+and a mapping moves a core's whole power **profile** to another core's blocks, block for block. So
+the cost of putting profile `k` at position `m` is `C_j[m, k] = sum_r R[j, groups[m][r]] *
+placed[groups[k][r]]`, and
 
-    LB_j = (R p_fixed)_j + a_j + <sort_desc(q), sort_asc(R_j over core positions)>
+    LB_j = (R p_fixed)_j + a_j + min over permutations of sum_m C_j[m, pi(m)]
 
-is attained by *some* permutation for that cell, hence a valid lower bound on `T_j` over every
-mapping; and `LB = max_j LB_j` lower-bounds `min_pi max_j T_j(pi)`. It is exact per cell, costs one
-sort per cell, and needs no solver.
+is a **linear assignment problem**, solved exactly per cell. `LB = max_j LB_j` lower-bounds
+`min_pi max_j T_j(pi)`.
+
+**It is NOT a sort.** A first version applied the rearrangement inequality to per-group column sums
+and per-group power totals; summing a group's columns is the response to one watt on *every* block of
+it, which inflated the contribution by the group size and produced a "lower bound" of `345.32 K`
+against an attained `327.55 K`. A bound above an attained value is not a bound, and the direction of
+that error -- too high -- is the one that would have made any heuristic look optimal. The run now
+checks the bound against every mapping it evaluates rather than trusting the derivation.
 
 **The bound is not tight in general** -- different cells want different permutations, so no single
 mapping need attain `LB` -- which is exactly why the gap between it and the best mapping found is the
