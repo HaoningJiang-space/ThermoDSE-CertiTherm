@@ -116,6 +116,42 @@ audit calls indeterminate.
 
 **Three of six survive a fully corrected trace**, and the headline's destination is not one of them.
 
+## The over-count was the small NoC defect. The uniform spreading is the large one
+
+Correcting the over-count is a **magnitude** repair and is worth 0.068-0.471 K. The uniform
+spreading is a **structure** defect: every `io_*` column receives `p_noc / divisor`, identical for
+all of them, so the trace carries the right total and **none** of the spatial information.
+`THERMODSE_ENDPOINT_AUDIT.md` calls the direction of that bias indeterminate. The magnitude is not
+indeterminate, and it is large.
+
+Redistributing a fixed budget over a fixed support is bounded below by the uniform spread the trace
+already does, and above by placing all of it on the single worst-coupled `io_*` block — a greedy
+fill, exact and free because the uplift is linear:
+
+| case | slack | central heat (NET) | **spreading upper bracket** |
+| --- | ---: | ---: | ---: |
+| `arch_a`/resnet50 | 7.6256 | 2.747 | **18.580** |
+| `arch_a`/transformer | 4.5169 | 5.481 | **46.445** |
+| `arch_b`/resnet50 | 4.4781 | 4.335 | **11.650** |
+| `arch_b`/transformer | -0.3618 | 7.644 | **32.652** |
+| `arch_c`/resnet50 | 7.6262 | 2.318 | **3.137** |
+| `arch_c`/transformer | 4.0330 | 4.816 | **11.512** |
+
+**Every upper bracket exceeds its own slack, on all six points.** The largest is 46.4 K against a
+4.5 K margin — an order of magnitude more than the missing DRAM and NoP heat combined.
+
+**What this establishes and what it does not.** The adversarial extreme is physically absurd: NoC
+traffic is distributed across a mesh, not concentrated on one IO block, so this is a loose bound and
+not an estimate. What it establishes is that **the bracket is wide enough to contain every verdict**,
+so no certificate built on this trace is robust to the spreading defect. Closing it needs either the
+spatial NoC information restored, or a physically justified bound tighter than adversarial —
+**neither of which is a matvec**, which is why this term is the one the other corrections could not
+reach.
+
+It also reorders the trace defects. The over-count looked like the NoC problem and is worth
+hundredths of a kelvin; the spreading is worth up to tens, and was the one recorded as
+"indeterminate" rather than measured.
+
 ## The critical share, since the uplift is linear in `dP`
 
 `arch_c`/transformer survives while the central share stays below **80.13 %** of the missing energy,
