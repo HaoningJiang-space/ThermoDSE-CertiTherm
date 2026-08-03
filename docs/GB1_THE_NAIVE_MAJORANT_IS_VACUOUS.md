@@ -195,7 +195,14 @@ or not, would reproduce a known negative result.
 
 ---
 
-# P2 CROSSES BELOW 1 FOR THE FIRST TIME — measured 2026-08-02
+# P2 CROSSES BELOW 1 — AND THE ROUTE IS STILL DEAD
+
+**READ THE VERDICT AT THE END.** The framing in this section borrowed a SUPERSEDED threshold and led
+with a median where a certificate needs a maximum. Both were caught by review and both made the
+result look better than it is. The corrected verdict is a KILL of the pointwise-majorant route at
+every degree, not just at P1.
+
+# P2 crosses below 1 for the first time — measured 2026-08-02
 
 The section above concluded that the element family, not the route, is what P1+DG0 refutes: the
 volume residual is `f` itself because `div(k grad u_h) = 0` inside every element, so the majorant
@@ -234,3 +241,72 @@ equilibration reaches a decision-useful width or merely a smaller useless one.
 **Cost, stated up front.** Moving `steady_heat_fem` to P2 changes the element family every operator,
 parity result and cross-solver band in this repository was built on. That is a Tier-2 change and it
 is not authorised by this probe — the probe exists to say whether it would be worth asking.
+
+
+---
+
+# VERDICT: the route is dead at every degree, and refinement cannot save it
+
+Two independent results, both after the section above was written.
+
+## 1. The decay rate is unchanged by the element degree
+
+| cells/axis | dofs | equilibrated median |
+| ---: | ---: | ---: |
+| 6 | 36 673 | 1.4380 |
+| 12 | 135 625 | **0.8545** |
+| 18 | — | timed out at 4 000 s |
+
+The measured rate is **`h^0.751`** — statistically the same as P1's naive **`h^0.770`**. That is
+exactly what the structural argument predicts and nobody drew the consequence: the `O(1)` mass of the
+absolute-jump measure is a statement about **faces**, and it does not depend on the element degree.
+P2 replaces the volume term; **the face term still sets the rate.**
+
+Extrapolating on the measured rate, reaching the registered bar from `cells = 12` needs **24.2x**
+refinement in `h`, i.e. **~290 cells per axis** and **~1.9e9 dofs in 3-D** — on a synthetic box of
+contrast 3.08, against a real package at 1.54e4. That is not a resource problem to be solved, it is a
+refutation.
+
+## 2. The threshold I compared against was the SUPERSEDED one, and the error flattered the result
+
+`PEAKCERT_OPERATOR_PREREGISTRATION.md` v2 **explicitly repudiates** the flat `0.5 K` bar this
+document quoted — it calls it dimensionally unsupported, "a 400x range from block footprint alone"
+— and registers instead **pass at `<= 2 dT_local`, kill at `> 8 dT_local`**. For this probe's
+geometry (`8 mm` box, `3x3` grid, so `7.11 mm^2` per block) the preregistration's own inverse-area
+scaling gives `dT_local ~ 0.04 K`, hence
+
+| | registered bar |
+| --- | ---: |
+| pass | **~0.08 K** |
+| kill | **~0.32 K** |
+| **measured half-width** | **~5.5 K** |
+
+**That is ~17x past the KILL bar, not "11x from the pass bar".** The earlier framing borrowed a
+stale threshold and understated the failure by a factor of 6–17. Corrected here rather than left
+standing.
+
+## 3. The headline used a median where a certificate needs a maximum
+
+`equilibrated max = 1.0790`. A certificate must hold for **every** source, and by this document's own
+P1 standard a factor above 1 is vacuous — so the P2 construction is **still vacuous for at least one
+of the nine sources** before any threshold is applied. "Crosses below 1" was true of the median and
+false of the object being certified.
+
+## What this kills, and what survives
+
+**Killed: the symmetric residual majorant as a route to a two-sided pointwise envelope, at any
+element degree.** The preregistration calls this construction "the whole direction"; it fails its own
+registered kill bar by ~17x, its convergence rate is set by a face term that no degree change
+touches, and it is vacuous for at least one source even at the median-friendly reading.
+
+**Survives, and is worth keeping:** the measurement chain itself. The probe now takes `--degree`, the
+volume residual is written honestly as `f + div(k grad u_h)`, and the P1-versus-P2 comparison isolates
+which term sets the rate — which is the fact that closes the route.
+
+**Two defects in the probe, recorded rather than fixed** (they do not affect any committed number,
+which used the default path): `--no-faces` is parsed and never used, so its banner lies when passed;
+and the P2 section reports only summary factors, not the per-source rises the P1 table showed, so the
+"~6.4 K rise" behind the "~5.5 K half-width" is not independently checkable from what is committed.
+
+**Not established:** that no pointwise route exists. What is established is that *this* one does not,
+and that the next candidate must break the face term's `O(1)` mass rather than change the element.
