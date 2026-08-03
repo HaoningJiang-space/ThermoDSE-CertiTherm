@@ -204,6 +204,19 @@ def main() -> None:
               "slack_k": limit - (peak + guaranteed + spread),
               "refuted_regardless_of_placement": bool(peak + guaranteed > limit),
               "certified_at_uniform_density": bool(peak + guaranteed + spread <= limit),
+              # WHAT THE FIELD DOES TODAY, on the same operator and the same nominal map. None of
+              # these knows the missing heat exists -- that IS the comparison, not a handicap.
+              "nominal_peak_k": float((rows @ power + ambient).max()),
+              "verdict_nominal": ("SAFE" if float((rows @ power + ambient).max()) <= limit
+                                  else "UNSAFE"),
+              "verdict_guard": {
+                  "%.0fK" % g: ("SAFE" if float((rows @ power + ambient).max()) + g <= limit
+                                else "UNSAFE")
+                  for g in GUESSED_GUARD_BANDS_K
+              },
+              "verdict_here": ("REFUTED_PLACEMENT_FREE" if peak + guaranteed > limit
+                               else "CERTIFIED" if peak + guaranteed + spread <= limit
+                               else "UNRESOLVED"),
           })
 
     if not results:
