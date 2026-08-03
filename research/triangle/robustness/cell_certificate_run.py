@@ -156,11 +156,22 @@ def cell_operator(config, floorplan, blocks, model_id, work, workers: int = 1):
             HotSpotModel.parse(model_id), Path(work), backend, grid_output=grid_path,
         )
         fields = _read_grid(grid_path, len(blocks) + 1)          # column 0 is the zero solve
-        if fields.shape[0] != size * size:
+        # LAYER 0 IS THE DIE, and the GPU grid is the whole STACK. `_cell_field` says so for the
+        # CPU path -- it parses `-grid_steady_file` and keeps layer 0 -- while the solver returns
+        # every layer plus HotSpot's package nodes, e.g. 65548 = 4 * 128^2 + 12 at `grid128`.
+        # Slicing blindly would assemble the operator against the interface or the spreader and
+        # every temperature would be plausible and wrong; the structure is therefore checked, not
+        # assumed, and the remainder must be a small package tail rather than an arbitrary excess.
+        cells = size * size
+        layers, package = divmod(fields.shape[0], cells)
+        if layers < 1 or package > cells:
             raise SystemExit(
-                f"the GPU grid has {fields.shape[0]} nodes but {model_id} declares {size * size}; "
-                "the cell operator would be assembled against the wrong lattice"
+                f"the GPU grid has {fields.shape[0]} nodes, which is not {layers} layers of "
+                f"{cells} cells plus a package tail; {model_id}'s lattice cannot be identified"
             )
+        print(f"  {model_id}: GPU grid {fields.shape[0]} nodes = {layers} layers x {cells} "
+              f"+ {package} package nodes; taking layer 0 (the die)", flush=True)
+        fields = fields[:cells]
         ambient = fields[:, 0].copy()
         return fields[:, 1:] - ambient[:, None], ambient
 
