@@ -164,9 +164,10 @@ def main() -> None:
     print(f"cells/axis={cells} grid={grid} degree={degree}  dofs={V.dofmap.index_map.size_global}  "
           f"contrast={k_cu / k_si:.3g} (NO void: favourable)  faces={'DROPPED' if no_faces else 'included'}")
     print(f"{'source':>8s} {'max rise (K)':>14s} {'max z_h (K)':>14s} {'vacuity':>10s} "
-          f"{'equilibrated':>12s}")
+          f"{'equilibrated':>12s} {'volume':>10s} {'robin':>9s} {'face':>9s}")
 
     factors, equilibrated_factors = [], []
+    volume_factors, robin_factors, face_factors = [], [], []
     for src in range(grid * grid):
         source = fem.Function(Q)
         volume = float(step * step * z_die)
@@ -225,12 +226,38 @@ def main() -> None:
         )
         zq = equilibrated.solve()
 
+        # WHICH TERM SETS THE RATE, once the faces are gone. The equilibrated load has NO `dS` term,
+        # so attributing its convergence to the face term -- as an earlier revision of
+        # `GB1_THE_NAIVE_MAJORANT_IS_VACUOUS.md` did -- is simply wrong. The two surviving terms are
+        # separated here and solved independently against the same operator, because "the face term
+        # is O(1)" and "removing it leaves something that converges slowly" are different claims and
+        # only one of them was measured.
+        zv = LinearProblem(
+            bilinear, abs(volume_residual) * v * dx,
+            petsc_options={"ksp_type": "preonly", "pc_type": "lu"},
+            petsc_options_prefix=f"vol{src}_",
+        ).solve()
+        zr = LinearProblem(
+            bilinear, abs(robin_residual) * v * ds(1),
+            petsc_options={"ksp_type": "preonly", "pc_type": "lu"},
+            petsc_options_prefix=f"rob{src}_",
+        ).solve()
+        zf = LinearProblem(
+            bilinear, abs(flux_jump) * ufl.avg(v) * dS,
+            petsc_options={"ksp_type": "preonly", "pc_type": "lu"},
+            petsc_options_prefix=f"fac{src}_",
+        ).solve()
+
         rise = float(np.max(uh.x.array) - ambient)
         zmax = float(np.max(zh.x.array))
         qmax = float(np.max(zq.x.array))
         factors.append(zmax / rise if rise > 0 else float("inf"))
         equilibrated_factors.append(qmax / rise if rise > 0 else float("inf"))
-        print(f"{src:8d} {rise:14.6f} {zmax:14.6f} {factors[-1]:10.4f} {equilibrated_factors[-1]:12.4f}")
+        volume_factors.append(float(np.max(zv.x.array)) / rise if rise > 0 else float("inf"))
+        robin_factors.append(float(np.max(zr.x.array)) / rise if rise > 0 else float("inf"))
+        face_factors.append(float(np.max(zf.x.array)) / rise if rise > 0 else float("inf"))
+        print(f"{src:8d} {rise:14.6f} {zmax:14.6f} {factors[-1]:10.4f} {equilibrated_factors[-1]:12.4f}"
+              f" {volume_factors[-1]:10.4f} {robin_factors[-1]:9.4f} {face_factors[-1]:9.4f}")
 
     def _stats(values):
         return min(values), sorted(values)[len(values) // 2], max(values)
@@ -239,6 +266,10 @@ def main() -> None:
     equil = _stats(equilibrated_factors)
     print()
     print(f"NAIVE          min={naive[0]:.4f}  median={naive[1]:.4f}  max={naive[2]:.4f}")
+    for name, values in (("VOLUME only", volume_factors), ("ROBIN only", robin_factors),
+                         ("FACE only", face_factors)):
+        lo, mid, hi = _stats(values)
+        print(f"{name:<14s} min={lo:.4f}  median={mid:.4f}  max={hi:.4f}")
     print(f"EQUILIBRATED   min={equil[0]:.4f}  median={equil[1]:.4f}  max={equil[2]:.4f}   "
           f"(best case: the dS term removed exactly)")
     print(f"the face term is {naive[1] / equil[1]:.1f}x of the rest, at the median")
