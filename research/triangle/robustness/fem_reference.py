@@ -701,10 +701,15 @@ def main() -> None:
             "dry_run": True, "capture": capture.name,
             "mesh_cells": list(probe.cells), "total_cells": int(ownership.size),
             "die_footprint_m": [die_width, die_height], "blocks": len(blocks),
-            "die_blocks_owning_cells": len(owned_die),
-            "cells_per_region": {
+            "source_regions_owning_cells": len(owned_die),
+            # The non-source regions only. Same prefix question a third time -- at cell granularity a
+            # hard-coded `die::` would list all 16 384 cell regions here as "passive", which is a
+            # misleading diagnostic rather than a wrong number, and this project has been bitten by
+            # exactly that often enough to spend one line on it.
+            "cells_per_passive_region": {
                 probe.regions[i].region_id: int(np.count_nonzero(ownership == i))
-                for i in np.unique(ownership) if not probe.regions[i].region_id.startswith("die::")
+                for i in np.unique(ownership)
+                if not probe.regions[i].region_id.startswith(source_prefix)
             },
         }, indent=1), flush=True)
         return
