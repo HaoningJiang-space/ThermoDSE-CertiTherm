@@ -70,9 +70,21 @@ from routed_cell_certificate import MARGIN_K, _steady_power                   # 
 # The bisection stops when the bracket is this wide. It is a span, dimensionless, and 1e-4 is far
 # below any span a design decision would distinguish.
 RADIUS_TOLERANCE = 1e-4
+# `activity_bounded_power_space` requires a strictly positive span -- a zero-width envelope is the
+# nominal POINT, not a set, and it is evaluated directly as `max_j (R p_nom)_j + a_j` rather than
+# through a degenerate polytope. So the sweep starts just above zero.
+SPAN_FLOOR = 1e-3
 # Spans the sweep reports outright, so the radius is never the only evidence and a reader can see
 # the curve the bisection walked.
-REPORTED_SPANS = (0.0, 0.05, 0.15, 0.30, 0.60, 1.00, 1.50, 2.00)
+REPORTED_SPANS = (SPAN_FLOOR, 0.05, 0.15, 0.30, 0.60, 1.00, 1.50, 2.00)
+
+
+def _nominal_peak(rows, ambient, placed) -> float:
+    """`max_j T_j(p_nom)`: a point evaluation, which is what the whole field reports."""
+    peak = float(np.max(np.asarray(rows) @ np.asarray(placed, dtype=float) + np.asarray(ambient)))
+    if not math.isfinite(peak):
+        raise SystemExit("the nominal peak is not finite; UNRESOLVED rather than a number")
+    return peak
 
 
 def _peak_at(rows, ambient, blocks, placed, span: float) -> float:
@@ -111,7 +123,10 @@ def radius(rows, ambient, blocks, placed, ceiling: float, max_span: float):
             )
 
     if curve[0]["peak_k"] > ceiling:
-        return 0.0, curve, "REFUTED_AT_NOMINAL"
+        # Refused at the narrowest envelope this construction can express. That is a REFUSAL, not a
+        # radius of zero: "tolerates no variation" and "is infeasible" are different statements and
+        # collapsing them would report an infeasible design as a merely fragile one.
+        return 0.0, curve, "REFUTED_AT_MIN_SPAN"
     if curve[-1]["peak_k"] <= ceiling and curve[-1]["span"] >= max_span:
         return float(max_span), curve, "CERTIFIED_TO_MAX_SPAN"
 
@@ -168,16 +183,22 @@ def main() -> None:
             raise SystemExit("the saved operator resolves a different block list than this trace")
 
     ceiling = THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K
+    nominal = _nominal_peak(rows, ambient, placed)
     started = time.monotonic()
     value, curve, status = radius(rows, ambient, blocks, placed, ceiling, max_span)
     certify_s = time.monotonic() - started
+    if nominal > ceiling:
+        # The point evaluation the field reports already fails, so no envelope can succeed and the
+        # radius is not the interesting quantity here.
+        status = "REFUTED_AT_NOMINAL"
 
     payload = {
         "trace": trace_path.name, "floorplan": floorplan_src.name, "model": model_id,
         "blocks": len(blocks), "cells": int(rows.shape[0]),
         "horizon_s": horizon, "mean_power_w": float(np.sum(placed)),
-        "ceiling_k": ceiling, "nominal_peak_k": curve[0]["peak_k"],
-        "dist_to_ceiling_k": ceiling - curve[0]["peak_k"],
+        "ceiling_k": ceiling, "nominal_peak_k": nominal,
+        "dist_to_ceiling_k": ceiling - nominal,
+        "peak_at_min_span_k": curve[0]["peak_k"],
         "robustness_radius": value, "status": status, "curve": curve,
         "operator_build_s": build_s, "radius_solve_s": certify_s,
         "reconciliation": receipts,
