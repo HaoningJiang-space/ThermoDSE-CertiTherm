@@ -259,7 +259,10 @@ def main() -> None:
         "baseline_excess_over_bound_k": baseline_nominal - lower_bound,
         "evaluations": evaluations, "seconds": elapsed,
         "ms_per_evaluation": 1000.0 * elapsed / max(evaluations, 1),
-        "permutation": best,
+        # `best` can hold numpy integers when a restart came from `rng.permutation`, and json
+        # refuses those. Coercing at the boundary rather than at construction keeps the search's
+        # arrays as arrays.
+        "permutation": [int(v) for v in best],
     }
     print(json.dumps(payload, indent=1, sort_keys=True))
     Path(str(operator_path).replace(".npz", "-mapping.json")).write_text(
