@@ -34,7 +34,13 @@ This driver only produces the routed trace and floorplan per design. The certifi
 NON-CLAIM diagnostic.
 
 Usage (moe-server, repo root):
-    .venv/bin/python research/triangle/robustness/frontier_census.py <outdir> [start] [stop]
+    .venv/bin/python research/triangle/robustness/frontier_census.py <outdir> [start] [stop] [workload]
+
+**A different workload is a different population, not a re-reading of `archive-census-v1`.** That
+protocol froze `resnet50`, and its result may not be quoted for any other. Running the same designs
+under another workload is legitimate and is exactly what the low-power finding calls for -- the
+archive's declared designs draw 5.5-18.5 W under `resnet50` against 28-57 W for the development
+split -- but it must be reported under its own name.
 """
 
 from __future__ import annotations
@@ -52,18 +58,18 @@ sys.path.insert(0, ".")
 from CertiTherm.routed_trace import lower_routed_trace                       # noqa: E402
 from research.triangle.complete_trace_probe import capture_frozen_inputs      # noqa: E402
 from research.triangle.robustness.archive_census import (                     # noqa: E402
-    DECLARED_COUNT, WORKLOAD_ID, architecture_row, candidate_set,
+    DECLARED_COUNT, WORKLOAD_ID as PROTOCOL_WORKLOAD_ID, architecture_row, candidate_set,
 )
 
 RECONCILE_RTOL = 1e-9
 
 
-def _emit(output: Path, arch_id: str, frozen, routed) -> dict:
+def _emit(output: Path, arch_id: str, workload_id: str, frozen, routed) -> dict:
     """Write the trace and floorplan `routed_cell_certificate.py` consumes, receipts included."""
 
     augmented = frozen["augmented"]
-    floorplan_out = output / f"complete_floorplan_{WORKLOAD_ID}_{arch_id}.flp"
-    trace_out = output / f"complete_trace_{WORKLOAD_ID}_{arch_id}.npz"
+    floorplan_out = output / f"complete_floorplan_{workload_id}_{arch_id}.flp"
+    trace_out = output / f"complete_trace_{workload_id}_{arch_id}.npz"
     floorplan_out.write_text(augmented.text, encoding="utf-8")
     np.savez_compressed(
         trace_out,
@@ -109,7 +115,12 @@ def main() -> None:
     output = Path(sys.argv[1])
     start = int(sys.argv[2]) if len(sys.argv) > 2 else 0
     stop = int(sys.argv[3]) if len(sys.argv) > 3 else DECLARED_COUNT
+    workload_id = sys.argv[4] if len(sys.argv) > 4 else PROTOCOL_WORKLOAD_ID
     output.mkdir(parents=True, exist_ok=True)
+    if workload_id != PROTOCOL_WORKLOAD_ID:
+        print(f"NOTE: {workload_id!r} is NOT the workload `archive-census-v1` froze "
+              f"({PROTOCOL_WORKLOAD_ID!r}). This is a different population and its result must not "
+              "be quoted as that census's.", flush=True)
 
     distinct, pool, declared = candidate_set(DECLARED_COUNT)
     print(f"archive: {distinct} distinct designs, {pool} at or below the reported cutoff, "
@@ -120,13 +131,13 @@ def main() -> None:
         sys_info, record = declared[index]
         arch = architecture_row(index, sys_info, record)
         arch_id = arch["architecture_id"]
-        target = output / f"complete_trace_{WORKLOAD_ID}_{arch_id}.npz"
+        target = output / f"complete_trace_{workload_id}_{arch_id}.npz"
         if target.exists():
             print(f"  {arch_id}: already emitted, skipping", flush=True)
             continue
         started = time.monotonic()
         try:
-            frozen = capture_frozen_inputs(output / "work" / arch_id, WORKLOAD_ID, arch_id,
+            frozen = capture_frozen_inputs(output / "work" / arch_id, workload_id, arch_id,
                                            arch_row=arch)
             routed = lower_routed_trace(
                 frozen["core"], floorplan=frozen["augmented"], events=frozen["events"],
@@ -135,7 +146,7 @@ def main() -> None:
                 nop_hop_cost_pj=frozen["nop_hop_cost_pj"],
                 batch_factor=frozen["batch_factor"],
             )
-            row = _emit(output, arch_id, frozen, routed)
+            row = _emit(output, arch_id, workload_id, frozen, routed)
         except Exception as error:                      # noqa: BLE001 - archived, not swallowed
             # FAIL CLOSED PER DESIGN, NOT PER RUN. A design ThermoDSE cannot evaluate is archived
             # with its traceback and excluded from the population; it is never given a fabricated
@@ -156,7 +167,7 @@ def main() -> None:
 
     report = output / f"frontier_census_{start}_{stop}.json"
     report.write_text(json.dumps(
-        {"workload": WORKLOAD_ID, "declared": len(declared), "shard": [start, stop],
+        {"workload": workload_id, "declared": len(declared), "shard": [start, stop],
          "emitted": len(rows), "excluded": len(failures),
          "rows": rows, "failures": failures}, indent=1, sort_keys=True), encoding="utf-8")
     print(f"emitted {len(rows)}, excluded {len(failures)} -> {report}", flush=True)
