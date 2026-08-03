@@ -169,6 +169,17 @@ the floorplan invariant on `arch_b` and `arch_c`. A first measurement on `arch_a
 `interval` invariant; that was that design's artefact (`cut_x = cut_y = 1`, no inter-chiplet gap to
 space) and generalising it was an error corrected by measuring a second base, not by argument.
 
-**Still missing.** The other half of the contribution — a design the certificate accepts that the
-incumbent's own search does not reach, at no EDYP cost. `certified_search.py` exists, is pinned by
-tests, and is running; until it reports, that number does not exist.
+**Obtained 2026-08-04** (`CERTIFIED_SEARCH_RESULT.md`). Seeded from `arch_b`/transformer, whose
+certified peak is 331.558 K — **REFUTED by 1.618 K** — a certificate-constrained search over the
+archive's own value sets reaches a **CERTIFIED** design at 329.612 K for **`+8.77 %` EDYP**. Energy
+falls; latency and yield pay. And the cost split is leg 2's real number: operator builds 1526 s,
+ThermoDSE 134 s, **the certificate 2.786 s — 0.17 % of the search**.
+
+The same failure repeats on a second population: of 61 archive designs under `transformer`, each
+selected on a reported peak ≤ 330 K, `arxv031` certifies at +0.723 K and **stops certifying at 9 %
+activity variation**. (The one `REFUTED_AT_NOMINAL` is refused by 41 mK — inside the model-form band,
+so `UNRESOLVED`-grade, and it is not the load-bearing row.)
+
+**Still missing.** `e_total` at the cell endpoint. No model-form band is folded into any table above,
+and folding it in moves the found design's `+0.328 K` slack into `UNRESOLVED`. It is the single number
+most likely to overturn this round and it is the binding action.

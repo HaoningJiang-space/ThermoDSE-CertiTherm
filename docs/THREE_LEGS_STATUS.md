@@ -1,4 +1,11 @@
-# The three legs, measured: one stands, one premise is refuted, one is not obtained yet
+# The three legs, measured: all three stand, and two of them stand on corrected premises
+
+> **UPDATED 2026-08-04 after `docs/CERTIFIED_SEARCH_RESULT.md`.** Leg 3 is now **obtained**, on two
+> populations. Leg 2's cache premise stays refuted — that is a measurement, not a gap — but the leg
+> itself (library + search loop) is built, tested and has produced leg 3's result, and its real
+> measurement turned out to be the cost split: the certificate is **0.17 %** of a
+> certificate-constrained search, operator builds are **91.8 %**. The section below is kept as
+> written, because the refuted premises are the point.
 
 STATUS 2026-08-04, `moe-server`, `/data/ziheng/ThermoDSE-CertiTherm` at the commits named below,
 clean. NON-CLAIM. **No external review** — Codex quota-locked to 2026-08-08.
@@ -61,6 +68,12 @@ excluded fail-closed** on a route-energy reconciliation failure, 1 already prese
 | **distance to the ceiling** | **4.937 K** | 6.903 K | 9.168 K |
 | robustness radius | 0.951 | 2.000 | 2.000 |
 | mean placed power | 5.51 W | 9.87 W | 18.51 W |
+
+> **RESOLVED 2026-08-04 by changing the workload, which is what the last paragraph of this section
+> proposed.** Under `transformer` the same 61 designs give `dist` **−0.041 to +8.940 K**: one
+> `REFUTED_AT_NOMINAL`, one in the separator band, and `arxv031` — archive-reported peak 328.9 K —
+> certifying at +0.723 K and failing at **9 % activity variation**. The population was cold, not the
+> instrument. See `CERTIFIED_SEARCH_RESULT.md`.
 
 **Nothing failed, and nothing lies in the separator band `[0.311, 3)` — zero of 60.** Giving the
 population back its missing heat did **not** move it to the frontier, and the reason is visible in the
