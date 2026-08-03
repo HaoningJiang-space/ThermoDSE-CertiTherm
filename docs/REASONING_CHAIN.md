@@ -138,3 +138,37 @@ decision variable *is* the power allocation, and the constraint is genuinely lin
 schedule search performs **zero thermal solves online** against one HotSpot call per candidate for
 the incumbent. Across *architectures* it is not reachable -- see `DIRECTION_FIXED_GEOMETRY.md` for
 why the 14x class amortisation does not rescue it.
+
+## 2026-08-04 — the missing piece, and what it cost to get there
+
+The paragraph above names one number as missing: *"a search constrained by a computed band can reach
+designs a guessed margin rejects"*. Three things now exist toward it and two prior entries are
+withdrawn.
+
+**Established.**
+
+| what | owner |
+| --- | --- |
+| the in-loop certificate is an **exact** supremum (continuous knapsack), one-sided, fail-closed, **12 ms** per candidate against 20-30 s for a HotSpot solve | `CERTIFICATE_IN_THE_LOOP.md` |
+| all six development points certified on the **routed** trace — the first verdicts here not taken on the legacy one; five certify | `ROUTED_CERTIFICATE_AND_THE_BOUND_THAT_IS_NOT_ONE.md` |
+| the incumbent's own designs fail their own envelope: one refused at its **nominal** map, five with radius 0.49-1.16 | `THE_INCUMBENT_DESIGNS_DO_NOT_SURVIVE_THEIR_OWN_ENVELOPE.md` |
+| the assumed-uniform nuisance placement is **not an upper bound** — below the routed one on 4 of 6, by up to 1.25 K | `ROUTED_CERTIFICATE_AND_THE_BOUND_THAT_IS_NOT_ONE.md` |
+| the missing-energy fraction is **per case**, 0.3328-0.9997, and the value previously used was the largest | `PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`, `experiments/missing_energy_ledger.tsv` |
+| every nuisance parameter measured on all six: DRAM `kappa = 1.000` on 4 dies, frame carries **zero** | `THE_NUISANCE_PARAMETERS_ALL_MEASURED.md` |
+| the impulse loop parallelises **bit-identically**, 1333 s → 89 s | `THE_IMPULSE_LOOP_IS_PARALLEL.md` |
+| leg-by-leg status, including the two refuted premises | `THREE_LEGS_STATUS.md` |
+
+**Withdrawn.** The trace corrections' priced conclusions (`THE_GENERATOR_PUTS_THE_MISSING_HEAT_
+CENTRALLY.md`) — 3 of 6 survive becomes **5 of 6**, and `arch_c`/transformer is certified rather than
+UNRESOLVED. G2's population verdict (`G2_REPAIR_...`) — its `dist` column inherited the same scaled
+`Q`, and the archive population it would screen is **cold** (5.5-18.5 W against 28-57 W).
+
+**The fixed-geometry direction is confirmed and strengthened, not changed.** Reuse over 61 archive
+designs under routed lowering is **0.0 %**, and perturbing one field at a time, **zero of ten** leave
+the floorplan invariant on `arch_b` and `arch_c`. A first measurement on `arch_a` alone found
+`interval` invariant; that was that design's artefact (`cut_x = cut_y = 1`, no inter-chiplet gap to
+space) and generalising it was an error corrected by measuring a second base, not by argument.
+
+**Still missing.** The other half of the contribution — a design the certificate accepts that the
+incumbent's own search does not reach, at no EDYP cost. `certified_search.py` exists, is pinned by
+tests, and is running; until it reports, that number does not exist.
