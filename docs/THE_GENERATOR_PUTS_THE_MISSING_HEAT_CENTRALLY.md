@@ -81,11 +81,46 @@ That is the same conclusion `MISSING_ENERGY_SENSITIVITY.md` reached by proportio
 which `NUISANCE_BOUND` overturned by placing the heat on the frame. Reading the generator one line
 further restores it, on a placement the generator states rather than one this project assumed.
 
+## The NoC over-count is real, per-architecture, and an order of magnitude too small to matter
+
+Every `io_*` column receives `p_noc / ((cy-1)*2*cx + (cx-1)*2*cy)` and there are `4*cx*cy` of them,
+so the trace carries `columns/divisor` times the NoC source. **That factor is a property of the core
+grid, not a constant** — the audit's `133.41 %` is one case:
+
+| case | core grid | divisor | columns | over-count | heat returned by fixing it |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `arch_a`/* | 7x3 | 64 | 84 | **1.3125** | 0.190 / 0.471 K |
+| `arch_b`/* | 4x5 | 62 | 80 | **1.2903** | 0.148 / 0.394 K |
+| `arch_c`/* | 4x4 | 48 | 64 | **1.3333** | 0.068 / 0.217 K |
+
+The grid is recovered from the block census, which is over-determined — `|io_0|`, `|blockX|`,
+`|blockY|` and `|blockXY|` give four equations for two unknowns — so two are solved and the other two
+checked, and the axis assignment is resolved by which of `blockX`/`blockY` matches rather than
+assumed.
+
+**Correcting it removes heat, so it helps — by 0.068 to 0.471 K.** Against central placements of
+2.386 to 8.038 K that is an order of magnitude too small to change the picture, and it does **not**
+repair the uniform spreading over `io_*`, which destroys the spatial information and whose sign the
+audit calls indeterminate.
+
+## Net, with both sources placed and the over-count removed
+
+| case | slack | placed | `dNoC` | **NET** | |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `arch_a`/resnet50 | 7.6256 | 2.937 | -0.190 | **2.747** | OK |
+| `arch_a`/transformer | 4.5169 | 5.952 | -0.471 | **5.481** | ✗ |
+| `arch_b`/resnet50 | 4.4781 | 4.483 | -0.148 | **4.335** | OK — flips on the NoC fix alone |
+| `arch_b`/transformer | -0.3618 | 8.038 | -0.394 | **7.644** | already refused |
+| `arch_c`/resnet50 | 7.6262 | 2.386 | -0.068 | **2.318** | OK |
+| **`arch_c`/transformer** | 4.0330 | 5.033 | -0.217 | **4.816** | **✗** |
+
+**Three of six survive a fully corrected trace**, and the headline's destination is not one of them.
+
 ## The critical share, since the uplift is linear in `dP`
 
-`arch_c`/transformer survives while the central share stays below **80.13 %** of the missing energy.
-NoP alone is 21.18 %, so it survives if **at most 74.79 % of the DRAM heat lands centrally**. The
-generator says 100 %.
+`arch_c`/transformer survives while the central share stays below **80.13 %** of the missing energy,
+or **83.74 %** once the NoC over-count is also removed. NoP alone is 21.18 %, so it survives if at
+most **79.4 %** of the DRAM heat lands centrally. The generator says 100 %.
 
 ## What is NOT established
 
