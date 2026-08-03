@@ -98,7 +98,15 @@ def main() -> None:
         centre_w = missing_w * (1.0 - frame_fraction)
         die = ~is_frame
         lower = np.zeros(power.size)
-        upper = np.where(die, centre_w, 0.0)
+        # THE DECLARED SET HAS TO SAY WHAT THE SOURCE IS. Allowing `q_i` up to the whole centre
+        # share lets a plane of DRAM collapse onto one 1 mm block, which is not a conservative
+        # reading of an unknown placement -- it is a different physical object. DRAM is a memory
+        # plane and NoP is interconnect: both are DISTRIBUTED sources with bounded areal density.
+        # So the box is a uniform-density cap, `q_i <= Q * area_i / area(S)`, which is exactly the
+        # statement "the heat is spread over the die, we just do not know how evenly". The total
+        # equality is unchanged, so the set still contains every admissible spreading.
+        die_area = float(areas[die].sum())
+        upper = np.where(die, centre_w * areas / max(die_area, 1e-30), 0.0)
 
         nominal = rows @ (power + placed_nuisance) + ambient
         hottest = int(np.argmax(nominal))
