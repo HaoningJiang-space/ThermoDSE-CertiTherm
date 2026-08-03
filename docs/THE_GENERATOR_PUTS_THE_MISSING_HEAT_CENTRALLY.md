@@ -1,5 +1,7 @@
 # Both missing sources go to the central block, and that is read from the generator
 
+> **PARTIALLY WITHDRAWN 2026-08-03. See `docs/PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`.** The generator reading is correct and stands. The **consequence** does not: every uplift here used `dP = 0.9997 x placed power`, one architecture's audit closure applied to six, and it is the LARGEST of the six measured values. With the per-case ledger, **five of six survive** the fully corrected trace rather than three, `arch_c`/transformer **is** certified, and the *"the +32.1 % price is quoted for a destination whose feasibility is not established"* conclusion is withdrawn. The NoC over-count table, the spreading bracket and the column-order finding are unaffected.
+
 RESULT 2026-08-03, `moe-server`, isolated worktree pinned at `e1b174c`, clean, load 4.06 on 52 cores.
 NON-CLAIM: computed from committed cell operators and captures by one matrix-vector product. **No
 frozen thermal input was changed and no Tier-2 action was taken.**

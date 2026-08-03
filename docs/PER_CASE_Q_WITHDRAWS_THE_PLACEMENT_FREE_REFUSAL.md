@@ -101,6 +101,55 @@ one case that produces the separator survives the non-uniformity allowance by **
 about 0.3 %**. The certificate holds on the measured value and would not hold on a slightly less
 uniform one. That must be stated wherever the separator is.
 
+## Propagation 1: the corrected-trace headline is restored, and it had been withdrawn wrongly
+
+`central_share_uplift.py` carried the same constant **three times** — `DRAM_PJ = 3.7405e9`,
+`NOP_PJ = 1.0052e9` and the missing fraction, all three `arch_c`/resnet50's closure. Wired to the
+per-case ledger, its NET column (both sources placed centrally, NoC over-count removed) changes:
+
+| case | `sup_p` peak | slack | NET, scaled `Q` | **NET, measured `Q`** | |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `arch_a`/resnet50 | 322.3144 | 7.6256 | 2.747 | **2.118** | OK |
+| `arch_a`/transformer | 325.4231 | 4.5169 | 5.481 ✗ | **1.510** | **OK — was refused** |
+| `arch_b`/resnet50 | 325.4619 | 4.4781 | 4.335 | **3.544** | OK |
+| `arch_b`/transformer | 330.3018 | **−0.3618** | 7.644 | **2.557** | already refused on `sup_p` alone |
+| `arch_c`/resnet50 | 322.3138 | 7.6262 | 2.318 | **2.318** | OK — unchanged, this is the source case |
+| `arch_c`/transformer | 325.9070 | 4.0330 | 4.816 ✗ | **2.629** | **OK — was refused** |
+
+**Five of six survive a fully corrected trace, not three.** `arch_c`/resnet50 is unchanged to three
+decimals, which is the check that this is the same computation with a corrected input rather than a
+different one — it is the case the constant was taken from.
+
+> `THE_GENERATOR_PUTS_THE_MISSING_HEAT_CENTRALLY.md`'s *"`arch_c`/transformer stops being certified"*
+> and *"the `+32.1 %` price is quoted for a destination whose feasibility is not established"* are
+> **withdrawn**. The `arch_b → arch_c` headline's destination **is** certified under the corrected
+> trace. That document reached the right conclusion about the generator's column order and the wrong
+> one about the consequence, because it inherited `Q`.
+
+## Propagation 2: G2's population is no longer empty, and that reopens the gate
+
+`G2_REPAIR_THE_WINDOW_IS_ONE_DIMENSIONAL.md` closed G2 with *"not one of the six can be a separator,
+for any `(g, e_total)` in the plausible range"*. Its `dist = L − (sup_p + NET)` column inherits `Q`:
+
+| case | effective peak | **`dist`** | in `[0.311, 3)` (`e_total` = 0.261) | in `[1.493, 3)` (`e_total` = 1.443) |
+| --- | ---: | ---: | --- | --- |
+| `arch_a`/resnet50 | 324.432 | 5.568 | no | no |
+| `arch_a`/transformer | 326.933 | **3.067** | no — misses by 0.067 | no |
+| **`arch_b`/resnet50** | 329.006 | **0.994** | **YES** | no |
+| `arch_b`/transformer | 332.859 | −2.859 | no — over the limit | no |
+| `arch_c`/resnet50 | 324.632 | 5.368 | no | no |
+| **`arch_c`/transformer** | 328.536 | **1.464** | **YES** | no — misses by 0.029 |
+
+**The population's emptiness was an artefact of the same overstated `Q`.** At the optimistic
+`e_total` two of six sit inside the separator band; at the pessimistic one, none. G2's verdict is
+therefore **not** STOP and **not** GO — it is *undecided until `e_total` is measured at the cell
+endpoint*, and that measurement, already recorded as unmeasured in `CELL_ENDPOINT_RESULT.md`, is now
+the single binding action rather than a deferred caveat.
+
+Note how thin the margins are: `arch_a`/transformer misses the upper edge by 0.067 K and
+`arch_c`/transformer misses the pessimistic lower edge by 0.029 K. A population this close to both
+edges cannot support a claim in either direction while `e_total` spans 1.2 K.
+
 ## What did not change
 
 * **12/12 decidability.** Every point is decided without knowing where the missing heat goes. This is

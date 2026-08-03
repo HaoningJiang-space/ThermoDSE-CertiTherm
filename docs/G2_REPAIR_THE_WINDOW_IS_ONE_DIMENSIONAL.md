@@ -1,5 +1,7 @@
 # G2 repair: the window collapses to one dimension, and the current population cannot fill it
 
+> **PARTIALLY WITHDRAWN 2026-08-03. See `docs/PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`.** The one-dimensional window `margin + e_total <= dist < g` is exact and stands. The **population table does not**: its `dist` column inherits the scaled `Q`. Recomputed per case, `arch_b`/resnet50 (`dist` 0.994) and `arch_c`/transformer (`dist` 1.464) **do** lie in the band at the optimistic `e_total`, and none does at the pessimistic one. So *"not one of the six can be a separator"* is withdrawn: G2 is undecided, and measuring `e_total` at the cell endpoint is now the binding action rather than a caveat.
+
 REPAIR 2026-08-03. NON-CLAIM, arithmetic on committed numbers. Replaces the G2 section of
 `ROUND_PLAN_FIXED_GEOMETRY.md`, which as written can return neither GO nor STOP.
 
