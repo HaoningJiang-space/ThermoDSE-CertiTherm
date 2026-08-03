@@ -21,7 +21,42 @@ This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
 EDA stage is sufficient to justify the resulting architecture choice.
 
-> # 2026-08-04 — CURRENT STATE. Read this first; it supersedes the 2026-08-03 banner below.
+> # 2026-08-04 (late) — THE RESULT. Read this first.
+>
+> **The incumbent's design is thermally infeasible over its own declared activity envelope; a
+> two-level certified method makes it feasible, and the second level is free.**
+>
+> | architecture | mapping | EDYP | certified peak | slack | |
+> | --- | --- | ---: | ---: | ---: | --- |
+> | ThermoDSE | ThermoDSE | 13.8628 | 331.5584 | **−1.6184** | **REFUTED** |
+> | ThermoDSE | certified | 13.8628 | 331.0423 | −1.1023 | REFUTED |
+> | certified | ThermoDSE | 15.0792 | 329.6121 | +0.3279 | CERTIFIED |
+> | **certified** | **certified** | **15.0792** | **329.1662** | **+0.7738** | **CERTIFIED** |
+>
+> Gains: mapping **0.516 K free**, architecture **1.946 K at +8.77 % EDYP**, together **2.392 K**,
+> **additive to 70 mK**. `docs/CERTIFIED_MAPPING_AND_THE_UNIFICATION.md`.
+>
+> **Why it works, in one line each.** The certificate is an exact supremum over a power envelope and
+> costs **12 ms** — a continuous knapsack, checked against brute-force vertex enumeration
+> (`CERTIFICATE_IN_THE_LOOP.md`). The incumbent's feasibility test is a **nominal** peak, and at the
+> corrected 330 K cap its rule still admits **7 of 10** designs the envelope refutes and **0** the other
+> way (`THE_NOMINAL_RULE_ADMITS_WHAT_THE_ENVELOPE_REFUTES.md`). The disagreement exists at **every**
+> envelope width including ±5 % (`THE_ENVELOPE_WIDTH_IS_NOT_WHERE_THE_DISAGREEMENT_COMES_FROM.md`).
+> Zero of ten architecture fields leaves the floorplan fixed, but a **mapping** leaves it fixed by
+> construction — which is why the certificate is free at that level and has an **exact per-cell
+> assignment lower bound** there.
+>
+> **What cuts against it, stated here and not in a footnote.** `e_total` at the cell endpoint is
+> **1.98–4.99 K**, 8–20× the block-row band that was standing in for it, and it **empties the
+> separator window for any guard band ≤ 5 K** — that framing is dead
+> (`E_TOTAL_AT_THE_CELL_ENDPOINT.md`). The *realised* solver disagreement on the certified quantity is
+> `≤ 0.071 K`, so the sound bound is **70× loose**, and tightening it is the one thing still owed.
+> ThermoDSE's mapping heuristic is within **0.08–0.25 K of optimal on five of six** designs — the
+> certificate's value there is that this can now be *shown*, not that it beats it.
+> Fifteen further attacks and their status: `docs/ADVERSARIAL_SELF_REVIEW.md`. **No external review**
+> anywhere in this round — Codex quota-locked to 2026-08-08.
+
+> # 2026-08-04 (earlier) — still current; superseded only in emphasis.
 >
 > Items 1, 2 and 4 of that banner stand. **Item 3 is withdrawn** and two things replace it.
 >
