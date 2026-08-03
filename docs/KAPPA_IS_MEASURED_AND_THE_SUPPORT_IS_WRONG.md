@@ -1,5 +1,12 @@
 # The non-uniformity is measured, and it is the smaller of two findings
 
+> **EXTENDED TO ALL SIX CASES 2026-08-03, see `docs/THE_NUISANCE_PARAMETERS_ARE_ALL_MEASURED.md`.**
+> Nothing here is withdrawn; the scope paragraph at the bottom is satisfied. DRAM measures
+> `kappa = 1.000` on exactly four dies in all six, the frame carries zero in all six, and the
+> critical-`kappa` table it references is superseded by the per-case-`Q` re-run
+> (`PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`) -- the `arch_b`/transformer row here says
+> "refuted before placement", which no longer holds.
+
 RESULT 2026-08-03, `moe-server`. NON-CLAIM: read from routed traces already committed by the V6.1
 factorial (`artifacts/v61/complete_trace_transformer_arch_b_*.npz`). No frozen input changed, no new
 run.
