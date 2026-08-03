@@ -58,7 +58,7 @@ SUFFIX = "" if COMPONENTS is None else "_" + "-".join(sorted(COMPONENTS))
 
 
 def capture_frozen_inputs(output: Path, workload_id: str, arch_id: str,
-                          io_aspect_ratio: float = 1.0):
+                          io_aspect_ratio: float = 1.0, arch_row: dict | None = None):
     """Run ThermoDSE ONCE and freeze everything the lowering needs.
 
     Extracted so a factorial can capture once and compose every source subset from the
@@ -73,11 +73,29 @@ def capture_frozen_inputs(output: Path, workload_id: str, arch_id: str,
     it without re-entering ThermoDSE.
     """
     reg = _registry_split("dev_v3")
-    arch = next(
-        row
-        for row in _rows(ROOT / "experiments" / "architectures.tsv")
-        if row["split"] == reg and row["architecture_id"] == arch_id
-    )
+    # `arch_row` lets a population OUTSIDE the frozen registry reuse this path unchanged -- the
+    # archive census builds registry-shaped rows from the pinned `results_new` files. It is passed
+    # rather than looked up because the registry is frozen and must not grow to hold a diagnostic
+    # population; and it is checked, because a row missing a field would otherwise surface as a
+    # KeyError deep inside ThermoDSE.
+    if arch_row is not None:
+        required = ("architecture_id", "chiplet_x", "chiplet_y", "cut_x", "cut_y", "interval",
+                    "mtxu_h", "mtxu_w", "ubuf", "nop_bw", "dram_bw")
+        absent = [k for k in required if k not in arch_row]
+        if absent:
+            raise SystemExit(f"arch_row is missing {absent}; it is not a registry-shaped row")
+        if arch_row["architecture_id"] != arch_id:
+            raise SystemExit(
+                f"arch_row names {arch_row['architecture_id']!r} but arch_id is {arch_id!r}; the "
+                "outputs are named from arch_id, so a mismatch mislabels the evidence"
+            )
+        arch = arch_row
+    else:
+        arch = next(
+            row
+            for row in _rows(ROOT / "experiments" / "architectures.tsv")
+            if row["split"] == reg and row["architecture_id"] == arch_id
+        )
     workload = next(
         row
         for row in _rows(ROOT / "experiments" / "workloads.tsv")
