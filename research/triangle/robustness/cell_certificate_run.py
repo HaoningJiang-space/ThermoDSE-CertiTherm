@@ -106,8 +106,13 @@ def _gpu_backend_from_env():
         return None
     from CertiTherm.gpu_hotspot import GpuHotSpotBackend
 
+    # DEVICE 0, ALWAYS, and this was a real bug: `CUDA_VISIBLE_DEVICES` REMAPS ordinals. Reading it
+    # and passing the value through gave `device=1` under `CUDA_VISIBLE_DEVICES=1`, where the only
+    # visible GPU is renumbered to 0 -- `cudaSetDevice: invalid device ordinal`. The variable
+    # selects WHICH GPU; the index within what remains is always 0 unless several are exposed, and
+    # `CERTITHERM_GPU_DEVICE` is the way to say that, not the masking variable.
     return GpuHotSpotBackend(exporter=Path(exporter), solver=Path(solver),
-                             device=int(os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0]))
+                             device=int(os.environ.get("CERTITHERM_GPU_DEVICE", "0")))
 
 
 def cell_operator(config, floorplan, blocks, model_id, work, workers: int = 1):
