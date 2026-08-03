@@ -12,10 +12,12 @@ miss is a rebuild; there is no approximate hit and no similarity threshold, beca
 of a near-hit is a certificate built on the wrong operator, which enters evidence looking correct.
 
 **The hit rate is a measured property of the population, not a design goal.** Over the 61 archive
-designs it is 0.0 % -- 61 designs, 61 distinct floorplans -- and only one of the ten design fields
-(`interval`) leaves the floorplan invariant. The library still earns its place: it makes revisiting a
-geometry free inside a search loop, it makes the accounting explicit, and it makes cross-geometry
-reuse impossible by construction rather than by discipline.
+designs it is 0.0 % -- 61 designs, 61 distinct floorplans -- and **zero** of the ten design fields
+leave the floorplan invariant (`geometry_factorisation.py` on `arch_b` and `arch_c`; a first
+measurement on `arch_a` alone found `interval` invariant and that was that design's artefact). The
+library still earns its place, and it has already paid: a search restarted after an algorithm change
+re-read its baseline operator as a HIT instead of rebuilding it. It also makes the accounting
+explicit, and makes cross-geometry reuse impossible by construction rather than by discipline.
 
 **Deliberately NOT in `experiments.py`'s operator cache source bundle.** That bundle exists to make a
 false HIT impossible: it hashes every module whose behaviour builds or validates the artifact, so a
