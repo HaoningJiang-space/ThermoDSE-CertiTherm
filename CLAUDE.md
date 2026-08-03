@@ -263,6 +263,26 @@ condition for the commit, not an extra review stage. It exists because a publish
 extrapolation was wrong by ~84x while the contradicting measurement sat in a document cited
 by the same commit.
 
+**Declaring an approximation is not handling it, and the measurement that settles it is usually
+minutes away.** Two documents in one round labelled the same quantity "the largest remaining
+approximation" and then drew conclusions from it anyway. It was a single architecture's audit closure
+scaled by total power; measured per case with a ledger that **already existed and had verified
+linearity**, it spans **0.33 to 1.00** — and the value in use was the largest of the six. That
+overturned the load-bearing half of the round's headline: a refutation needing the constant to be
+within 26.9 % died to a case measuring 63.3 % lower.
+
+**And the constant propagates further than the run that used it.** The same three numbers had been
+carried into a second script and a third gate, so correcting them moved a survival count 3/6 -> 5/6,
+withdrew a published caveat, and turned a gate's "empty population" verdict into UNRESOLVED. **When a
+constant is corrected, grep for every consumer of it before reporting the corrected run** — the run
+is the smaller half.
+
+Corollary, and it is the cheap general rule: **before designing an experiment for an unknown, check
+whether it is already a by-product of an artefact you have.** In the same round the non-uniformity
+`kappa` was assumed to need a literature value and was sitting in a factorial experiment's committed
+traces; `routed_trace.py`, `physical_nop.py` and fifteen V6.1 traces all existed, were verified, and
+had zero production callers. The bottleneck was never measurement, it was wiring.
+
 **Grepping for a SCRIPT is not enough — grep for the ANSWER.** The rule above was followed and the
 failure happened anyway: no duplicate script was written, but `docs/THERMODSE_ENDPOINT_AUDIT.md`,
 committed one day earlier, had already decomposed the exact discrepancy that was then "discovered"
