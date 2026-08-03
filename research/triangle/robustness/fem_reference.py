@@ -160,6 +160,24 @@ PROBE_SINK_TOP = os.environ.get("CERTITHERM_FEM_PROBE_SINK_TOP") == "1"
 # this is well conditioned where conductivity scaling was not.
 LUMPED_SINK = os.environ.get("CERTITHERM_FEM_LUMPED_SINK") == "1"
 LUMPED_SINK_H_W_PER_M2_K = float(os.environ.get("CERTITHERM_FEM_LUMPED_H", "1e7"))
+# CELL ENDPOINT. `docs/CELL_ENDPOINT_RESULT.md` moved the certificate from block averages to
+# `grid128` CELL averages and records the cell-level model-form band as **not measured** -- and
+# `docs/G2_REPAIR_THE_WINDOW_IS_ONE_DIMENSIONAL.md` names that missing band, `e_total`, as an edge of
+# the separator window that "exists in no source file in this repository". Every band measured so far
+# is at BLOCK rows, and a max over 233 block averages is not the same functional as a max over 16 384
+# cell averages: the cell endpoint sits 0.58-0.87 K above the block projection on the routed traces,
+# so a band measured at one granularity cannot be quoted at the other.
+#
+# Setting this to N partitions the die footprint into an N x N readout grid, exactly the partition
+# HotSpot's `-grid_rows N -grid_cols N` uses, and reports one temperature per cell instead of one per
+# block. **The physics is untouched**: the same power lands in the same places, because each cell
+# takes the power density of the block covering its midpoint and the block edges remain mesh nodes.
+# Only the region LABELLING changes, which is the same instrumentation trick `PROBE_SINK_TOP` uses.
+#
+# The block edges must stay in the node lists or the sources smear; the cell edges are ADDED to them,
+# so the mesh is a refinement of the one the block-row band was measured on and the comparison is
+# between granularities rather than between meshes.
+CELL_ENDPOINT_N = int(os.environ.get("CERTITHERM_FEM_CELL_ENDPOINT", "0"))
 
 
 def _floorplan_blocks(text: str):
@@ -466,9 +484,18 @@ def main() -> None:
     # SOURCE_FRACTION = 1 it is the whole thickness and the geometry is unchanged.
     source_z0 = z_die[1] - SOURCE_FRACTION * DIE_THICKNESS_M
 
+    # The cell grid spans the DIE footprint, which is what `-grid_rows/-grid_cols` partitions.
+    cell_x_edges, cell_y_edges = [], []
+    if CELL_ENDPOINT_N:
+        cell_x_edges = [die_x0 + die_width * i / CELL_ENDPOINT_N
+                        for i in range(CELL_ENDPOINT_N + 1)]
+        cell_y_edges = [die_y0 + die_height * i / CELL_ENDPOINT_N
+                        for i in range(CELL_ENDPOINT_N + 1)]
+
     x_nodes = _axis_nodes(
         [die_x0 + e for _n, x0, _y0, x1, _y1 in blocks for e in (x0, x1)]
         + [spr_x0, spr_x0 + s_spreader]
+        + cell_x_edges
         + ([0.25 * box_x, 0.75 * box_x] if PROBE_SINK_TOP else []),
         box_x, lateral_cells,
         (die_x0, die_x0 + die_width) if GRADED_MESH else None,
@@ -476,6 +503,7 @@ def main() -> None:
     y_nodes = _axis_nodes(
         [die_y0 + e for _n, _x0, y0, _x1, y1 in blocks for e in (y0, y1)]
         + [spr_y0, spr_y0 + s_spreader]
+        + cell_y_edges
         + ([0.25 * box_y, 0.75 * box_y] if PROBE_SINK_TOP else []),
         box_y, lateral_cells,
         (die_y0, die_y0 + die_height) if GRADED_MESH else None,
@@ -541,8 +569,60 @@ def main() -> None:
         )
     )
 
+    # CELL OWNERSHIP, computed once. Each readout cell is assigned the block whose rectangle contains
+    # its midpoint -- the same midpoint rule `_region_indices` uses to assign mesh cells to regions,
+    # so the two agree by construction rather than by coincidence. A cell owned by no block is a
+    # refusal: the die footprint is fully tiled by the floorplan, and a hole would mean the readout
+    # grid and the floorplan disagree about where the die is.
+    cell_owner = None
+    if CELL_ENDPOINT_N:
+        cell_owner = np.full((CELL_ENDPOINT_N, CELL_ENDPOINT_N), -1, dtype=np.int64)
+        for j in range(CELL_ENDPOINT_N):
+            my = die_height * (j + 0.5) / CELL_ENDPOINT_N
+            for i in range(CELL_ENDPOINT_N):
+                mx = die_width * (i + 0.5) / CELL_ENDPOINT_N
+                for index, (_n, x0, y0, x1, y1) in enumerate(blocks):
+                    if x0 <= mx <= x1 and y0 <= my <= y1:
+                        cell_owner[j, i] = index
+                        break
+        unowned = int(np.count_nonzero(cell_owner < 0))
+        if unowned:
+            raise SystemExit(
+                f"{unowned} of {CELL_ENDPOINT_N ** 2} readout cells lie in no floorplan block; the "
+                "cell grid and the floorplan disagree about the die footprint"
+            )
+
     def problem(power_w: np.ndarray) -> "SteadyHeatBox":
         die_regions = []
+        if CELL_ENDPOINT_N:
+            # One region per readout cell, carrying the power DENSITY of its owning block. Density is
+            # the right invariant: it makes the total power on a block equal its own value regardless
+            # of how many cells cover it, which is checked below rather than assumed.
+            for j in range(CELL_ENDPOINT_N):
+                for i in range(CELL_ENDPOINT_N):
+                    index = int(cell_owner[j, i])
+                    _n, bx0, by0, bx1, by1 = blocks[index]
+                    block_area = (bx1 - bx0) * (by1 - by0)
+                    die_regions.append(BoxRegion(
+                        f"cell::{j:04d}::{i:04d}",
+                        (_snap(die_x0 + die_width * i / CELL_ENDPOINT_N),
+                         _snap(die_y0 + die_height * j / CELL_ENDPOINT_N), source_z0),
+                        (_snap(die_x0 + die_width * (i + 1) / CELL_ENDPOINT_N),
+                         _snap(die_y0 + die_height * (j + 1) / CELL_ENDPOINT_N), z_die[1]),
+                        SILICON_K_W_PER_M_K,
+                        float(power_w[index]) / (block_area * die_volume),
+                    ))
+            return SteadyHeatBox(
+                size_m=(box_x, box_y, box_z),
+                cells=(len(x_nodes) - 1, len(y_nodes) - 1, len(z_nodes) - 1),
+                regions=void + tuple(die_regions) + passive,
+                ambient_temperature_k=ambient_k,
+                top_heat_transfer_w_per_m2_k=(
+                    LUMPED_SINK_H_W_PER_M2_K if LUMPED_SINK else 1.0 / (r_convec * s_sink * s_sink)
+                ),
+                bottom_heat_transfer_w_per_m2_k=0.0,
+                x_nodes_m=x_nodes, y_nodes_m=y_nodes, z_nodes_m=z_nodes,
+            )
         for index, (name, x0, y0, x1, y1) in enumerate(blocks):
             area = (x1 - x0) * (y1 - y0)
             die_regions.append(BoxRegion(
@@ -622,6 +702,15 @@ def main() -> None:
 
     def die_temperatures(result) -> np.ndarray:
         by_region = dict(result.region_average_temperature_k)
+        if CELL_ENDPOINT_N:
+            names = [f"cell::{j:04d}::{i:04d}"
+                     for j in range(CELL_ENDPOINT_N) for i in range(CELL_ENDPOINT_N)]
+            missing = [n for n in names if n not in by_region]
+            if missing:
+                raise SystemExit(
+                    f"the solver returned no temperature for {len(missing)} readout cells"
+                )
+            return np.asarray([by_region[n] for n in names], dtype=float)
         missing = [name for name, *_ in blocks if f"die::{name}" not in by_region]
         if missing:
             raise SystemExit(f"the solver returned no temperature for {len(missing)} die regions")
@@ -667,7 +756,7 @@ def main() -> None:
         }
 
     ambient_row = die_temperatures(results[0])
-    response = np.empty((len(blocks), len(blocks)), dtype=float)
+    response = np.empty((ambient_row.size, len(blocks)), dtype=float)
     for index in range(len(blocks)):
         response[:, index] = die_temperatures(results[index + 1]) - ambient_row
     # Step 4 of the lumped construction, and it belongs in the RESPONSE rather than the ambient.
