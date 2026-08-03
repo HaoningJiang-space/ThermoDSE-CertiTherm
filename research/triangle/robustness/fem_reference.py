@@ -500,9 +500,9 @@ def main() -> None:
     # The cell grid spans the DIE footprint, which is what `-grid_rows/-grid_cols` partitions.
     cell_x_edges, cell_y_edges = [], []
     if CELL_ENDPOINT_N:
-        cell_x_edges = [die_x0 + die_width * i / CELL_ENDPOINT_N
+        cell_x_edges = [_snap(die_x0 + die_width * i / CELL_ENDPOINT_N)
                         for i in range(CELL_ENDPOINT_N + 1)]
-        cell_y_edges = [die_y0 + die_height * i / CELL_ENDPOINT_N
+        cell_y_edges = [_snap(die_y0 + die_height * i / CELL_ENDPOINT_N)
                         for i in range(CELL_ENDPOINT_N + 1)]
 
     x_nodes = _axis_nodes(
@@ -600,9 +600,19 @@ def main() -> None:
     # Separability makes it cheap: a cell-block overlap is `overlap_x * overlap_y`, so each block
     # costs two 1-D interval intersections rather than a scan over 16 384 cells.
     cell_weights = None
+    cell_x_snapped = cell_y_snapped = None
     if CELL_ENDPOINT_N:
-        ex = np.linspace(0.0, die_width, CELL_ENDPOINT_N + 1)
-        ey = np.linspace(0.0, die_height, CELL_ENDPOINT_N + 1)
+        # SNAPPED EDGES, NOT NOMINAL ONES. The region boxes are built through `_snap`, so a cell's
+        # ACTUAL area is set by the snapped edges; computing the overlap weights and the density
+        # denominator from the nominal uniform grid instead leaves a per-cell area mismatch, and it
+        # showed up as a 3.2e-06 W impulse error against a 1e-06 gate -- six orders better than the
+        # midpoint bug it replaced, and still a real inconsistency rather than solver noise.
+        cell_x_snapped = np.asarray(
+            [_snap(die_x0 + die_width * i / CELL_ENDPOINT_N) for i in range(CELL_ENDPOINT_N + 1)])
+        cell_y_snapped = np.asarray(
+            [_snap(die_y0 + die_height * j / CELL_ENDPOINT_N) for j in range(CELL_ENDPOINT_N + 1)])
+        ex = cell_x_snapped - die_x0
+        ey = cell_y_snapped - die_y0
         cell_weights = np.zeros((CELL_ENDPOINT_N * CELL_ENDPOINT_N, len(blocks)), dtype=float)
         for index, (_n, x0, y0, x1, y1) in enumerate(blocks):
             area = (x1 - x0) * (y1 - y0)
@@ -627,17 +637,18 @@ def main() -> None:
             # One region per readout cell, carrying the power the overlap map assigns it. Density is
             # that power over the cell's own volume, so the total is conserved by the check above.
             cell_power = cell_weights @ np.asarray(power_w, dtype=float)
-            cw = die_width / CELL_ENDPOINT_N
-            ch = die_height / CELL_ENDPOINT_N
-            cell_area = cw * ch
             for j in range(CELL_ENDPOINT_N):
+                height = cell_y_snapped[j + 1] - cell_y_snapped[j]
                 for i in range(CELL_ENDPOINT_N):
+                    width = cell_x_snapped[i + 1] - cell_x_snapped[i]
+                    # The cell's OWN snapped area, so density x actual volume is exactly the power
+                    # the overlap map assigned it. A uniform nominal area leaves a per-cell residue.
                     die_regions.append(BoxRegion(
                         f"cell::{j:04d}::{i:04d}",
-                        (_snap(die_x0 + cw * i), _snap(die_y0 + ch * j), source_z0),
-                        (_snap(die_x0 + cw * (i + 1)), _snap(die_y0 + ch * (j + 1)), z_die[1]),
+                        (cell_x_snapped[i], cell_y_snapped[j], source_z0),
+                        (cell_x_snapped[i + 1], cell_y_snapped[j + 1], z_die[1]),
                         SILICON_K_W_PER_M_K,
-                        float(cell_power[j * CELL_ENDPOINT_N + i]) / (cell_area * die_volume),
+                        float(cell_power[j * CELL_ENDPOINT_N + i]) / (width * height * die_volume),
                     ))
             return SteadyHeatBox(
                 size_m=(box_x, box_y, box_z),
