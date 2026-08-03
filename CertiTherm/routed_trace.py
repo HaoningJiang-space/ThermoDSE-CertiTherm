@@ -353,7 +353,18 @@ def _place_edge_energy(
     block_index: Mapping[str, int],
     nx: int,
     ny: int,
+    endpoint_split: float = 0.5,
 ) -> None:
+    """`endpoint_split` is the share taken by the FIRST of the two endpoint blocks.
+
+    The lowering has to decide how a link's dissipation divides between the two blocks it connects,
+    and `0.5` is a modelling choice rather than a measurement -- `docs/ADVERSARIAL_SELF_REVIEW.md` B3
+    lists it as a named, unmeasured degree of freedom. Making it a parameter is what turns it into a
+    sensitivity that can be swept, and the sweep is a matvec because the FLOORPLAN does not change:
+    the same two blocks receive the energy, only in different proportion.
+    """
+    if not (0.0 <= endpoint_split <= 1.0) or endpoint_split != endpoint_split:
+        raise ValueError(f"endpoint_split must lie in [0, 1], got {endpoint_split!r}")
     if energy_j == 0.0:
         return
     a, b = edge
@@ -364,18 +375,18 @@ def _place_edge_energy(
         if dram_block is None:
             raise ValueError(f"external route has no DRAM block: {external}")
         io_block = _facing_io_block(core, external, nx, ny)
-        for name in (dram_block, io_block):
+        for name, share in ((dram_block, endpoint_split), (io_block, 1.0 - endpoint_split)):
             if name not in block_index:
                 raise ValueError(f"route target is absent from floorplan: {name}")
-            target_j[block_index[name]] += 0.5 * energy_j
+            target_j[block_index[name]] += share * energy_j
         return
 
     if channel == "noc":
-        for core, neighbour in ((a, b), (b, a)):
+        for (core, neighbour), share in (((a, b), endpoint_split), ((b, a), 1.0 - endpoint_split)):
             name = _facing_io_block(core, neighbour, nx, ny)
             if name not in block_index:
                 raise ValueError(f"NoC endpoint block is absent: {name}")
-            target_j[block_index[name]] += 0.5 * energy_j
+            target_j[block_index[name]] += share * energy_j
         return
 
     if a[1] == b[1]:
@@ -493,6 +504,7 @@ def lower_routed_trace(
     noc_hop_cost_pj: float,
     nop_hop_cost_pj: float,
     batch_factor: int = 1,
+    endpoint_split: float = 0.5,
     components=None,
 ) -> RoutedThermoDSETrace:
     """Combine exact core energy with physically reclassified communication energy.
