@@ -21,7 +21,42 @@ This is not ThermoDSE with another optimizer. ThermoDSE supplies workload and
 architecture context; CertiTherm asks whether the information available at an
 EDA stage is sufficient to justify the resulting architecture choice.
 
-> # 2026-08-03 — CURRENT STATE. Read this before the 2026-08-01 banner below, which it supersedes.
+> # 2026-08-04 — CURRENT STATE. Read this first; it supersedes the 2026-08-03 banner below.
+>
+> Items 1, 2 and 4 of that banner stand. **Item 3 is withdrawn** and two things replace it.
+>
+> **A. Every verdict in this repository was taken on the legacy trace. That is no longer true.**
+> All six development points are now certified on the **routed** trace — every source placed where
+> its route puts it, source and route receipts reconciling to `< 1e-9` relative
+> (`docs/ROUTED_CERTIFICATE_AND_THE_BOUND_THAT_IS_NOT_ONE.md`). Five certify. **`arch_b`/transformer
+> is refused at its own NOMINAL power map** — 329.9732 K against a 329.94 K ceiling — and the other
+> five stop certifying once block activity varies by **49 % to 116 %**
+> (`docs/THE_INCUMBENT_DESIGNS_DO_NOT_SURVIVE_THEIR_OWN_ENVELOPE.md`). These are the architectures the
+> pinned submodule itself produces.
+>
+> **B. Item 3's numbers came from a `Q` scaled off one architecture, and the measured per-case span is
+> three times wide.** `docs/PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`: the missing fraction
+> is **0.3328-0.9997** per case and the value in use was the **largest** of the six, so every uplift
+> was overstated. Re-run per case, **5 of 6 survive** a fully corrected trace rather than 3, and
+> **`arch_c`/transformer IS certified** — the `+32.1 %` price's destination is established after all.
+> The claim that two designs are refuted under *every* placement is withdrawn.
+>
+> **C. The conservative construction is not conservative.** On identical geometry with identical total
+> power, the assumed area-weighted placement of unplaced heat lands **below** the routed one on **four
+> of six** points, by up to **1.25 K**. A quantity a fail-closed certificate treated as an upper bound
+> under-states the truth on two thirds of the split. Verdicts resting on it are the value *at* the
+> uniform placement, not certificates.
+>
+> **D. The certificate is 12 ms and is proved exact.** `docs/CERTIFICATE_IN_THE_LOOP.md`: the support
+> function of the activity envelope is a continuous knapsack, checked against a brute-force
+> enumeration of the polytope's vertices that shares no code with it, one-sided, fail-closed — 0.244 s
+> for eight envelope widths plus a bisection over 16 384 cell rows, against 20-30 s for one HotSpot
+> solve. That is what makes a certificate-constrained search loop possible at all.
+>
+> **The index is `docs/REASONING_CHAIN.md`; the leg-by-leg status is `docs/THREE_LEGS_STATUS.md`.**
+> Anything not in the index is not established.
+
+> # 2026-08-03 — superseded in item 3 by the banner above; the rest stands.
 >
 > The withdrawal below is **still correct about the registry** and is retained on those terms. Four
 > things have happened since and none of them is in it.
