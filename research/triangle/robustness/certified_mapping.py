@@ -1,0 +1,231 @@
+"""Thermal-aware mapping, certified: an exact lower bound over ALL mappings, and the gap to it.
+
+## The unification, and why the mapping level is where the certificate becomes free
+
+`docs/THREE_LEGS_STATUS.md` measured that **zero of ThermoDSE's ten architecture fields leaves the
+floorplan invariant**, so an operator cache cannot amortise an architecture search. That is a fact
+about the architecture vector — and it is not a fact about the design space, because the space has a
+second level the certificate is perfectly matched to.
+
+**An architecture decides the geometry; a MAPPING decides only the power vector.** Permuting which
+task runs on which core moves power between blocks and leaves the floorplan byte-identical, so `R` is
+fixed and every mapping candidate costs one matvec and one sort -- **12 ms**
+(`docs/CERTIFICATE_IN_THE_LOOP.md`). The axis the architecture vector does not have, the mapping
+level has by construction.
+
+That is the division of labour this proposes: **ThermoDSE's SCBO keeps the architecture search, where
+its trust-region Bayesian optimisation over a mixed 10-D space is well suited and each candidate
+genuinely costs an operator; the certificate takes the mapping level, where it is free and where
+ThermoDSE currently uses a geometric proxy.**
+
+## What ThermoDSE does today, read from source
+
+`ThermoDSE/core/schedule.py:386 thermal_aware_task_map` sorts cores by
+
+    lateral_factor(c) = sum over all other cores d of euclidean_distance_squared(c, d)
+
+and greedily assigns the highest-energy task to the core with the largest factor. The factor is a
+**purely geometric proxy for cooling** -- it never consults the thermal operator, the package, or the
+power of the other tasks. It is a reasonable heuristic and it is not an optimum, and until now nothing
+could say how far from one it was.
+
+## The exact lower bound, which is what makes this a certificate and not another heuristic
+
+Write `p = p_fixed + p_core(pi)`: the non-core blocks (`io_*`, `dram_*`, `blockX/Y_*`) do not move
+under a remapping, and the per-core groups permute. For cell `j`,
+
+    T_j(pi) = (R p_fixed)_j + a_j + sum_i R_{j, pi(i)} q_i
+
+and the last term is minimised over all permutations by the **rearrangement inequality**: pair the
+largest task power with the smallest coefficient. So
+
+    LB_j = (R p_fixed)_j + a_j + <sort_desc(q), sort_asc(R_j over core positions)>
+
+is attained by *some* permutation for that cell, hence a valid lower bound on `T_j` over every
+mapping; and `LB = max_j LB_j` lower-bounds `min_pi max_j T_j(pi)`. It is exact per cell, costs one
+sort per cell, and needs no solver.
+
+**The bound is not tight in general** -- different cells want different permutations, so no single
+mapping need attain `LB` -- which is exactly why the gap between it and the best mapping found is the
+honest thing to report. A search that returns "we improved by X" without a bound cannot say whether
+X was all there was.
+
+## Fail-closed
+
+Refuses if the core grouping is not a partition, if any group has a different block multiset than the
+others (permuting non-interchangeable groups is not a mapping), or if a permuted vector fails to
+conserve total power. The nominal objective is used for the bound because the envelope's box is built
+*from* the power vector, so a permutation changes the set as well as the point; the certified peak
+under the envelope is reported for every mapping the search returns, and the two are never mixed.
+
+NON-CLAIM diagnostic. Usage (moe-server, repo root):
+    .venv/bin/python research/triangle/robustness/certified_mapping.py \\
+        <operator.npz> <capture-or-trace.npz> [iterations] [span]
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+import sys
+import time
+from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, ".")
+
+from CertiTherm.cross_grid_bound import _extreme_rows                         # noqa: E402
+from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K      # noqa: E402
+from CertiTherm.measurements import activity_bounded_power_space              # noqa: E402
+
+MARGIN_K = 0.05
+CEILING_K = THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K
+INDEXED = re.compile(r"^(?P<prefix>[A-Za-z]+)_(?P<index>\d+)$")
+# Blocks that belong to the fabric, not to a core, however they are indexed.
+FIXED_PREFIXES = ("io", "dram", "blockX", "blockY", "blockXY", "eblk", "interposer")
+
+
+def _core_groups(blocks):
+    """`(groups, fixed_mask)`: `groups[k]` are the row indices of core `k`, in a stable order."""
+    groups = defaultdict(dict)
+    fixed = np.ones(len(blocks), dtype=bool)
+    for row, name in enumerate(blocks):
+        if any(name.startswith(p) for p in FIXED_PREFIXES):
+            continue
+        match = INDEXED.match(name)
+        if match is None:
+            continue
+        groups[int(match.group("index"))][match.group("prefix")] = row
+        fixed[row] = False
+    if not groups:
+        raise SystemExit("no per-core blocks found; the mapping level does not exist here")
+    signatures = {tuple(sorted(members)) for members in groups.values()}
+    if len(signatures) != 1:
+        raise SystemExit(
+            f"the {len(groups)} core groups have {len(signatures)} different block signatures; "
+            "permuting groups that are not interchangeable is not a mapping"
+        )
+    order = sorted(groups)
+    prefixes = sorted(next(iter(signatures)))
+    return [[groups[k][p] for p in prefixes] for k in order], fixed
+
+
+def _apply(power, groups, permutation):
+    """`power` with core `k` receiving the powers of core `permutation[k]`."""
+    out = np.array(power, dtype=float, copy=True)
+    for target, source in enumerate(permutation):
+        out[groups[target]] = power[groups[source]]
+    return out
+
+
+def main() -> None:
+    operator_path, capture_path = Path(sys.argv[1]), Path(sys.argv[2])
+    iterations = int(sys.argv[3]) if len(sys.argv) > 3 else 4000
+    span = float(sys.argv[4]) if len(sys.argv) > 4 else 0.30
+
+    with np.load(operator_path, allow_pickle=False) as data:
+        rows = np.asarray(data["response_k_per_w"], dtype=float)[0]
+        ambient = np.asarray(data["ambient_k"], dtype=float)[0]
+        blocks = [str(b) for b in data["block_ids"]]
+    with np.load(capture_path, allow_pickle=False) as data:
+        trace_blocks = [str(b) for b in data["block_ids"]]
+        if "powers_w" in data:
+            durations = np.asarray(data["durations_s"], dtype=float)
+            powers = np.asarray(data["powers_w"], dtype=float)
+            placed = (powers * durations[:, None]).sum(axis=0) / float(durations.sum())
+        else:
+            placed = np.asarray(data["placed_power_w"], dtype=float)
+    if trace_blocks != blocks:
+        raise SystemExit("the operator and the trace resolve different block lists")
+
+    groups, fixed = _core_groups(blocks)
+    n = len(groups)
+    core_rows = np.asarray([r for g in groups for r in g])
+    q = np.asarray([float(placed[g].sum()) for g in groups])        # per-core total power
+    total = float(placed.sum())
+
+    # THE EXACT LOWER BOUND. Per core group the response is the SUM of its blocks' columns, because a
+    # permutation moves the group's whole power together. Then per cell, pair the largest core power
+    # with the smallest coefficient -- the rearrangement inequality, attained by some permutation for
+    # that cell and therefore a valid lower bound for it.
+    group_response = np.stack([rows[:, g].sum(axis=1) for g in groups], axis=1)   # (cells, cores)
+    fixed_field = rows[:, fixed] @ placed[fixed] + ambient
+    q_desc = np.sort(q)[::-1]
+    coeff_asc = np.sort(group_response, axis=1)
+    lower_bound_rows = fixed_field + coeff_asc @ q_desc
+    lower_bound = float(np.max(lower_bound_rows))
+
+    def nominal(perm):
+        return float(np.max(rows @ _apply(placed, groups, perm) + ambient))
+
+    def certified(perm):
+        vector = _apply(placed, groups, perm)
+        space = activity_bounded_power_space(blocks, vector, activity_span=span)
+        got = float(np.max(_extreme_rows(
+            rows, np.asarray(space.lower_w, dtype=float),
+            np.asarray(space.upper_w, dtype=float), total) + ambient))
+        if not math.isfinite(got):
+            raise SystemExit("the certified peak is not finite")
+        return got
+
+    identity = list(range(n))
+    baseline_nominal, baseline_certified = nominal(identity), certified(identity)
+    if abs(float(_apply(placed, groups, identity).sum()) - total) > 1e-12 * max(total, 1.0):
+        raise SystemExit("the identity permutation does not conserve total power")
+
+    # Steepest-descent over pair swaps, restarted. Each evaluation is one matvec: the whole point.
+    rng = np.random.default_rng(0)
+    best, best_value = list(identity), baseline_nominal
+    started = time.monotonic()
+    evaluations = 0
+    for restart in range(4):
+        current = list(identity) if restart == 0 else list(rng.permutation(n))
+        value = nominal(current)
+        evaluations += 1
+        improved = True
+        while improved and evaluations < iterations:
+            improved = False
+            for a in range(n):
+                for b in range(a + 1, n):
+                    if evaluations >= iterations:
+                        break
+                    trial = list(current)
+                    trial[a], trial[b] = trial[b], trial[a]
+                    got = nominal(trial)
+                    evaluations += 1
+                    if got < value - 1e-12:
+                        current, value, improved = trial, got, True
+                        break
+                if improved:
+                    break
+        if value < best_value - 1e-12:
+            best, best_value = list(current), value
+    elapsed = time.monotonic() - started
+
+    payload = {
+        "operator": operator_path.name, "trace": capture_path.name,
+        "cores": n, "blocks": len(blocks), "cells": int(rows.shape[0]), "span": span,
+        "ceiling_k": CEILING_K,
+        "thermodse_mapping_nominal_k": baseline_nominal,
+        "thermodse_mapping_certified_k": baseline_certified,
+        "best_mapping_nominal_k": best_value,
+        "best_mapping_certified_k": certified(best),
+        "improvement_nominal_k": baseline_nominal - best_value,
+        "improvement_certified_k": baseline_certified - certified(best),
+        "exact_lower_bound_nominal_k": lower_bound,
+        "gap_to_lower_bound_k": best_value - lower_bound,
+        "baseline_excess_over_bound_k": baseline_nominal - lower_bound,
+        "evaluations": evaluations, "seconds": elapsed,
+        "ms_per_evaluation": 1000.0 * elapsed / max(evaluations, 1),
+        "permutation": best,
+    }
+    print(json.dumps(payload, indent=1, sort_keys=True))
+    Path(str(operator_path).replace(".npz", "-mapping.json")).write_text(
+        json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()
