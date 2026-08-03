@@ -62,6 +62,7 @@ Usage (moe-server):
 
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 
@@ -70,14 +71,33 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from CertiTherm.cross_grid_bound import _extreme_rows          # noqa: E402
 from CertiTherm.measurements import activity_bounded_power_space  # noqa: E402
+from CertiTherm.paths import ROOT                                # noqa: E402
+from CertiTherm.tabular import read_rows as _ledger_rows         # noqa: E402
 
-# Audit ledger, docs/THERMODSE_ENDPOINT_AUDIT.md section 3, in pJ. The ledger closes to zero residual.
-DRAM_PJ = 3.7405e9
-NOP_PJ = 1.0052e9
-NOP_SHARE = NOP_PJ / (DRAM_PJ + NOP_PJ)
-# The audit's closure: dissipated 9.2218 mJ against 4.6118 mJ arriving, so the missing energy is
-# 0.9996x the arriving energy. Recomputed from the capture rather than hard-coded per case.
-MISSING_OVER_ARRIVING = 9.2218e9 / 4.6118e9 - 1.0
+
+def _ledger():
+    """`{(workload, arch): (missing_over_admitted, nop_share_of_missing)}`, checked at load."""
+    table = {}
+    for row in _ledger_rows(ROOT / LEDGER):
+        ratio = float(row["missing_over_admitted"])
+        nop = float(row["nop_share_of_missing"])
+        # Finiteness first and separately: `NaN <= 0` and `NaN > 1` are both False, so a single
+        # inequality would accept NaN and record it.
+        if not math.isfinite(ratio) or ratio <= 0.0 or not math.isfinite(nop) or not 0.0 <= nop <= 1.0:
+            raise SystemExit(f"{row['arch_id']}/{row['workload']}: ratio {ratio!r}, nop share {nop!r}")
+        table[(row["workload"], row["arch_id"])] = (ratio, nop)
+    if not table:
+        raise SystemExit(f"{LEDGER} is empty")
+    return table
+
+# THE MISSING FRACTION AND THE NoP SHARE ARE BOTH PER CASE. This file used to hard-code
+# `DRAM_PJ = 3.7405e9`, `NOP_PJ = 1.0052e9` and `9.2218/4.6118 - 1.0` -- all three are
+# `arch_c`/resnet50's audit closure, and all three were applied to every case. Measured per case
+# (`experiments/missing_energy_ledger.tsv`, from `research/triangle/energy_ledger.py`) the missing
+# fraction spans 0.3328-0.9997 and the NoP share of it spans 0.000-0.307: `arch_a` emits no NoP
+# energy at all. The hard-coded values were the largest missing fraction of the six, so every uplift
+# this file produced was overstated. See `docs/PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`.
+LEDGER = Path("experiments") / "missing_energy_ledger.tsv"
 
 FRAME = ("eblk0", "eblk1", "eblk2", "eblk3")
 
@@ -190,8 +210,9 @@ def main() -> None:
     span = float(_option(argv, "--span", "0.30"))
 
     ceiling = LIMIT_K - MARGIN_K - LINEARISATION_K
-    print(f"NoP share of the missing energy = {NOP_SHARE:.4f}   "
-          f"missing/arriving = {MISSING_OVER_ARRIVING:.4f}   activity span = {span}")
+    ledger = _ledger()
+    print("missing fraction and NoP share are PER CASE, from " + str(LEDGER) +
+          f"   activity span = {span}")
     print(f"certifying ceiling = {LIMIT_K} - {MARGIN_K} - {LINEARISATION_K} = {ceiling:.2f} K\n")
     print(f"{'case':22s} {'sup_p peak':>10s} {'slack':>8s} {'dP':>7s} "
           f"{'NoP@area':>9s} {'verdict':>8s} {'all@area':>9s} {'verdict':>8s} "
@@ -236,7 +257,13 @@ def main() -> None:
             weight = np.where(in_sys, area, 0.0)
             weight = weight / weight.sum()
 
-            dP = float(placed.sum()) * MISSING_OVER_ARRIVING
+            if (workload, arch) not in ledger:
+                raise SystemExit(
+                    f"{arch}/{workload} has no row in {LEDGER}; the missing fraction is measured "
+                    "per case and never defaulted. Run research/triangle/energy_ledger.py first."
+                )
+            missing_ratio, nop_share = ledger[(workload, arch)]
+            dP = float(placed.sum()) * missing_ratio
             # The CERTIFIED quantity: max over rows of the supremum over the polytope, which is what
             # CELL_ENDPOINT_RESULT.md reports. The nominal peak is 1.5 K lower on the tightest point.
             space = activity_bounded_power_space(block_ids, placed, activity_span=span)
@@ -245,7 +272,7 @@ def main() -> None:
             peak = float(np.max(ambient + sup_rows))
             slack = ceiling - peak
 
-            uplift_nop = float(np.max(response @ (weight * dP * NOP_SHARE)))
+            uplift_nop = float(np.max(response @ (weight * dP * nop_share)))
             uplift_all = float(np.max(response @ (weight * dP)))
 
             # NoC over-count: every io_* column got p_noc/divisor, and there are 4*cx*cy of them, so

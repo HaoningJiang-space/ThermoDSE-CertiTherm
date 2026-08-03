@@ -1,5 +1,13 @@
 # Deciding under an incomplete power map — and the separator that is NOT there
 
+> **WITHDRAWN 2026-08-03 in its two headline numbers. See
+> `docs/PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md`.** Every number below was computed with
+> `Q` scaled from one architecture's audit closure (`0.9997`). Measured per case, `Q/admitted` spans
+> `0.3328-0.9997`, and `0.9997` is the **largest** of the six — so every uplift here is overstated.
+> Re-run with the per-case ledger: the **2 placement-free refutations become 0**, and the
+> **0 disagreements with a guessed guard band become 2** — in the opposite direction to the one this
+> document argues. What survives is `12/12` decidability. Do not quote anything else from this file.
+
 RESULT 2026-08-02. NON-CLAIM. `research/triangle/robustness/split_missing_heat.py`, existing
 operators and captures, no new solve. **No external review** (Codex quota-locked to 2026-08-08).
 
