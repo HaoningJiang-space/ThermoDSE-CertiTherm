@@ -417,6 +417,18 @@ def _axis_nodes(edges, extent: float, minimum_cells: int, fine_span=None):
     return tuple(nodes)
 
 
+def _source_average_max(result) -> float:
+    """The hottest SOURCE-region average in one solve, at whichever granularity is in use."""
+    prefix = "cell::" if CELL_ENDPOINT_N else "die::"
+    values = [v for n, v in result.region_average_temperature_k if n.startswith(prefix)]
+    if not values:
+        raise SystemExit(
+            f"no region is named {prefix!r}; the source granularity and the readout disagree, and "
+            "a max over an empty selection is not a temperature"
+        )
+    return max(values)
+
+
 def main() -> None:
     _dry_run = os.environ.get("CERTITHERM_FEM_DRYRUN") == "1"
     capture = Path(sys.argv[1])
@@ -857,9 +869,13 @@ def main() -> None:
         "nominal_peak_over_block_averages_k": float(
             np.max(response @ np.asarray(placed, dtype=float) + ambient_row)
         ),
-        "impulse_max_anywhere_minus_block_average_k": float(np.max([
-            r.maximum_temperature_k - max(v for n, v in r.region_average_temperature_k
-                                          if n.startswith("die::"))
+        # SAME PREFIX, SECOND PLACE. The source regions are `die::` at block granularity and
+        # `cell::` at cell granularity, and a hard-coded prefix here made `max()` raise on an EMPTY
+        # sequence rather than report a wrong number -- which is the good failure, but only by luck.
+        # `_source_average` derives the prefix from the flag and refuses an empty selection with a
+        # message that says which prefix it looked for.
+        "impulse_max_anywhere_minus_source_average_k": float(np.max([
+            r.maximum_temperature_k - _source_average_max(r)
             for r in results[1:]
         ])),
         "thermal_limit_k": THERMAL_LIMIT_K,
