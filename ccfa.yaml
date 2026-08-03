@@ -9,8 +9,8 @@ target_venue:
   mode: "research"
 stage:
   current: "fixed_geometry_mapping"
-  gate: "g1_trace_corrections_priced_g2_repaired_population_does_not_contain_a_separator"
-  updated_at: "2026-08-03"
+  gate: "certificate_in_the_loop_proved_incumbent_designs_fail_their_own_envelope"
+  updated_at: "2026-08-04"
 active_contract: "docs/ROUND_PLAN_FIXED_GEOMETRY.md"
 # Direction changed 2026-08-01 (docs/DIRECTION_FIXED_GEOMETRY.md): architecture-level DSE with an
 # internalised thermal constraint is demoted with a named obstruction -- a small geometric
@@ -18,22 +18,41 @@ active_contract: "docs/ROUND_PLAN_FIXED_GEOMETRY.md"
 # 64 archive designs induce 64 distinct geometries with zero shared. The direction is
 # thermal-constrained mapping on a FIXED geometry.
 #
+# CONFIRMED AND STRENGTHENED 2026-08-04: the reuse rate over 61 archive designs under routed
+# lowering is 0.0%, and perturbing one design field at a time, ZERO of ten leave the floorplan
+# invariant on arch_b and arch_c. (A first measurement on arch_a alone found `interval` invariant
+# and that was that design's artefact -- it has cut_x = cut_y = 1, so no inter-chiplet gap to
+# space.) The design space does not factor into geometry x power at all, so a fixed geometry is the
+# only construction that amortises an operator. docs/THREE_LEGS_STATUS.md
+#
 # Where the round stands, 2026-08-03:
 #   * The pointwise operator certificate is CLOSED, structurally rather than for want of tightness:
 #     equilibration removes 97% of the residual majorant and the factor lands on 1.0012, because
 #     div(sigma_h + k grad u_h) = -f for any reconstruction. P2 moves it to 0.8545 and a mesh sweep
 #     is in flight; switching element family is itself Tier 2 and is not authorised.
 #     docs/GB1_THE_NAIVE_MAJORANT_IS_VACUOUS.md
-#   * The trace corrections are PRICED without any Tier-2 action, by one matvec against operators
-#     already built: both missing sources go to the central block by the generator's own column
-#     order, and 3 of 6 development points survive a fully corrected trace. arch_b -> arch_c does
-#     not reverse, but arch_c/transformer becomes UNRESOLVED, so the +32.1% price is quoted for a
-#     destination whose feasibility is not established.
-#     docs/THE_GENERATOR_PUTS_THE_MISSING_HEAT_CENTRALLY.md
-#   * G2 is REPAIRED and must not be run as previously written. The separator window collapses to
-#     margin + e_total <= dist < g, so its non-emptiness is candidate-independent arithmetic and is
-#     NOT the binding constraint; the population is. None of the six development points lies in the
-#     band. docs/G2_REPAIR_THE_WINDOW_IS_ONE_DIMENSIONAL.md
+#   * The trace corrections were priced with a SCALED Q -- one architecture's audit closure applied
+#     to six -- and the per-case ledger withdraws the conclusions drawn from it. Measured per case
+#     the missing fraction spans 0.3328-0.9997 and the value in use was the LARGEST. Five of six
+#     survive a fully corrected trace, not three; arch_c/transformer IS certified; the 2
+#     placement-free refutations become 0 and the 0 guard-band disagreements become 2.
+#     docs/PER_CASE_Q_WITHDRAWS_THE_PLACEMENT_FREE_REFUSAL.md
+#   * The nuisance bound is NOT a bound. On identical geometry with identical total power, the
+#     assumed area-weighted placement lands BELOW the routed one on four of six points, by up to
+#     1.25 K. Verdicts resting on it are the value AT the uniform placement, not certificates.
+#     docs/ROUTED_CERTIFICATE_AND_THE_BOUND_THAT_IS_NOT_ONE.md
+#   * All six development points are now certified on the ROUTED trace -- the first verdicts in this
+#     repository not taken on the legacy one. Five certify; arch_b/transformer is refused at its own
+#     NOMINAL power map (329.9732 K vs a 329.94 K ceiling) and the other five stop certifying once
+#     block activity varies by 49-116%. The incumbent method's own designs do not survive their own
+#     envelope. docs/THE_INCUMBENT_DESIGNS_DO_NOT_SURVIVE_THEIR_OWN_ENVELOPE.md
+#   * The in-loop certificate is PROVED and PINNED: exact supremum (continuous knapsack, checked
+#     against brute-force vertex enumeration), one-sided, fail-closed; 12 ms per candidate against
+#     20-30 s for a HotSpot solve. docs/CERTIFICATE_IN_THE_LOOP.md
+#   * G2's population verdict is WITHDRAWN twice over: its dist column inherited the scaled Q, and
+#     the archive population it would screen is COLD (5.5-18.5 W against 28-57 W for the dev split),
+#     so 0 of 60 lie in the band for a reason that is about the population, not the window.
+#     docs/THREE_LEGS_STATUS.md
 #
 # The legacy ThermoDSE ptrace path is NOT valid evidence: see docs/THERMODSE_ENDPOINT_AUDIT.md.
 # HISTORICAL, superseded by the block above -- retained because V6's rejection still stands on its
