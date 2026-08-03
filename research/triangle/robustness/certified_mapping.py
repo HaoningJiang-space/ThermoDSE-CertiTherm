@@ -147,15 +147,37 @@ def main() -> None:
     q = np.asarray([float(placed[g].sum()) for g in groups])        # per-core total power
     total = float(placed.sum())
 
-    # THE EXACT LOWER BOUND. Per core group the response is the SUM of its blocks' columns, because a
-    # permutation moves the group's whole power together. Then per cell, pair the largest core power
-    # with the smallest coefficient -- the rearrangement inequality, attained by some permutation for
-    # that cell and therefore a valid lower bound for it.
-    group_response = np.stack([rows[:, g].sum(axis=1) for g in groups], axis=1)   # (cells, cores)
+    # THE EXACT LOWER BOUND, AND THE FIRST VERSION OF IT WAS WRONG IN THE UNSAFE DIRECTION.
+    #
+    # That version summed each group's columns and paired the sums with the group totals by the
+    # rearrangement inequality. Summing columns is the response to one watt on EVERY block of the
+    # group, so it inflated the contribution by the group size and produced a "lower bound" of
+    # 345.32 K against an achieved 327.55 K. A bound above an attained value is not a bound, and the
+    # sign of the error -- too high -- is the one that would have made a heuristic look optimal.
+    # It was caught by the gap coming out NEGATIVE, which is why the gap is reported and not just
+    # the bound.
+    #
+    # The correct model: a mapping moves a core's whole power PROFILE to another core's blocks,
+    # block-for-block. So for cell `j` the cost of putting profile `k` at position `m` is
+    #
+    #     C_j[m, k] = sum_r R[j, groups[m][r]] * placed[groups[k][r]]
+    #
+    # and `min_pi sum_m C_j[m, pi(m)]` is a LINEAR ASSIGNMENT PROBLEM, solved exactly per cell. It is
+    # NOT a sort: the rearrangement inequality applies to a product of two vectors, and this is a
+    # bilinear form over profiles. n = 16 cores, so each solve is trivial and the whole bound is one
+    # pass over the cells.
+    from scipy.optimize import linear_sum_assignment                      # noqa: PLC0415
+
+    profiles = np.stack([placed[g] for g in groups], axis=0)              # (cores, blocks_per_core)
+    per_position = np.stack([rows[:, g] for g in groups], axis=1)         # (cells, cores, per_core)
+    # C[j, m, k] = sum_r per_position[j, m, r] * profiles[k, r]
+    cost = np.einsum("jmr,kr->jmk", per_position, profiles)
     fixed_field = rows[:, fixed] @ placed[fixed] + ambient
-    q_desc = np.sort(q)[::-1]
-    coeff_asc = np.sort(group_response, axis=1)
-    lower_bound_rows = fixed_field + coeff_asc @ q_desc
+    assigned = np.empty(rows.shape[0], dtype=float)
+    for j in range(rows.shape[0]):
+        row_ind, col_ind = linear_sum_assignment(cost[j])
+        assigned[j] = float(cost[j][row_ind, col_ind].sum())
+    lower_bound_rows = fixed_field + assigned
     lower_bound = float(np.max(lower_bound_rows))
 
     def nominal(perm):
@@ -204,6 +226,16 @@ def main() -> None:
         if value < best_value - 1e-12:
             best, best_value = list(current), value
     elapsed = time.monotonic() - started
+
+    # A BOUND THAT EXCEEDS AN ATTAINED VALUE IS NOT A BOUND. Checked against every mapping this run
+    # actually evaluated, not merely asserted from the derivation -- which is how the first version's
+    # error surfaced.
+    for name, value in (("thermodse", baseline_nominal), ("best", best_value)):
+        if value < lower_bound - 1e-9:
+            raise SystemExit(
+                f"the {name} mapping attains {value!r}, below the claimed lower bound "
+                f"{lower_bound!r}; the bound is invalid and no gap computed from it means anything"
+            )
 
     payload = {
         "operator": operator_path.name, "trace": capture_path.name,
