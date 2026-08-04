@@ -1,4 +1,10 @@
 """Bound the interval for candidate 0: synthesizable at all, and how fast the
+
+RETAINED AS THE REPRODUCIBLE ATTACHMENT for `docs/CERTIFIED_GAP_CONVERGENCE.md`, which cites this chain's numbers
+(3442 cuts, primal 20.1, restricted-master 21.0) without naming the scripts that produced
+them. A dead-code scan finds no importer and no doc mentioning this file, so without this
+line the next cleanup deletes the only reproduction path for a published conclusion --
+which is how `legacy_core_transient_audit.py` came to declare its own retention in line 3.
 bound scales with discovered cuts.
 
 Triangle-2: at 300 s / 3442 cuts the cheapest cover of discovered cuts (21)

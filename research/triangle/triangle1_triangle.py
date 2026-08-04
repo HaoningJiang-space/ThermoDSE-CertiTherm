@@ -1,5 +1,11 @@
 """Primal-dual-integer triangle on one real dev candidate.
 
+RETAINED AS THE REPRODUCIBLE ATTACHMENT for `docs/CERTIFIED_GAP_CONVERGENCE.md`, which cites this chain's numbers
+(3442 cuts, primal 20.1, restricted-master 21.0) without naming the scripts that produced
+them. A dead-code scan finds no importer and no doc mentioning this file, so without this
+line the next cleanup deletes the only reproduction path for a published conclusion --
+which is how `legacy_core_transient_audit.py` came to declare its own retention in line 3.
+
 Question: is the certified lower bound of ~2 a genuinely weak LP relaxation, or
 a defect in `_anytime_lower_bound`? The two are indistinguishable from the
 result table but not from the cut matrix itself.
