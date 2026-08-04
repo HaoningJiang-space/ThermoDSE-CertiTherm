@@ -70,6 +70,7 @@ from CertiTherm.paths import ROOT, TEMPLATE                                  # n
 from CertiTherm.tabular import read_rows as _rows                            # noqa: E402
 
 from cell_certificate_run import _configure, cell_operator                    # noqa: E402
+from case_record import CaseRecord, attach                                    # noqa: E402
 from routed_cell_certificate import MARGIN_K, _steady_power                   # noqa: E402
 
 # The bisection stops when the bracket is this wide. It is a span, dimensionless, and 1e-4 is far
@@ -212,6 +213,9 @@ def main() -> None:
                      "admits exactly one power map; a radius over it would be a point evaluation "
                      "wearing an envelope's name."),
         }
+        # No CaseRecord: a singleton envelope has no certified peak distinct from its nominal one,
+        # so declaring one would hand a consumer the very number E1 exists to keep out.
+        payload["certified_cases"] = []
         out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         print(json.dumps({k: v for k, v in payload.items() if k != "curve"}, indent=1,
                          sort_keys=True))
@@ -235,6 +239,12 @@ def main() -> None:
         "operator_build_s": build_s, "radius_solve_s": certify_s,
         "reconciliation": receipts,
     }
+    attach(payload, [CaseRecord(
+        case=trace_path.stem, nominal_peak_k=nominal,
+        certified_peak_k=next(c["peak_k"] for c in curve if abs(c["span"] - 0.30) < 1e-12)
+        if any(abs(c["span"] - 0.30) < 1e-12 for c in curve) else curve[-1]["peak_k"],
+        span=0.30, ceiling_k=ceiling, model=model_id, source="thermal_robustness_radius",
+    )])
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps({k: v for k, v in payload.items() if k != "curve"}, indent=1, sort_keys=True))
 

@@ -64,6 +64,7 @@ from CertiTherm.operator_library import OperatorLibrary                      # n
 from research.triangle.robustness.archive_census import (                     # noqa: E402
     DECLARED_COUNT, FIELDS, architecture_row, candidate_set,
 )
+from research.triangle.robustness.case_record import CaseRecord, attach       # noqa: E402
 from research.triangle.robustness.routed_pipeline import (                    # noqa: E402
     CEILING_K, certified_peak, lower_case, nominal_peak, operator_for,
 )
@@ -254,6 +255,11 @@ def main() -> None:
         "all": [r for r in evaluated.values() if r is not None],
         "unresolved_detail": unresolved,
     }
+    attach(payload, [CaseRecord(
+        case=f"{r['architecture_id']}:{'-'.join(str(r['design'][k]) for k in FIELDS)}",
+        nominal_peak_k=r["nominal_peak_k"], certified_peak_k=r["certified_peak_k"],
+        span=r["span"], ceiling_k=CEILING_K, edyp=r["edyp"], source="certified_search",
+    ) for r in payload["all"]])
     (output / f"certified_search_{workload_id}_{seed_id}.json").write_text(
         json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
 
