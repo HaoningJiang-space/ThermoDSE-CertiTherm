@@ -48,49 +48,10 @@ from pathlib import Path
 sys.path.insert(0, ".")
 
 from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K     # noqa: E402
+from research.triangle.robustness.case_record import read_cases              # noqa: E402
 
 MARGIN_K = 0.05
 SLACK_OFFSET_K = MARGIN_K + MODEL_ERROR_LIMIT_K
-
-
-def _harvest(root: Path):
-    """Every `(case, nominal, certified)` triple this project has written, from any driver."""
-    found = []
-    for path in sorted(root.rglob("*.json")):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (ValueError, OSError):
-            continue
-        records = payload if isinstance(payload, list) else [payload]
-        if isinstance(payload, dict) and isinstance(payload.get("all"), list):
-            records = payload["all"]
-        if isinstance(payload, dict) and isinstance(payload.get("rows"), list):
-            records = records + [r for r in payload["rows"] if isinstance(r, dict)]
-        for record in records:
-            if not isinstance(record, dict):
-                continue
-            nominal = record.get("nominal_peak_k")
-            certified = (record.get("certified_peak_k")
-                         or record.get("worst_case_max_cell_average_k")
-                         or record.get("thermodse_mapping_certified_k"))
-            if certified is None and isinstance(record.get("curve"), list):
-                # The radius driver stores the certified peak per span rather than as one field, so
-                # the sweep's own span-0.30 point is the comparable number. Reading a DIFFERENT span
-                # here would silently mix envelopes across the population, which is why the span is
-                # matched exactly rather than taken as "the nearest".
-                for point in record["curve"]:
-                    if isinstance(point, dict) and abs(float(point.get("span", -1)) - 0.30) < 1e-12:
-                        certified = point.get("peak_k")
-                        break
-            if nominal is None or certified is None:
-                continue
-            nominal, certified = float(nominal), float(certified)
-            if not (math.isfinite(nominal) and math.isfinite(certified)):
-                continue
-            label = str(record.get("architecture_id") or record.get("case")
-                        or record.get("trace") or path.stem)
-            found.append((f"{path.parent.name}/{label}", nominal, certified))
-    return found
 
 
 def main() -> None:
@@ -134,7 +95,6 @@ def main() -> None:
                          "contains_frozen_limit": nominal <= THERMAL_LIMIT_K < certified + SLACK_OFFSET_K})
     if not rows:
         raise SystemExit("no case carried both a nominal and a certified peak")
-
     widths = [r["disagreement_width_k"] for r in rows]
     uplifts = [r["uplift_k"] for r in rows]
     summary = {
@@ -149,6 +109,9 @@ def main() -> None:
         "frozen_limit_k": THERMAL_LIMIT_K,
     }
     print(json.dumps(summary, indent=1, sort_keys=True))
+    print(f"\nread {len(rows)} distinct cases; {legacy_total} came through the legacy name table "
+          f"and {skipped_total} files yielded nothing. A file yielding nothing is COUNTED, not "
+          "assumed empty -- guessing names once hid four fifths of this population.")
     print()
     print("widest ten:")
     for r in sorted(rows, key=lambda r: -r["disagreement_width_k"])[:10]:
