@@ -1,5 +1,7 @@
 # ThermoDSE endpoint audit — what the frozen captures actually contain
 
+> **Produced by** `research/triangle/legacy_core_transient_audit.py`. Recorded here because a doc that cites numbers without naming its producer makes that script look orphaned to every dead-code scan, and the scan is right to flag it: nothing else points at it.
+
 Found while probing per-order data for `round/v6-physical-traces`. Both scalar endpoints that
 CertiTherm freezes into every capture are wrong, for two independent and unrelated reasons.
 The power map is not affected, and neither is the candidate ordering — but the reasons matter,

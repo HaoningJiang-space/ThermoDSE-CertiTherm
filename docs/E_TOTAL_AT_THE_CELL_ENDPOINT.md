@@ -1,4 +1,6 @@
 # P1: `e_total` at the cell endpoint is 1.98–4.99 K; tightened it is 0.75–1.82 K, and the
+
+> **Produced by** `research/triangle/robustness/cell_model_form_band.py`. Recorded here because a doc that cites numbers without naming its producer makes that script look orphaned to every dead-code scan, and the scan is right to flag it: nothing else points at it.
 # headline does not survive it
 
 RESULT 2026-08-04, `moe-server`. NON-CLAIM. FEM reference at `CERTITHERM_FEM_CELL_ENDPOINT=128`

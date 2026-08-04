@@ -1,5 +1,7 @@
 # Adversarial self-review: every attack I can find on this round, and its status
 
+> **Produced by** `research/triangle/robustness/limit_parametric_disagreement.py`. Recorded here because a doc that cites numbers without naming its producer makes that script look orphaned to every dead-code scan, and the scan is right to flag it: nothing else points at it.
+
 REVIEW 2026-08-04. Written against my own results, before external review (Codex quota-locked to
 2026-08-08). Each item is an attack a reviewer can make, with either the measurement that settles it,
 the experiment that would, or an explicit concession. **Concessions come first inside each group.**

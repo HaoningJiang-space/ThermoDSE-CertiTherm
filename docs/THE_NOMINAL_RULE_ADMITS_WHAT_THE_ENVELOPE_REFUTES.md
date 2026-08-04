@@ -1,4 +1,6 @@
 
+
+> **Produced by** `research/triangle/robustness/nominal_vs_envelope_feasible_set.py`. Recorded here because a doc that cites numbers without naming its producer makes that script look orphaned to every dead-code scan, and the scan is right to flag it: nothing else points at it.
 # P0: the "you used the wrong cap" objection, measured and closed
 
 RESULT 2026-08-04. NON-CLAIM, exact post-processing of `certified_search` evidence already on disk;
