@@ -22,7 +22,6 @@ Usage (on moe-server, from the repo root):
 
 from __future__ import annotations
 
-import itertools
 import json
 import sys
 import time
@@ -36,7 +35,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from CertiTherm.experiments import (
     _capture,
-    _measurement_costs,
     _operator,
     _power_space,
     _rows,

@@ -46,8 +46,7 @@ def _emit(workload, arch_id, arch_row, work_root, library, tag):
     # the shape that driver already consumes rather than in a new one.
     trace_path = work / "trace.npz"
     np.savez_compressed(trace_path, block_ids=np.asarray(list(case.blocks)),
-                        durations_s=np.asarray([case.horizon_s]),
-                        powers_w=case.placed_w[None, :],
+                        durations_s=case.durations_s, powers_w=case.powers_w,
                         **{k: np.asarray(v) for k, v in case.receipts.items()})
     operator_path = work / "operator.npz"
     np.savez_compressed(operator_path, model_ids=np.asarray([library.model_id]),

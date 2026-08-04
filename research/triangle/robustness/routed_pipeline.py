@@ -59,12 +59,20 @@ class RoutedCase:
     `placed_w` is the duration-weighted mean of the routed trace -- the unique reduction that
     conserves energy -- and it is checked against the lowering's own source receipt before this
     object exists, so no caller can hold a case whose vector does not carry its stated energy.
+
+    The FULL trace is carried too. An earlier version held only the reduction, which forced the two
+    drivers that need the phases (`frontier_census` emits them, `composed_result` materialises them
+    for `certified_mapping`) to keep their own copy of the lowering -- and `composed_result`'s copy
+    wrote a fabricated SINGLE-PHASE trace, which is a different object from the one every other
+    driver reads. Carrying the phases is ~1 MB and removes both.
     """
 
     workload: str
     arch_id: str
     blocks: tuple
     placed_w: np.ndarray
+    durations_s: np.ndarray
+    powers_w: np.ndarray
     floorplan_text: str
     horizon_s: float
     energy_mj: float
@@ -131,7 +139,8 @@ def lower_case(work: Path, workload: str, arch_id: str, *, arch_row: dict | None
     return RoutedCase(
         workload=workload, arch_id=arch_id,
         blocks=tuple(str(b) for b in augmented.block_ids),
-        placed_w=placed, floorplan_text=augmented.text, horizon_s=horizon,
+        placed_w=placed, durations_s=durations, powers_w=powers,
+        floorplan_text=augmented.text, horizon_s=horizon,
         energy_mj=float(frozen["endpoint_energy_mj"]),
         latency_ms=float(frozen["endpoint_latency_ms"]),
         die_yield=float(frozen["die_yield"]), receipts=receipts,

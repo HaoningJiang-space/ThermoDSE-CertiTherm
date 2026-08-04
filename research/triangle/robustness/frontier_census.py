@@ -55,57 +55,40 @@ import numpy as np
 
 sys.path.insert(0, ".")
 
-from CertiTherm.routed_trace import lower_routed_trace                       # noqa: E402
-from research.triangle.complete_trace_probe import capture_frozen_inputs      # noqa: E402
 from research.triangle.robustness.archive_census import (                     # noqa: E402
     DECLARED_COUNT, WORKLOAD_ID as PROTOCOL_WORKLOAD_ID, architecture_row, candidate_set,
 )
+from research.triangle.robustness.routed_pipeline import lower_case            # noqa: E402
 
-RECONCILE_RTOL = 1e-9
 
+def _emit(output: Path, case) -> dict:
+    """Write the trace and floorplan `routed_cell_certificate.py` consumes, receipts included.
 
-def _emit(output: Path, arch_id: str, workload_id: str, frozen, routed) -> dict:
-    """Write the trace and floorplan `routed_cell_certificate.py` consumes, receipts included."""
+    The reconciliation checks that used to live here now run inside `lower_case`, before any
+    `RoutedCase` exists, so a non-reconciling trace cannot reach this function at all.
+    """
 
-    augmented = frozen["augmented"]
-    floorplan_out = output / f"complete_floorplan_{workload_id}_{arch_id}.flp"
-    trace_out = output / f"complete_trace_{workload_id}_{arch_id}.npz"
-    floorplan_out.write_text(augmented.text, encoding="utf-8")
+    floorplan_out = output / f"complete_floorplan_{case.workload}_{case.arch_id}.flp"
+    trace_out = output / f"complete_trace_{case.workload}_{case.arch_id}.npz"
+    floorplan_out.write_text(case.floorplan_text, encoding="utf-8")
     np.savez_compressed(
         trace_out,
-        block_ids=np.asarray(augmented.block_ids),
-        durations_s=routed.trace.durations_s,
-        powers_w=routed.trace.powers_w,
-        source_energy_j=np.asarray(routed.source_energy_j),
-        route_energy_j=np.asarray(routed.route_energy_j),
-        monitor_source_energy_j=np.asarray(routed.monitor_source_energy_j),
-        monitor_route_energy_j=np.asarray(routed.monitor_route_energy_j),
+        block_ids=np.asarray(list(case.blocks)),
+        durations_s=case.durations_s,
+        powers_w=case.powers_w,
+        **{k: np.asarray(v) for k, v in case.receipts.items()},
     )
-
-    # The lowering refuses internally when these disagree; re-checking here means a trace on disk
-    # cannot be silently non-reconciling if that path is ever relaxed.
-    for name, got, want in (
-        ("source", routed.source_energy_j, routed.monitor_source_energy_j),
-        ("route", routed.route_energy_j, routed.monitor_route_energy_j),
-    ):
-        if not np.isclose(float(got), float(want), rtol=RECONCILE_RTOL, atol=0.0):
-            raise SystemExit(f"{arch_id}: {name} energy does not reconcile, {got!r} vs {want!r}")
-
-    durations = np.asarray(routed.trace.durations_s, dtype=float)
-    powers = np.asarray(routed.trace.powers_w, dtype=float)
-    horizon = float(durations.sum())
-    mean = (powers * durations[:, None]).sum(axis=0) / horizon
     return {
-        "architecture_id": arch_id,
-        "blocks": int(len(augmented.block_ids)),
-        "phases": int(powers.shape[0]),
-        "horizon_s": horizon,
-        "mean_power_w": float(mean.sum()),
-        "source_energy_j": float(routed.source_energy_j),
-        "route_energy_j": float(routed.route_energy_j),
-        "endpoint_latency_ms": float(frozen["endpoint_latency_ms"]),
-        "endpoint_energy_mj": float(frozen["endpoint_energy_mj"]),
-        "die_yield": float(frozen["die_yield"]),
+        "architecture_id": case.arch_id,
+        "blocks": len(case.blocks),
+        "phases": int(case.powers_w.shape[0]),
+        "horizon_s": case.horizon_s,
+        "mean_power_w": case.total_w,
+        "source_energy_j": case.receipts["source_energy_j"],
+        "route_energy_j": case.receipts["route_energy_j"],
+        "endpoint_latency_ms": case.latency_ms,
+        "endpoint_energy_mj": case.energy_mj,
+        "die_yield": case.die_yield,
         "trace": trace_out.name,
         "floorplan": floorplan_out.name,
     }
@@ -137,16 +120,8 @@ def main() -> None:
             continue
         started = time.monotonic()
         try:
-            frozen = capture_frozen_inputs(output / "work" / arch_id, workload_id, arch_id,
-                                           arch_row=arch)
-            routed = lower_routed_trace(
-                frozen["core"], floorplan=frozen["augmented"], events=frozen["events"],
-                compute_shape=frozen["shape"], chiplet_cuts=frozen["cuts"],
-                noc_hop_cost_pj=frozen["noc_hop_cost_pj"],
-                nop_hop_cost_pj=frozen["nop_hop_cost_pj"],
-                batch_factor=frozen["batch_factor"],
-            )
-            row = _emit(output, arch_id, workload_id, frozen, routed)
+            case = lower_case(output / "work" / arch_id, workload_id, arch_id, arch_row=arch)
+            row = _emit(output, case)
         except Exception as error:                      # noqa: BLE001 - archived, not swallowed
             # FAIL CLOSED PER DESIGN, NOT PER RUN. A design ThermoDSE cannot evaluate is archived
             # with its traceback and excluded from the population; it is never given a fabricated

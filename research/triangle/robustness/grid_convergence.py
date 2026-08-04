@@ -72,10 +72,9 @@ def main() -> None:
     points = {
         (p["arch"], p["workload"]): p for p in json.loads((root / "sweep.json").read_text())
     }
-    package = next(
-        r for r in _rows(ROOT / "experiments" / "packages.tsv") if r["package_id"] == "default"
-    )
-    del package  # the config is taken from the workspace the sweep already configured
+    # No package lookup: the config is taken from the workspace the sweep already
+    # configured. A lookup was performed here and immediately deleted; the comment is
+    # the part that carried information.
 
     rows = []
     for arch in architectures:
