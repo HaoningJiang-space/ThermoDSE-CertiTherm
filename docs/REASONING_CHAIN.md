@@ -223,3 +223,28 @@ against the tree and therefore fails whenever **any** file is removed: every can
 "depended on", a uniform answer that was really one bookkeeping test speaking.
 
 The method that worked is the cheap one: remove one file, run the suite, restore. Thirteen runs.
+
+## 2026-08-05 — the three missing oracles, and where the performance ceiling is
+
+`THIRTEEN_REASSURING_NUMBERS.md` inventoried thirteen defects in one session, none of which crashed,
+and found the rule that separates the ones caught fast from the ones that survived: **a quantity is
+trustworthy in proportion to the independent check attached to it — not to the care in its
+derivation, and not to the review it passed.** Its corollary named four load-bearing quantities with
+no oracle. Three now have one and the fourth needed none.
+
+| what | owner |
+| --- | --- |
+| the routed placement's **core** term reconciles to `5.88e-16` per core over 16 cores — the first check on *where* the heat lands rather than how much | `placement_oracle.py` |
+| the NoC/NoP/DRAM **distribution** is still unchecked, and the obvious second derivation is the one that cannot be used | same, `scope` field |
+| the archive's EDYP is a **multi-network product** bracketed by `(2, 13)` networks — `14.98 / 100.79 / 3795.88` against `834.14`; not identified, because searching for the matching subset is fitting | `WHAT_THE_ARCHIVE_EDYP_ACTUALLY_IS.md` |
+| the 330 K limit removed from the premise: **229/229** cases have a non-empty disagreement band, median `1.3165 K`, independent of `L` | `THE_LIMIT_IS_NOT_A_PREMISE.md` |
+| the envelope's collapse is a pinned invariant, 11 cases, both bounds, every span | `test_envelope_never_collapses_silently.py` |
+| the performance ceiling: the certificate is **0.17 %** of a search and the operator is 92-99.5 %, so only the operator matters; the three-orders-of-magnitude argument belongs at the **mapping** level (1 ms) and not the architecture level (7 s) | `WHERE_THE_PERFORMANCE_CEILING_ACTUALLY_IS.md` |
+
+**Two self-corrections in this pass, both in documents that state the rule they broke.** The
+performance document claimed a HotSpot/FEM crossover "above a few hundred blocks" while listing
+"do not extrapolate" as the next step — all three FEM operators are at 181 blocks, so that curve has
+one point; withdrawn, and the weaker measured statement (same order at ~200 blocks, and HotSpot's
+spread *across architectures* larger than the gap between methods) put in its place. And the EDYP
+probe silently never ran for two hours because `python3 - <<EOF > file` truncated the file before
+reading it — the "two processes alive" were the waiting loop.
