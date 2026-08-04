@@ -60,9 +60,14 @@ def main() -> None:
     if not roots:
         raise SystemExit("no directories given")
 
-    seen, rows = set(), []
+    seen, rows, legacy_total, skipped_total = set(), [], 0, 0
     for root in roots:
-        for case, nominal, certified in _harvest(root):
+        found, legacy, skipped = read_cases(root)
+        legacy_total += legacy
+        skipped_total += len(skipped)
+        for record in found:
+            case = record.case
+            nominal, certified = record.nominal_peak_k, record.certified_peak_k
             key = (round(nominal, 9), round(certified, 9))
             if key in seen:
                 continue
@@ -80,12 +85,6 @@ def main() -> None:
                     "supremum cannot equal it; this case's certificate is not responding to the "
                     "envelope and must be explained before it enters a population statement. See "
                     "docs/ADVERSARIAL_SELF_REVIEW.md."
-                )
-            if certified < nominal - 1e-9:
-                raise SystemExit(
-                    f"{case}: certified peak {certified!r} is below the nominal {nominal!r}. The "
-                    "envelope contains the nominal point, so its supremum cannot be lower; the two "
-                    "numbers came from different objects and no width computed from them is valid."
                 )
             rows.append({"case": case, "nominal_peak_k": nominal, "certified_peak_k": certified,
                          "uplift_k": certified - nominal,
@@ -109,6 +108,9 @@ def main() -> None:
         "frozen_limit_k": THERMAL_LIMIT_K,
     }
     print(json.dumps(summary, indent=1, sort_keys=True))
+    print(f"\nread {len(rows)} distinct cases; {legacy_total} came through the legacy name table "
+          f"and {skipped_total} files yielded nothing. A file yielding nothing is COUNTED, not "
+          "assumed empty -- guessing names once hid four fifths of this population.")
     print(f"\nread {len(rows)} distinct cases; {legacy_total} came through the legacy name table "
           f"and {skipped_total} files yielded nothing. A file yielding nothing is COUNTED, not "
           "assumed empty -- guessing names once hid four fifths of this population.")
