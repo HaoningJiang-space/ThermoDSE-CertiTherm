@@ -65,7 +65,7 @@ def test_the_curve_fallback_matches_the_span_exactly(tmp_path):
     _write(tmp_path, "e.json", {"case": "c", "nominal_peak_k": 320.0,
                                 "curve": [{"span": 0.05, "peak_k": 320.2},
                                           {"span": 0.30, "peak_k": 321.0}]})
-    found, _legacy, _skipped = read_cases(tmp_path, span=0.30)
+    found, _legacy, _skipped, _ref = read_cases(tmp_path, span=0.30)
     assert found[0].certified_peak_k == pytest.approx(321.0)
     none_found, _l, skipped, _r = read_cases(tmp_path, span=0.70)
     assert not none_found and len(skipped) == 1, "a missing span must not fall back to a nearby one"
