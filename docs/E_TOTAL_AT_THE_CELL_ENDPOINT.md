@@ -1,4 +1,5 @@
-# P1: `e_total` at the cell endpoint is 1.98–4.99 K, and folding it in is 70× too conservative
+# P1: `e_total` at the cell endpoint is 1.98–4.99 K; tightened it is 0.75–1.82 K, and the
+# headline does not survive it
 
 RESULT 2026-08-04, `moe-server`. NON-CLAIM. FEM reference at `CERTITHERM_FEM_CELL_ENDPOINT=128`
 against the `grid128-avg` HotSpot cell operators, same captures, span `0.30`, `default` package,
@@ -98,13 +99,22 @@ DRAM-augmented floorplans, which are a different geometry and 12–38 % more pow
 not measured and the numbers above are an indication, not a substitution — the exact error this
 document was written to stop.
 
-## What would make the bound usable, and it is the next piece of work
+## What would make the bound usable, now that the cheap tightening is spent
 
-The looseness is entirely in taking `max_j` over rows that cannot be the argmax. A bound restricted to
-rows that can attain the maximum somewhere in the envelope — the *active* rows — would be sound and
-far tighter. `CertiTherm/cross_grid_bound` already computes per-row suprema, so the candidate set is
-`{ j : sup_p T_hs,j + u_j ≥ max_k sup_p T_hs,k }`, which is cheap and needs no new solve. **Not
-done.**
+The one-maximum form above **is** the active-row restriction: `max_j (sup_j + u_j)` already drops
+every row that cannot reach the top once its own error is added. It bought 2.7x and there is no
+further free tightening of this kind. What remains is to attack the band itself rather than the way it
+is aggregated:
+
+* **The band is HotSpot-versus-FEM, so it prices *which solver you trust*, not an error.** Neither is
+  ground truth. A certificate stated *relative to a declared thermal model* is what every tool in this
+  field produces implicitly; the honest move may be to say so explicitly and report the gap as a
+  separate measured quantity, rather than to fold a solver disagreement in as if it were a bound on
+  reality.
+* **Refine the FEM.** `MODEL_FORM_AGAINST_AN_INDEPENDENT_SOLVER.md` measured that a coarse mesh
+  *understates* the band, so refinement can only enlarge it — this direction cannot rescue the
+  headline and was already checked.
+* **Measure the band on the routed traces**, which is what the headline actually uses. Owed.
 
 ## Scope
 
