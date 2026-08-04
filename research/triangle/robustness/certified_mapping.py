@@ -150,8 +150,6 @@ def main() -> None:
 
     groups, fixed = _core_groups(blocks)
     n = len(groups)
-    core_rows = np.asarray([r for g in groups for r in g])
-    q = np.asarray([float(placed[g].sum()) for g in groups])        # per-core total power
     total = float(placed.sum())
 
     # THE EXACT LOWER BOUND, AND THE FIRST VERSION OF IT WAS WRONG IN THE UNSAFE DIRECTION.
