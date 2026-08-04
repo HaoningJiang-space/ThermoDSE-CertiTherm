@@ -58,7 +58,8 @@ SUFFIX = "" if COMPONENTS is None else "_" + "-".join(sorted(COMPONENTS))
 
 
 def capture_frozen_inputs(output: Path, workload_id: str, arch_id: str,
-                          io_aspect_ratio: float = 1.0, arch_row: dict | None = None):
+                          io_aspect_ratio: float = 1.0, arch_row: dict | None = None,
+                          workload_row: dict | None = None):
     """Run ThermoDSE ONCE and freeze everything the lowering needs.
 
     Extracted so a factorial can capture once and compose every source subset from the
@@ -96,11 +97,23 @@ def capture_frozen_inputs(output: Path, workload_id: str, arch_id: str,
             for row in _rows(ROOT / "experiments" / "architectures.tsv")
             if row["split"] == reg and row["architecture_id"] == arch_id
         )
-    workload = next(
-        row
-        for row in _rows(ROOT / "experiments" / "workloads.tsv")
-        if row["split"] == reg and row["workload_id"] == workload_id
-    )
+    # `workload_row` lifts the registry-split filter the same way `arch_row` lifts the architecture
+    # one. It is needed to reproduce ThermoDSE's own EDYP, which is taken over its WHOLE network
+    # suite while the frozen dev split holds two of the six -- and a comparison across different
+    # network counts is a comparison of different quantities.
+    if workload_row is not None:
+        if workload_row.get("workload_id") != workload_id:
+            raise SystemExit(
+                f"workload_row names {workload_row.get('workload_id')!r} but workload_id is "
+                f"{workload_id!r}; outputs are named from workload_id and a mismatch mislabels them"
+            )
+        workload = workload_row
+    else:
+        workload = next(
+            row
+            for row in _rows(ROOT / "experiments" / "workloads.tsv")
+            if row["split"] == reg and row["workload_id"] == workload_id
+        )
     package = next(
         row
         for row in _rows(ROOT / "experiments" / "packages.tsv")
