@@ -207,3 +207,19 @@ number from a disconnected knob, and a bound that would have made *any* heuristi
 **Still missing.** `e_total` tightened to the rows that can attain the maximum — the sound bound is
 70x loose and that looseness is the only reason it kills the separator framing. Everything else in
 this round survives a measured `Δ`; nothing survives the loose bound.
+
+
+## 2026-08-05 (late) — the orphans, classified by EXECUTION rather than inference
+
+Twelve probes are archived at `legacy-probes-archived-20260805` and deleted; `v61_render_evidence.py`
+is **retained**, because removing it breaks four tests.
+
+**Two static attempts got this wrong before execution settled it.** The first blanked string
+constants in the AST to stop a name mentioned in another file's prose from counting as a
+dependency — and thereby blanked the subprocess **path strings** that carry the real dependency, so
+it declared `v61_render_evidence.py` orphaned and the deletion broke the suite. The second used the
+suite as an oracle without deselecting `test_private_api_census`, which compares the committed census
+against the tree and therefore fails whenever **any** file is removed: every candidate came back
+"depended on", a uniform answer that was really one bookkeeping test speaking.
+
+The method that worked is the cheap one: remove one file, run the suite, restore. Thirteen runs.
