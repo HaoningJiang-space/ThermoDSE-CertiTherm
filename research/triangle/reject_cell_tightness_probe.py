@@ -57,7 +57,7 @@ from scipy.optimize import linprog
 
 sys.path.insert(0, ".")
 
-from CertiTherm.experiments import _power_space, _rows, ROOT
+from CertiTherm.experiments import _power_space
 from CertiTherm.hotspot import load_family
 from CertiTherm.thermal_constraints import reject_cell_rows, robust_safe_cell_rows
 

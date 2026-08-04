@@ -19,7 +19,6 @@ from typing import Iterable, Sequence
 
 # The single source of the output quantum: HotSpot's own serialisation limit, defined next to
 # the convergence guard that also depends on it.
-from CertiTherm.transient import OUTPUT_RESOLUTION_K  # noqa: F401  (re-exported)
 
 ROOT = Path(__file__).resolve().parents[2]
 # `V61_REGISTRATION` exists so a SYNTHETIC manifest can be rendered in a subprocess against the

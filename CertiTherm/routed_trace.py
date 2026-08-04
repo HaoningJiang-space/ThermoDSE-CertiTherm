@@ -29,7 +29,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from math import sqrt
 from types import MappingProxyType
-from typing import Dict, Iterable, Mapping, Sequence, Tuple
+from typing import Dict, Mapping, Sequence, Tuple
 
 import numpy as np
 

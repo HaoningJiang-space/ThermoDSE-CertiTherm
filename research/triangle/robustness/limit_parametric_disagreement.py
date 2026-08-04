@@ -40,7 +40,6 @@ Usage (moe-server, repo root):
 from __future__ import annotations
 
 import json
-import math
 import statistics
 import sys
 from pathlib import Path
@@ -60,11 +59,12 @@ def main() -> None:
     if not roots:
         raise SystemExit("no directories given")
 
-    seen, rows, legacy_total, skipped_total, degenerate = set(), [], 0, 0, []
+    seen, rows, legacy_total, skipped_total, degenerate, refused_total = set(), [], 0, 0, [], []
     for root in roots:
-        found, legacy, skipped = read_cases(root)
+        found, legacy, skipped, refused = read_cases(root)
         legacy_total += legacy
         skipped_total += len(skipped)
+        refused_total += refused
         for record in found:
             case = record.case
             nominal, certified = record.nominal_peak_k, record.certified_peak_k
@@ -97,6 +97,7 @@ def main() -> None:
     summary = {
         "cases": len(rows),
         "excluded_degenerate_envelope": degenerate,
+        "refused_records": refused_total,
         "margin_plus_linearisation_k": SLACK_OFFSET_K,
         "width_min_k": min(widths), "width_median_k": statistics.median(widths),
         "width_max_k": max(widths), "width_mean_k": statistics.fmean(widths),
@@ -110,12 +111,16 @@ def main() -> None:
     print(f"\nread {len(rows)} distinct cases; {legacy_total} came through the legacy name table "
           f"and {skipped_total} files yielded nothing. A file yielding nothing is COUNTED, not "
           "assumed empty -- guessing names once hid four fifths of this population.")
+    if refused_total:
+        print(f"REFUSED {len(refused_total)} record(s) that failed validation: {refused_total[:3]}")
     if degenerate:
         print(f"EXCLUDED {len(degenerate)} case(s) whose certificate does not respond to the "
               f"envelope: {degenerate}. See docs/ADVERSARIAL_SELF_REVIEW.md E1.")
     print(f"\nread {len(rows)} distinct cases; {legacy_total} came through the legacy name table "
           f"and {skipped_total} files yielded nothing. A file yielding nothing is COUNTED, not "
           "assumed empty -- guessing names once hid four fifths of this population.")
+    if refused_total:
+        print(f"REFUSED {len(refused_total)} record(s) that failed validation: {refused_total[:3]}")
     if degenerate:
         print(f"EXCLUDED {len(degenerate)} case(s) whose certificate does not respond to the "
               f"envelope: {degenerate}. See docs/ADVERSARIAL_SELF_REVIEW.md E1.")

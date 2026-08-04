@@ -101,13 +101,14 @@ def _legacy_from(record: dict, span: float, source: str):
         return None
     label = str(record.get("architecture_id") or record.get("case") or record.get("trace")
                 or record.get("tag") or source)
-    try:
-        return CaseRecord(case=f"{source}/{label}", nominal_peak_k=float(nominal),
-                          certified_peak_k=float(certified), span=span,
-                          ceiling_k=float(record.get("ceiling_k", float("nan"))),
-                          edyp=float(record.get("edyp", float("nan"))), source=source)
-    except ValueError:
-        return None
+    # NOT a silent drop. `CaseRecord` refuses a contradiction (certified below nominal) and a
+    # non-finite peak; swallowing that refusal here would delete the very evidence the validation
+    # exists to surface, and would do it invisibly -- the same shape as the name-guessing loss this
+    # module was written to end. The caller counts the refusal.
+    return CaseRecord(case=f"{source}/{label}", nominal_peak_k=float(nominal),
+                      certified_peak_k=float(certified), span=span,
+                      ceiling_k=float(record.get("ceiling_k", float("nan"))),
+                      edyp=float(record.get("edyp", float("nan"))), source=source)
 
 
 def read_cases(root: Path, *, span: float = 0.30):
@@ -117,7 +118,7 @@ def read_cases(root: Path, *, span: float = 0.30):
     named legacy table and counted. One that yields nothing is counted as skipped -- **never treated
     as an empty result**, which is how the four-fifths loss stayed invisible.
     """
-    records, legacy, skipped = [], 0, []
+    records, legacy, skipped, refused = [], 0, [], []
     for path in sorted(Path(root).rglob("*.json")):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -141,11 +142,15 @@ def read_cases(root: Path, *, span: float = 0.30):
         for record in candidates:
             if not isinstance(record, dict):
                 continue
-            got = _legacy_from(record, span, path.parent.name)
+            try:
+                got = _legacy_from(record, span, path.parent.name)
+            except ValueError as error:
+                refused.append(f"{path.name}: {error}")
+                continue
             if got is not None:
                 records.append(got)
                 found += 1
         legacy += found
         if not found:
             skipped.append(str(path))
-    return records, legacy, skipped
+    return records, legacy, skipped, refused

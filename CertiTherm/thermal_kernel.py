@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Sequence, Tuple
+from typing import Tuple
 
 import numpy as np
 from scipy.optimize import linprog

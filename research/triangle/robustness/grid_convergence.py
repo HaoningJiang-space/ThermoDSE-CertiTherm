@@ -48,7 +48,7 @@ import numpy as np
 sys.path.insert(0, ".")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from CertiTherm.experiments import _power_space, _rows, ROOT
+from CertiTherm.experiments import _power_space
 from CertiTherm.frozen_limits import THERMAL_LIMIT_K
 from CertiTherm.hotspot import build_family
 from CertiTherm.paths import HOTSPOT, TEMPLATE

@@ -42,7 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 from types import MappingProxyType
-from typing import Dict, FrozenSet, Iterable, Iterator, Optional, Sequence, Tuple
+from typing import Dict, FrozenSet, Iterator, Optional, Tuple
 
 import numpy as np
 
