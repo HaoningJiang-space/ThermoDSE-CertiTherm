@@ -35,7 +35,6 @@ from pathlib import Path
 
 import numpy as np
 
-CORE_PREFIXES = ("core",)
 FRAME_PREFIX = "eblk"
 
 
