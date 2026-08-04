@@ -207,3 +207,29 @@ number from a disconnected knob, and a bound that would have made *any* heuristi
 **Still missing.** `e_total` tightened to the rows that can attain the maximum — the sound bound is
 70x loose and that looseness is the only reason it kills the separator framing. Everything else in
 this round survives a measured `Δ`; nothing survives the loose bound.
+
+
+## 2026-08-05 — the tree measured, and what was archived
+
+`research/` was **20 162 lines in 90 files**. Classified by reachability:
+
+| | files | lines | |
+| --- | ---: | ---: | ---: |
+| imported by code | 24 | 6 585 | 32.7 % |
+| cited by a doc only | 42 | 9 474 | 47.0 % |
+| **orphaned** | 17 | 3 129 | 15.5 % |
+| package / test scaffolding | 4 | 338 | 1.7 % |
+
+"Orphaned" is the strict predicate: no importer, **no executable path reference** (docstring prose
+excluded by blanking string constants in the AST — a name mentioned in another file's prose is not a
+dependency), and no mention in `docs/`, `README.md` or `ccfa.yaml`.
+
+**Four of the seventeen were this round's own drivers**, orphaned only because the documents citing
+their numbers never named them. Those documents now do. The remaining **13 files, 2 400 lines** are
+archived at `legacy-probes-archived-20260805` and deleted, and the triangle chain at
+`legacy-triangle-probes-archived` — both following `legacy-g1-g4-archived`, the pattern this project
+set when the G1-G4 prototype's code was removed.
+
+**The rule this pass establishes.** A result document must name the script that produced it. Without
+that line the script is indistinguishable from dead code to every scan, the scan is right to flag it,
+and each round pays to re-litigate the same files until a tired reviewer deletes one that mattered.
