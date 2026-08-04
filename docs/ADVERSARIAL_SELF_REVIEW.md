@@ -125,9 +125,26 @@ the feasible region (`_extreme_rows` is valid only where it is, and
 `activity_bounded_power_space` also emits class-total rows); or the case's placed vector has a shape
 that collapses the set.
 
-**`limit_parametric_disagreement.py` now REFUSES such a case rather than counting it**, because a
-population statement containing it would report a defect as a measurement. **Unexplained, and it is
-the first thing to settle before the limit-parametric result is published.**
+**EXPLAINED 2026-08-04, and the explanation moves the defect.** `activity_bounded_power_space` caps
+each block at its content class's total (`content_upper_bounds`) — necessary, or the set would not be
+a subset of the registered one — and that cap makes `upper == placed` whenever **every live block is
+alone in its class**, which a single-core architecture produces. Then `sum(upper) == total`, the
+equality pins every coordinate, and the polytope is a **singleton**: the supremum equals the nominal
+point at every span, and the bisection reports `CERTIFIED_TO_MAX_SPAN`.
+
+**The real defect is not the singleton, it is that rounding decided whether anyone noticed.** Over
+127 routed traces: **125 usable, 1 silent singleton, 1 refused as empty — and the two are the same
+design under the two workloads.** Under `resnet50` `arxv034` landed an ulp below the total and
+`_refuse_empty_rows` raised; under `transformer` it landed exactly on it and passed silently.
+
+`CertiTherm.measurements.envelope_is_singleton` now answers it structurally and symmetrically —
+either bound can pin — and `thermal_robustness_radius` returns `SINGLETON_ENVELOPE` with the reason
+instead of a radius, while still reporting the nominal verdict, which is the only one the set
+supports. Two tests pin both directions.
+
+**Second instance of this failure mode in one round.** The first was `split_missing_heat`'s
+uniform-density cap, where `q_i <= Q A_i/A(S)` with `sum q_i = Q` is likewise a singleton. Same
+structure, different construction, and both produced a reassuring number rather than a refusal.
 
 ## D. Attacks on the process
 
