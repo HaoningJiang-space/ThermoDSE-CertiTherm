@@ -43,11 +43,27 @@ So the two cost curves have different shapes:
 | | HotSpot impulse loop | GPU-batched FEM |
 | --- | --- | --- |
 | per extra block | one more full solve | one more RHS — 0.2 % of the run is *all* the solves |
-| dominant cost | N solves | mesh + postprocess, largely independent of N |
-| 233 blocks, measured | 89 s at 16 workers, 1 333 s serial | 144 s single process |
+| dominant cost | N solves | mesh + postprocess |
 
-**Above a few hundred blocks the FEM operator is the cheaper one**, and unlike more parallelism this
-is a change of exponent rather than a constant.
+Measured, and this is every point I have:
+
+| blocks | HotSpot | FEM (`CELL_ENDPOINT=128`) |
+| ---: | ---: | ---: |
+| 187 | 113 s @ 10 workers | — |
+| 181 | — | **108, 142, 144 s** (three cases) |
+| 233 | **140 s** @ 10 workers, 89 s @ 16, **1 333 s serial** | — |
+| 243 | 424 s @ 8 workers | — |
+
+**The crossover claim I first wrote here is withdrawn, because these points cannot support it.** All
+three FEM runs are at **181 blocks** — I have no second block count for the FEM, so its slope in `N`
+is **unmeasured**, and "above a few hundred blocks the FEM wins" was an extrapolation from a curve
+with one point on it. This project has a standing rule against exactly that, quoted three sections
+below in the very list of what to build, and I broke it in the paragraph above.
+
+What the points *do* support: at ~200 blocks the two are **the same order** (113–140 s against
+108–144 s), and HotSpot's spread across architectures at fixed worker count (113 s at 187 blocks,
+424 s at 243) is larger than the gap between the methods — so per-solve cost varies more with the
+floorplan than with the block count, and even HotSpot's own slope in `N` is not clean.
 
 ## The soundness condition, and it is the reason this is proposable at all
 
@@ -91,9 +107,9 @@ That is the honest end of this road. Past it the lever is no longer thermal:
 
 ## What to build, in order
 
-1. **Measure the crossover** — build one operator both ways at 37, 187 and 233 blocks and record the
-   two curves. The claim "above a few hundred blocks the FEM wins" is an extrapolation from two
-   points and this project has a standing rule against those.
+1. **Measure the FEM's slope in `N`.** Every FEM cell operator built so far is at 181 blocks, so its
+   cost curve has one point and no crossover can be claimed. Two more block counts settle it, and
+   until they exist the two methods are only known to be the same order at ~200 blocks.
 2. **A two-tier search behind the soundness condition above**, with the search ceiling widened by the
    tight bound and every survivor re-certified on HotSpot. Report how many survivors fail, because
    that count *is* the tier's cost.
