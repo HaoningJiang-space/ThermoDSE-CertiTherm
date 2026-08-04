@@ -52,33 +52,21 @@ NON-CLAIM diagnostic. Usage (moe-server, repo root):
 from __future__ import annotations
 
 import json
-import math
 import sys
 import time
 import traceback
 from pathlib import Path
 
-import numpy as np
-
 sys.path.insert(0, ".")
 
-from CertiTherm.cell_certificate import certify_cells                        # noqa: E402
 from CertiTherm.experiments import ROOT, _rows                               # noqa: E402
-from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K     # noqa: E402
-from CertiTherm.measurements import activity_bounded_power_space             # noqa: E402
 from CertiTherm.operator_library import OperatorLibrary                      # noqa: E402
-from CertiTherm.paths import TEMPLATE                                        # noqa: E402
-from CertiTherm.routed_trace import lower_routed_trace                       # noqa: E402
-from research.triangle.complete_trace_probe import capture_frozen_inputs      # noqa: E402
 from research.triangle.robustness.archive_census import (                     # noqa: E402
     DECLARED_COUNT, FIELDS, architecture_row, candidate_set,
 )
-from research.triangle.robustness.cell_certificate_run import (               # noqa: E402
-    _configure, cell_operator,
+from research.triangle.robustness.routed_pipeline import (                    # noqa: E402
+    CEILING_K, certified_peak, lower_case, nominal_peak, operator_for,
 )
-
-MARGIN_K = 0.05
-CEILING_K = THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K
 # NO field leaves the floorplan invariant (`geometry_factorisation.py` on `arch_b` and `arch_c`), so
 # no ordering buys library hits. What it can buy is budget: `interval` was tried first under the
 # withdrawn hit-rate rationale and left EDYP bit-identical across three values while moving the peak
@@ -107,13 +95,6 @@ def _admissible_values():
         if not out[name]:
             raise SystemExit(f"{name}: the archive supplies no admissible value")
     return out
-
-
-def _edyp(energy_mj: float, latency_ms: float, die_yield: float) -> float:
-    """`E * D / Y`, ThermoDSE's own objective (`core/chiplet_eva.py:234`), recomputed here."""
-    if not all(map(math.isfinite, (energy_mj, latency_ms, die_yield))) or die_yield <= 0.0:
-        raise ValueError(f"EDYP undefined for E={energy_mj!r} D={latency_ms!r} Y={die_yield!r}")
-    return energy_mj * latency_ms / die_yield
 
 
 def coordinate_descent(seed, baseline, admissible, score, field_order, budget):
@@ -176,7 +157,7 @@ def coordinate_descent(seed, baseline, admissible, score, field_order, budget):
 
 
 class Evaluator:
-    """One ThermoDSE evaluation, one operator (cached), one certificate."""
+    """One candidate: lower it, fetch its operator, certify it. The chain lives in the pipeline."""
 
     def __init__(self, output: Path, workload_id: str, library: OperatorLibrary,
                  span: float, workers: int):
@@ -185,64 +166,27 @@ class Evaluator:
         self.library = library
         self.span = span
         self.workers = workers
-        self.packages = {row["package_id"]: row
-                         for row in _rows(ROOT / "experiments" / "packages.tsv")}
         self.thermodse_seconds = 0.0
         self.certificate_seconds = 0.0
 
     def __call__(self, arch: dict, tag: str) -> dict:
+        work = self.output / "work" / tag
         started = time.monotonic()
-        frozen = capture_frozen_inputs(self.output / "work" / tag, self.workload_id,
-                                       arch["architecture_id"], arch_row=arch)
-        routed = lower_routed_trace(
-            frozen["core"], floorplan=frozen["augmented"], events=frozen["events"],
-            compute_shape=frozen["shape"], chiplet_cuts=frozen["cuts"],
-            noc_hop_cost_pj=frozen["noc_hop_cost_pj"], nop_hop_cost_pj=frozen["nop_hop_cost_pj"],
-            batch_factor=frozen["batch_factor"],
-        )
+        case = lower_case(work, self.workload_id, arch["architecture_id"], arch_row=arch)
         self.thermodse_seconds += time.monotonic() - started
 
-        augmented = frozen["augmented"]
-        blocks = [str(b) for b in augmented.block_ids]
-        durations = np.asarray(routed.trace.durations_s, dtype=float)
-        powers = np.asarray(routed.trace.powers_w, dtype=float)
-        placed = (powers * durations[:, None]).sum(axis=0) / float(durations.sum())
-
-        work = self.output / "work" / tag
-        work.mkdir(parents=True, exist_ok=True)
-        floorplan = work / "floorplan.flp"
-        floorplan.write_text(augmented.text, encoding="utf-8")
-        config = work / "package.config"
-        _configure(TEMPLATE / "example.config", config, self.packages[self.library.package_id])
-
-        rows, ambient, hit = self.library.get_or_build(
-            augmented.text, blocks,
-            lambda: cell_operator(config, floorplan, blocks, self.library.model_id, work,
-                                  self.workers),
-        )
+        rows, ambient, hit = operator_for(case, self.library, work, workers=self.workers)
 
         started = time.monotonic()
-        total = float(placed.sum())
-        space = activity_bounded_power_space(blocks, placed, activity_span=self.span)
-        cell = certify_cells(
-            rows, ambient, ["tool_compatible"] * rows.shape[0], space, total,
-            endpoint="tool_compatible", limit_k=THERMAL_LIMIT_K, margin_k=MARGIN_K,
-            linearisation_k=MODEL_ERROR_LIMIT_K,
-        )
-        nominal = float(np.max(rows @ placed + ambient))
+        peak = certified_peak(rows, ambient, case, self.span)
+        nominal = nominal_peak(rows, ambient, case)
         self.certificate_seconds += time.monotonic() - started
 
-        peak = float(cell.worst_case_max_cell_average_k)
-        if not (math.isfinite(peak) and math.isfinite(nominal)):
-            raise ValueError("the certified or nominal peak is not finite")
         return {
             "architecture_id": arch["architecture_id"], "design": {k: arch[k] for k in FIELDS},
-            "blocks": len(blocks), "mean_power_w": total,
-            "energy_mj": float(frozen["endpoint_energy_mj"]),
-            "latency_ms": float(frozen["endpoint_latency_ms"]),
-            "die_yield": float(frozen["die_yield"]),
-            "edyp": _edyp(float(frozen["endpoint_energy_mj"]),
-                          float(frozen["endpoint_latency_ms"]), float(frozen["die_yield"])),
+            "blocks": len(case.blocks), "mean_power_w": case.total_w,
+            "energy_mj": case.energy_mj, "latency_ms": case.latency_ms,
+            "die_yield": case.die_yield, "edyp": case.edyp,
             "nominal_peak_k": nominal, "certified_peak_k": peak,
             "slack_k": CEILING_K - peak,
             "status": "CERTIFIED" if peak <= CEILING_K else "REFUTED",
