@@ -106,6 +106,20 @@ def main() -> None:
             if key in seen:
                 continue
             seen.add(key)
+            # A ZERO UPLIFT IS AN ANOMALY, NOT A DATA POINT. `P(s)` strictly contains the nominal
+            # point for every `s > 0`, so a supremum equal to the point evaluation means the
+            # certificate did not respond to the envelope at all. `arxv034` under `transformer`
+            # returns the SAME peak at every span from 0.001 to 2.0, which is impossible for a
+            # widening set and is unexplained. Such a case is refused rather than counted, because a
+            # population statement containing it would be reporting a defect as a measurement.
+            if abs(certified - nominal) < 1e-9:
+                raise SystemExit(
+                    f"{case}: the certified peak equals the nominal peak to 1e-9 "
+                    f"({certified!r}). The envelope strictly contains the nominal point, so its "
+                    "supremum cannot equal it; this case's certificate is not responding to the "
+                    "envelope and must be explained before it enters a population statement. See "
+                    "docs/ADVERSARIAL_SELF_REVIEW.md."
+                )
             if certified < nominal - 1e-9:
                 raise SystemExit(
                     f"{case}: certified peak {certified!r} is below the nominal {nominal!r}. The "

@@ -109,6 +109,26 @@ can still object that coordinate moves reach a different subset than SCBO's trus
 run the comparison over the archive designs directly, which is a population rather than a
 neighbourhood.
 
+## E. Open anomaly, found while removing the limit from the premise
+
+**E1. One case's certificate does not respond to the envelope at all.** `arxv034` under `transformer`
+— the single `REFUTED_AT_NOMINAL` design in the archive population — returns **329.9807408204791 at
+every span from 0.001 to 2.0**, bit-identical. `P(s)` strictly contains the nominal point for every
+`s > 0` and grows with `s`, so a supremum equal to the point evaluation, constant across a
+2000-fold widening, is impossible for a correct certificate.
+
+It does not change any published verdict (that design is refused at its nominal point either way),
+and the monotonicity guard in `thermal_robustness_radius.radius` does not fire because a *constant*
+sequence is non-decreasing. But it means one of: the polytope for this design is degenerate in a way
+the construction does not intend; the greedy is being handed a set where the box-with-total is not
+the feasible region (`_extreme_rows` is valid only where it is, and
+`activity_bounded_power_space` also emits class-total rows); or the case's placed vector has a shape
+that collapses the set.
+
+**`limit_parametric_disagreement.py` now REFUSES such a case rather than counting it**, because a
+population statement containing it would report a defect as a measurement. **Unexplained, and it is
+the first thing to settle before the limit-parametric result is published.**
+
 ## D. Attacks on the process
 
 **D1. "No external review."** **CONCEDED.** Codex has been quota-locked since before these results;
