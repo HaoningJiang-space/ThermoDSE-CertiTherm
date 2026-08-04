@@ -46,8 +46,11 @@ EDA stage is sufficient to justify the resulting architecture choice.
 > construction — which is why the certificate is free at that level and has an **exact per-cell
 > assignment lower bound** there.
 >
-> **The verdict's own qualifier, and it is not optional.** The table above is `CERTIFIED` **relative
-> to HotSpot**. Against the tightest sound model-form bound this project can currently construct —
+> **The verdict's own qualifier, and it is now enforced in code, not promised in prose.** The table
+> above is `CERTIFIED` **with respect to `hotspot/grid128-avg@default[tool_compatible]`** — a
+> `ModelRelativeVerdict` cannot be constructed without naming its model and operator digest, and a
+> cross-solver gap is a measurement on named cases that is stored beside the verdict and never
+> subtracted from the slack (`docs/A_VERDICT_IS_RELATIVE_TO_A_DECLARED_MODEL.md`, 14 tests). Against the tightest sound model-form bound this project can currently construct —
 > one maximum over `(row supremum + row error)`, not two independent maxima — the effective band is
 > **0.75–1.82 K and grows with power**, against a `+0.774 K` slack. **Model-agnostically the headline
 > is `UNRESOLVED`, not `CERTIFIED`.** Every thermal DSE in this field reports the first kind of

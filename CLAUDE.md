@@ -202,7 +202,18 @@ exact vocabulary (`OPTIMAL`, `UNSYNTHESIZABLE`, `UNRESOLVED`) that status fields
 **Fail-closed status contract** (applies throughout `CertiTherm/`): a query result is one of
 `CERTIFIED`/`OPTIMAL` (proof), `NON_IDENTIFIABLE`/`UNSYNTHESIZABLE` (witness/counterexample),
 or `UNRESOLVED` (solver failure, timeout, missing compactness, invalid input) — **never** a
-fabricated feasible/infeasible verdict. `CertiTherm/experiments.py` enforces a
+fabricated feasible/infeasible verdict.
+
+**And a thermal verdict is stated with respect to a DECLARED MODEL** (`CertiTherm/
+model_relative_verdict.py`, `docs/A_VERDICT_IS_RELATIVE_TO_A_DECLARED_MODEL.md`). "CERTIFIED" is
+not a sentence; "CERTIFIED with respect to `hotspot/grid128-avg@default[tool_compatible]`, operator
+digest `…`, with a measured `+0.0708 K` disagreement against an independent FEM on 1 case" is. The
+model carries the **operator digest**, because the same binary at the same grid resolution returns a
+different field for a different package. A cross-solver gap is a **measurement on named cases**, is
+stored beside the verdict and is **never subtracted from the slack** — neither HotSpot nor the FEM is
+ground truth, and folding a solver disagreement in as if it bounded reality turns a comparison of two
+models into a claim about a chip. The one operation that does combine them is
+`verdict_if_gap_were_a_bound`, which returns a different object whose model is the **pair**. `CertiTherm/experiments.py` enforces a
 `QUERY_METHOD_TIMEOUT_S = 1800` per-method budget; a timeout is archived, not silently
 dropped or converted into a certificate.
 
