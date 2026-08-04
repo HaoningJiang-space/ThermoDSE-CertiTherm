@@ -73,6 +73,15 @@ def _harvest(root: Path):
             certified = (record.get("certified_peak_k")
                          or record.get("worst_case_max_cell_average_k")
                          or record.get("thermodse_mapping_certified_k"))
+            if certified is None and isinstance(record.get("curve"), list):
+                # The radius driver stores the certified peak per span rather than as one field, so
+                # the sweep's own span-0.30 point is the comparable number. Reading a DIFFERENT span
+                # here would silently mix envelopes across the population, which is why the span is
+                # matched exactly rather than taken as "the nearest".
+                for point in record["curve"]:
+                    if isinstance(point, dict) and abs(float(point.get("span", -1)) - 0.30) < 1e-12:
+                        certified = point.get("peak_k")
+                        break
             if nominal is None or certified is None:
                 continue
             nominal, certified = float(nominal), float(certified)
