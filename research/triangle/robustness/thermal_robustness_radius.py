@@ -63,7 +63,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from CertiTherm.cell_certificate import certify_cells                        # noqa: E402
 from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K     # noqa: E402
-from CertiTherm.measurements import activity_bounded_power_space             # noqa: E402
+from CertiTherm.measurements import (                                        # noqa: E402
+    activity_bounded_power_space, envelope_is_singleton,
+)
 from CertiTherm.paths import ROOT, TEMPLATE                                  # noqa: E402
 from CertiTherm.tabular import read_rows as _rows                            # noqa: E402
 
@@ -187,6 +189,33 @@ def main() -> None:
 
     ceiling = THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K
     nominal = _nominal_peak(rows, ambient, placed)
+
+    # A SINGLETON ENVELOPE MAKES THE RADIUS MEANINGLESS, AND SILENTLY REASSURING.
+    # `activity_bounded_power_space` caps each block at its content class's total, which collapses
+    # the set to a point when every live block is alone in its class. The supremum then equals the
+    # nominal peak at every span and the bisection reports `CERTIFIED_TO_MAX_SPAN` -- "tolerates
+    # +-200 %" for a design that tolerates nothing. Refuse the radius and say why; the nominal
+    # verdict is still reported because it is the only one the set supports.
+    probe = activity_bounded_power_space(blocks, placed, activity_span=SPAN_FLOOR)
+    if envelope_is_singleton(probe):
+        payload = {
+            "trace": trace_path.name, "floorplan": floorplan_src.name, "model": model_id,
+            "blocks": len(blocks), "cells": int(rows.shape[0]),
+            "horizon_s": horizon, "mean_power_w": float(np.sum(placed)),
+            "ceiling_k": ceiling, "nominal_peak_k": nominal,
+            "dist_to_ceiling_k": ceiling - nominal,
+            "robustness_radius": None, "status": "SINGLETON_ENVELOPE",
+            "curve": [], "operator_build_s": build_s, "radius_solve_s": 0.0,
+            "reconciliation": receipts,
+            "note": ("every live block is alone in its content class, so the class-total cap equals "
+                     "the placed power and the total equality pins every coordinate. The envelope "
+                     "admits exactly one power map; a radius over it would be a point evaluation "
+                     "wearing an envelope's name."),
+        }
+        out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        print(json.dumps({k: v for k, v in payload.items() if k != "curve"}, indent=1,
+                         sort_keys=True))
+        return
     started = time.monotonic()
     value, curve, status = radius(rows, ambient, blocks, placed, ceiling, max_span)
     certify_s = time.monotonic() - started

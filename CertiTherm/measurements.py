@@ -124,6 +124,34 @@ def activity_bounded_power_space(
     )
 
 
+def envelope_is_singleton(space: PowerPolytope, *, relative_tolerance: float = 1e-12) -> bool:
+    """Does the box, with the total equality, admit exactly ONE power map?
+
+    `activity_bounded_power_space` caps each block at its content class's total
+    (`content_upper_bounds`), which is necessary — without it the set would not be a subset of the
+    registered one — and which **collapses the set to a point whenever every live block is alone in
+    its class**: then `upper == placed`, `sum(upper) == total`, and the equality pins every
+    coordinate. The supremum then equals the nominal point evaluation at EVERY span, and a driver
+    that reports "certified to span 2.0" is saying the design tolerates +-200 % variation when it
+    tolerates none.
+
+    Measured on 127 routed traces: **one design** does this (`arxv034`, a single-core architecture)
+    and it does it under both workloads. Under one it landed an ulp below the total and
+    `_refuse_empty_rows` raised; under the other it landed exactly on it and the singleton passed
+    silently. **The same structural condition decided by rounding** is what this predicate replaces:
+    a caller can now ask, and get the same answer on both sides of that boundary.
+
+    Symmetric in the two bounds because either can pin: `sum(upper) == total` forces every block up,
+    `sum(lower) == total` forces every block down.
+    """
+    lower = np.asarray(space.lower_w, dtype=float)
+    upper = np.asarray(space.upper_w, dtype=float)
+    total = float(np.asarray(space.b_eq, dtype=float).ravel()[0])
+    scale = max(abs(total), 1.0) * relative_tolerance
+    return (abs(float(upper.sum()) - total) <= scale
+            or abs(float(lower.sum()) - total) <= scale)
+
+
 def deviation_bounded_power_space(
     placed_power_w: np.ndarray, *, deviation_fraction: float
 ) -> PowerPolytope:
