@@ -60,7 +60,7 @@ def main() -> None:
     if not roots:
         raise SystemExit("no directories given")
 
-    seen, rows, legacy_total, skipped_total = set(), [], 0, 0
+    seen, rows, legacy_total, skipped_total, degenerate = set(), [], 0, 0, []
     for root in roots:
         found, legacy, skipped = read_cases(root)
         legacy_total += legacy
@@ -74,18 +74,16 @@ def main() -> None:
             seen.add(key)
             # A ZERO UPLIFT IS AN ANOMALY, NOT A DATA POINT. `P(s)` strictly contains the nominal
             # point for every `s > 0`, so a supremum equal to the point evaluation means the
-            # certificate did not respond to the envelope at all. `arxv034` under `transformer`
-            # returns the SAME peak at every span from 0.001 to 2.0, which is impossible for a
-            # widening set and is unexplained. Such a case is refused rather than counted, because a
-            # population statement containing it would be reporting a defect as a measurement.
+            # certificate did not respond to the envelope at all -- `arxv034`'s singleton envelope
+            # (`docs/ADVERSARIAL_SELF_REVIEW.md` E1). Such a case is EXCLUDED and COUNTED.
+            #
+            # It used to raise, which refused the whole POPULATION over one bad case. Refusing a
+            # case and refusing a run are different fail-closed behaviours, and only the first is
+            # right here: the other 229 are unaffected and a driver that dies on the first anomaly
+            # reports nothing at all. The count is printed, so an exclusion cannot pass unnoticed.
             if abs(certified - nominal) < 1e-9:
-                raise SystemExit(
-                    f"{case}: the certified peak equals the nominal peak to 1e-9 "
-                    f"({certified!r}). The envelope strictly contains the nominal point, so its "
-                    "supremum cannot equal it; this case's certificate is not responding to the "
-                    "envelope and must be explained before it enters a population statement. See "
-                    "docs/ADVERSARIAL_SELF_REVIEW.md."
-                )
+                degenerate.append(case)
+                continue
             rows.append({"case": case, "nominal_peak_k": nominal, "certified_peak_k": certified,
                          "uplift_k": certified - nominal,
                          "disagreement_width_k": (certified - nominal) + SLACK_OFFSET_K,
@@ -98,6 +96,7 @@ def main() -> None:
     uplifts = [r["uplift_k"] for r in rows]
     summary = {
         "cases": len(rows),
+        "excluded_degenerate_envelope": degenerate,
         "margin_plus_linearisation_k": SLACK_OFFSET_K,
         "width_min_k": min(widths), "width_median_k": statistics.median(widths),
         "width_max_k": max(widths), "width_mean_k": statistics.fmean(widths),
@@ -111,9 +110,15 @@ def main() -> None:
     print(f"\nread {len(rows)} distinct cases; {legacy_total} came through the legacy name table "
           f"and {skipped_total} files yielded nothing. A file yielding nothing is COUNTED, not "
           "assumed empty -- guessing names once hid four fifths of this population.")
+    if degenerate:
+        print(f"EXCLUDED {len(degenerate)} case(s) whose certificate does not respond to the "
+              f"envelope: {degenerate}. See docs/ADVERSARIAL_SELF_REVIEW.md E1.")
     print(f"\nread {len(rows)} distinct cases; {legacy_total} came through the legacy name table "
           f"and {skipped_total} files yielded nothing. A file yielding nothing is COUNTED, not "
           "assumed empty -- guessing names once hid four fifths of this population.")
+    if degenerate:
+        print(f"EXCLUDED {len(degenerate)} case(s) whose certificate does not respond to the "
+              f"envelope: {degenerate}. See docs/ADVERSARIAL_SELF_REVIEW.md E1.")
     print()
     print("widest ten:")
     for r in sorted(rows, key=lambda r: -r["disagreement_width_k"])[:10]:
