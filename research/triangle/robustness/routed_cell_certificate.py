@@ -169,8 +169,18 @@ def main() -> None:
                       np.asarray(space.upper_w, dtype=float), total) + block_ambient
     ))
 
+    # THE NOMINAL PEAK WAS NEVER WRITTEN, AND THAT MADE THIS EVIDENCE UNHARVESTABLE. The certified
+    # peak alone cannot be paired with anything: every population question in this project is about
+    # the GAP between the point evaluation and the supremum. Six routed certificates -- the round's
+    # central evidence -- were invisible to `limit_parametric_disagreement` for exactly this reason.
+    # It is one matvec on an operator already in memory.
+    nominal = float(np.max(rows @ placed + ambient))
+    if not np.isfinite(nominal):
+        raise SystemExit("the nominal peak is not finite; UNRESOLVED rather than a number")
+
     payload = {
         "trace": trace_path.name, "floorplan": floorplan_src.name,
+        "nominal_peak_k": nominal,
         "model": model_id, "span": span,
         "blocks": len(blocks), "cells": int(rows.shape[0]),
         "horizon_s": horizon, "mean_power_w": total,
@@ -182,6 +192,12 @@ def main() -> None:
         "sup_peak_over_exact_block_projection_k": block_peak,
         "reconciliation": receipts,
     }
+    attach(payload, [CaseRecord(
+        case=trace_path.stem, nominal_peak_k=nominal,
+        certified_peak_k=cell.worst_case_max_cell_average_k, span=span,
+        ceiling_k=THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K, model=model_id,
+        source="routed_cell_certificate",
+    )])
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(payload, indent=2, sort_keys=True))
 

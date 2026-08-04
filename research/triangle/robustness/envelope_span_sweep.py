@@ -36,6 +36,7 @@ sys.path.insert(0, ".")
 
 from CertiTherm.frozen_limits import THERMAL_LIMIT_K                          # noqa: E402
 from CertiTherm.operator_library import OperatorLibrary                       # noqa: E402
+from research.triangle.robustness.case_record import CaseRecord, attach        # noqa: E402
 from research.triangle.robustness.routed_pipeline import (                     # noqa: E402
     CEILING_K, certified_peak, lower_case, nominal_peak, operator_for,
 )
@@ -88,11 +89,17 @@ def main() -> None:
             f"{envelope_best['edyp']:.4f}" if envelope_best else "none"))
 
     out = Path(sys.argv[1]).with_name(f"span_sweep_{workload}_{seed_id}.json")
-    out.write_text(json.dumps({"workload": workload, "seed": seed_id, "spans": list(spans),
-                               "ceiling_k": CEILING_K, "nominal_limit_k": THERMAL_LIMIT_K,
-                               "summary": summary, "rows": rows,
-                               "library": library.stats.as_dict()}, indent=1, sort_keys=True),
-                   encoding="utf-8")
+    payload = {"workload": workload, "seed": seed_id, "spans": list(spans),
+               "ceiling_k": CEILING_K, "nominal_limit_k": THERMAL_LIMIT_K,
+               "summary": summary, "rows": rows, "library": library.stats.as_dict()}
+    # One record per (candidate, span): the sweep's whole point is that a case is a design AND an
+    # envelope, so collapsing it to one span would throw away what it was run to measure.
+    attach(payload, [CaseRecord(
+        case=f"{seed_id}/{r['tag']}", nominal_peak_k=r["nominal_peak_k"],
+        certified_peak_k=r["peaks"][span], span=span, ceiling_k=CEILING_K, edyp=r["edyp"],
+        source="envelope_span_sweep",
+    ) for r in rows for span in spans])
+    out.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
     print(f"\nlibrary hits {library.stats.hits}/{library.stats.hits + library.stats.misses} "
           f"({100 * library.stats.hit_rate:.1f} %)  -> {out}")
 
