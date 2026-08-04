@@ -19,6 +19,14 @@ from typing import Iterable, Sequence
 
 # The single source of the output quantum: HotSpot's own serialisation limit, defined next to
 # the convergence guard that also depends on it.
+#
+# UNUSED IN THIS FILE AND PART OF ITS PUBLIC SURFACE. `CertiTherm/tests/test_v61_pipeline.py`
+# imports `OUTPUT_RESOLUTION_K` FROM here. An unused-import scan cannot see a cross-module
+# re-export, so deleting it broke test COLLECTION rather than one assertion -- the loud failure,
+# and the reason this is a comment instead of a second deletion. "Imported and not referenced in
+# this file" is not the same predicate as "unused"; a static scan sees the first, only the suite
+# sees the second.
+from CertiTherm.transient import OUTPUT_RESOLUTION_K  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[2]
 # `V61_REGISTRATION` exists so a SYNTHETIC manifest can be rendered in a subprocess against the
