@@ -46,7 +46,15 @@ EDA stage is sufficient to justify the resulting architecture choice.
 > construction — which is why the certificate is free at that level and has an **exact per-cell
 > assignment lower bound** there.
 >
-> **What cuts against it, stated here and not in a footnote.** `e_total` at the cell endpoint is
+> **The verdict's own qualifier, and it is not optional.** The table above is `CERTIFIED` **relative
+> to HotSpot**. Against the tightest sound model-form bound this project can currently construct —
+> one maximum over `(row supremum + row error)`, not two independent maxima — the effective band is
+> **0.75–1.82 K and grows with power**, against a `+0.774 K` slack. **Model-agnostically the headline
+> is `UNRESOLVED`, not `CERTIFIED`.** Every thermal DSE in this field reports the first kind of
+> verdict implicitly; the difference here is that the gap is measured. That is a real contribution and
+> it is not the same sentence as "certified".
+>
+> **What else cuts against it, stated here and not in a footnote.** `e_total` at the cell endpoint is
 > **1.98–4.99 K**, 8–20× the block-row band that was standing in for it, and it **empties the
 > separator window for any guard band ≤ 5 K** — that framing is dead
 > (`E_TOTAL_AT_THE_CELL_ENDPOINT.md`). The *realised* solver disagreement on the certified quantity is

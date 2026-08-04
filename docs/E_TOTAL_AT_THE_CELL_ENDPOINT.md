@@ -62,6 +62,42 @@ claim is *"HotSpot's value bounds the FEM's at every cell"*. `Δ` is what you ge
 *"the certified peak does not depend much on which solver computed it"* — but `Δ` is a **measurement
 on three designs**, not a bound, and it must never be used as one for a design not measured.
 
+## The bound tightened, and it does NOT rescue the headline
+
+The looseness is that `hs_sup + e_total` takes two maxima **independently** — the hottest cell's
+supremum plus the worst cell's error, even when those are different cells, which here they are. The
+sound and strictly tighter bound takes one maximum:
+
+    max_j T_fem,j(p)  <=  max_j ( sup_p T_hs,j + u_j )     for every admissible p
+
+Both terms are already computed per row, so this costs nothing. Measured, with soundness (must
+dominate the FEM's own certified peak) and tightness (must not exceed the loose bound) checked at run
+time rather than argued:
+
+| case | `e_total` | loose bound | **tight bound** | **effective band** | factor |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `arch_c`/resnet50 | 1.9831 | 324.2970 | 323.0639 | **0.7501** | 2.6 |
+| `arch_b`/resnet50 | 3.0124 | 328.4743 | 326.5713 | **1.1095** | 2.7 |
+| `arch_b`/transformer | 4.9901 | 335.2919 | 332.1197 | **1.8179** | 2.7 |
+
+**A factor of 2.7, not the order of magnitude I expected, and the round's headline does not survive
+it.** The composed result's slack is `+0.7738 K` (`CERTIFIED_MAPPING_AND_THE_UNIFICATION.md`) against
+an effective band of `0.75–1.82 K` that **grows with power**, and the headline design is the hottest.
+
+> **The headline table is `CERTIFIED` relative to HotSpot and `UNRESOLVED` model-agnostically.** That
+> must be said in those words. Every thermal DSE in this field is implicitly the first kind — a
+> verdict relative to whichever solver it ran — and the difference here is that the gap is measured
+> rather than absent. But "we measure what others hide" is not the same claim as "certified", and the
+> two must not be swapped.
+
+The effective band also reconciles with the block-row band (`0.251–1.4332 K`) rather than exceeding it
+by an order of magnitude, which is the consistency check the raw `e_total` failed.
+
+**Owed and named:** these three are the *legacy* captures. The headline uses **routed** traces on the
+DRAM-augmented floorplans, which are a different geometry and 12–38 % more power, so the band there is
+not measured and the numbers above are an indication, not a substitution — the exact error this
+document was written to stop.
+
 ## What would make the bound usable, and it is the next piece of work
 
 The looseness is entirely in taking `max_j` over rows that cannot be the argmax. A bound restricted to
