@@ -60,6 +60,7 @@ from CertiTherm.measurements import activity_bounded_power_space          # noqa
 from CertiTherm.paths import ROOT, TEMPLATE                               # noqa: E402
 from CertiTherm.tabular import read_rows as _rows                         # noqa: E402
 
+from case_record import CaseRecord, attach                                    # noqa: E402
 from cell_certificate_run import _block_average, _configure, cell_operator  # noqa: E402
 
 MARGIN_K = 0.05
