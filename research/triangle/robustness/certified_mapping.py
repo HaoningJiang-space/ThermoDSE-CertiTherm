@@ -73,7 +73,6 @@ NON-CLAIM diagnostic. Usage (moe-server, repo root):
 from __future__ import annotations
 
 import json
-import math
 import re
 import sys
 import time
