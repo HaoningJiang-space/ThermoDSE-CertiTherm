@@ -84,9 +84,10 @@ import numpy as np
 
 sys.path.insert(0, ".")
 
-from CertiTherm.cross_grid_bound import _extreme_rows                         # noqa: E402
 from CertiTherm.frozen_limits import MODEL_ERROR_LIMIT_K, THERMAL_LIMIT_K      # noqa: E402
-from CertiTherm.measurements import activity_bounded_power_space              # noqa: E402
+from research.triangle.robustness.routed_pipeline import (                     # noqa: E402
+    certified_peak_from_vector,
+)
 
 MARGIN_K = 0.05
 CEILING_K = THERMAL_LIMIT_K - MARGIN_K - MODEL_ERROR_LIMIT_K
@@ -189,14 +190,11 @@ def main() -> None:
         return float(np.max(rows @ _apply(placed, groups, perm) + ambient))
 
     def certified(perm):
-        vector = _apply(placed, groups, perm)
-        space = activity_bounded_power_space(blocks, vector, activity_span=span)
-        got = float(np.max(_extreme_rows(
-            rows, np.asarray(space.lower_w, dtype=float),
-            np.asarray(space.upper_w, dtype=float), total) + ambient))
-        if not math.isfinite(got):
-            raise SystemExit("the certified peak is not finite")
-        return got
+        # The same supremum the rest of the project takes, through the shared pipeline: a permuted
+        # vector is still a power map, and it must be certified by the same code that certifies an
+        # unpermuted one or the two numbers are not comparable.
+        return certified_peak_from_vector(rows, ambient, blocks,
+                                          _apply(placed, groups, perm), span)
 
     identity = list(range(n))
     baseline_nominal, baseline_certified = nominal(identity), certified(identity)
