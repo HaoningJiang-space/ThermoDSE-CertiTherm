@@ -125,6 +125,11 @@ def read_cases(root: Path, *, span: float = 0.30):
             skipped.append(str(path))
             continue
         if isinstance(payload, dict) and isinstance(payload.get(CASE_RECORD_KEY), list):
+            # A DECLARATION IS AUTHORITATIVE AND EXCLUSIVE. The legacy tables must not also run over
+            # the same payload: a driver that declares its cases AND still writes the old key would
+            # otherwise have every case counted twice -- once exactly, once as legacy -- which makes
+            # the legacy counter, the one number that measures migration progress, stop falling as
+            # drivers migrate. It is the metric lying about its own subject.
             for entry in payload[CASE_RECORD_KEY]:
                 records.append(CaseRecord(**entry))
             continue

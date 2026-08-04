@@ -69,3 +69,20 @@ def test_the_curve_fallback_matches_the_span_exactly(tmp_path):
     assert found[0].certified_peak_k == pytest.approx(321.0)
     none_found, _l, skipped = read_cases(tmp_path, span=0.70)
     assert not none_found and len(skipped) == 1, "a missing span must not fall back to a nearby one"
+
+
+def test_a_declaration_is_exclusive_so_the_legacy_counter_can_fall(tmp_path):
+    """A migrated driver that still writes the old keys must not be counted twice.
+
+    The legacy counter is the one number that measures migration progress. If a declared payload
+    were ALSO scanned by the legacy table, every migrated case would be counted once exactly and
+    once as legacy, and the counter would stop falling as drivers migrate -- the metric lying about
+    its own subject.
+    """
+    record = CaseRecord(case="c", nominal_peak_k=320.0, certified_peak_k=321.0)
+    payload = attach({"nominal_peak_k": 320.0, "certified_peak_k": 321.0}, [record])
+    _write(tmp_path, "f.json", payload)
+    found, legacy, skipped = read_cases(tmp_path)
+    assert len(found) == 1, "the declared case was read twice"
+    assert legacy == 0, "a declared payload was also scanned by the legacy table"
+    assert not skipped
