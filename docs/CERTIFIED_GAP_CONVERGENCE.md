@@ -1,5 +1,7 @@
 # A severe measured convergence bottleneck in greedy constraint generation
 
+> **Reproduction.** The three-step chain that produced these numbers (`triangle1_triangle.py`, `triangle2_closure.py`, `triangle3_interval.py`) was deleted from the working tree on 2026-08-05 and is reachable at the tag `legacy-triangle-probes-archived`. Nothing imported them, no code referenced them by path, and no document named them; this line is the pointer that was missing, and it follows the pattern `legacy-g1-g4-archived` set for the G1-G4 prototype.
+
 > **Retitled and substantially corrected 2026-07-29 after adversarial peer review.** This
 > document previously claimed the certified interval was limited BY THE FORMULATION and could
 > not be improved AT ANY BUDGET. That claim is withdrawn. The reviewer was asked to refute it
