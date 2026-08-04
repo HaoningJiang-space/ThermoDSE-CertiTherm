@@ -58,13 +58,25 @@ than any of the thirteen repairs above.
 | the mapping optimum | exact per-cell assignment lower bound | **has one** |
 | the routed lowering's energy | source/route reconciliation receipts, `< 1e-9` | **has one** |
 | refactors | bit-identity against a stored run | **has one** |
-| **the routed lowering's PLACEMENT** | — | **none.** Only its total is checked; where it puts the heat is checked by nothing |
+| the routed lowering's placement, **core term** | `placement_oracle.py`: per-core energy from `monitor.core_dict` against the trace's per-block sums, worst relative **5.88e-16** on 16 cores | **has one, 2026-08-05** |
+| the routed lowering's placement, **NoC/NoP/DRAM** | — | **none.** The route decides these, so the monitor has no per-block statement to compare against |
 | **EDYP** | — | **none.** The archive's own EDYP is a different quantity (ratio 0.0172-0.0204, non-constant) and is deliberately not mixed in |
-| **the 330 K limit** | — | **none**, and no provenance either |
-| **the activity envelope** | — | **none.** It is a declaration; `κ` was measured but the box-with-class-caps form is not checked against anything |
+| the 330 K limit | removed from the premise: `THE_LIMIT_IS_NOT_A_PREMISE.md`, 229/229 cases have a non-empty disagreement band, median 1.3165 K, independent of `L` | **no longer needed, 2026-08-05** |
+| the activity envelope | `test_envelope_never_collapses_silently.py`: 11 cases pinning that >1 block per class never collapses and 1 per class always does, at every span, from either bound | **has one, 2026-08-05** |
 
-**Four quantities carry the paper and have no oracle.** Two of them — the placement and the envelope
-— are inputs to every verdict in the round.
+**Four quantities carried the paper with no oracle when this was written. Three now have one, and
+the fourth's dependence was removed rather than checked:**
+
+* the **core** placement reconciles to `5.88e-16` per core — the first check on *where* the heat
+  lands rather than how much of it there is;
+* the envelope's collapse is a pinned invariant instead of a one-off discovery;
+* the limit is no longer a premise, so it needs no provenance for that finding to stand.
+
+**What remains unchecked is named and is not small:** the NoC, NoP and DRAM **distribution**. The
+route decides it, the monitor has no per-block statement about it, and its total is all that
+reconciles. An oracle for it needs a second routing derivation, not a second reading of the same
+one — and `physical_nop.py` already exists precisely because ThermoDSE's own route ledger was found
+defective, so the second derivation cannot simply be that ledger.
 
 ## So the next work is not another result
 
