@@ -30,7 +30,6 @@ Usage: python research/triangle/cross_elim.py <out> <workload> <cand> [K]
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 import time
 from pathlib import Path

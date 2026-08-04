@@ -12,7 +12,6 @@ reports nothing about the runs it was built for.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from CertiTherm import (
     CandidateSpace,

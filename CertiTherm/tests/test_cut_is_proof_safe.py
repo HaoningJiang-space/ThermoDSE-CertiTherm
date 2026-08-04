@@ -21,7 +21,6 @@ from __future__ import annotations
 import fractions
 
 import numpy as np
-import pytest
 
 from CertiTherm.collision_proof import outward_abs_dot_upper
 from CertiTherm.core import MeasurementAction, WorldPair
