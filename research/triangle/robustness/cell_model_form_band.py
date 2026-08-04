@@ -115,11 +115,39 @@ def main() -> None:
     from CertiTherm.cross_grid_bound import _extreme_rows
     lower = np.asarray(polytope.lower_w, dtype=float)
     upper = np.asarray(polytope.upper_w, dtype=float)
-    hs_sup = float(np.max(_extreme_rows(hs_rows, lower, upper, float(b_eq[0])) + hs_ambient))
-    fem_sup = float(np.max(_extreme_rows(fem_rows, lower, upper, float(b_eq[0])) + fem_ambient))
+    hs_per_row = _extreme_rows(hs_rows, lower, upper, float(b_eq[0])) + hs_ambient
+    fem_per_row = _extreme_rows(fem_rows, lower, upper, float(b_eq[0])) + fem_ambient
+    hs_sup = float(np.max(hs_per_row))
+    fem_sup = float(np.max(fem_per_row))
+
+    # THE TIGHT SOUND BOUND, AND IT IS THE ONE THE CERTIFICATE SHOULD USE.
+    #
+    # `hs_sup + e_total` takes two maxima INDEPENDENTLY: the hottest cell's supremum plus the worst
+    # cell's error, even when those are different cells. Here they are -- the peak cells agree to
+    # 0.018-0.068 K while the row-wise error reaches 2.63 K on cells that are cold.
+    #
+    # For any admissible `p` and any row `j`,   T_fem,j(p) <= T_hs,j(p) + u_j <= sup_p T_hs,j + u_j,
+    # so                                        max_j T_fem,j(p) <= max_j ( sup_p T_hs,j + u_j ).
+    #
+    # That is sound for the same reason and strictly tighter whenever the two argmaxes differ, and it
+    # needs NO new solve: both terms are already computed per row. The effective band a verdict must
+    # absorb is therefore `tight_bound - hs_sup`, not `e_total`.
+    tight_bound = float(np.max(hs_per_row + hotter))
     band = float(np.max(hotter))
-    if not math.isfinite(band):
+    if not math.isfinite(band) or not math.isfinite(tight_bound):
         raise SystemExit("the band is not finite; UNRESOLVED rather than a number")
+    # Soundness and tightness, both checked rather than argued: the tight bound must dominate the
+    # FEM's own certified peak, and must not exceed the loose one.
+    if tight_bound < fem_sup - 1e-9:
+        raise SystemExit(
+            f"the tight bound {tight_bound!r} is below the FEM's certified peak {fem_sup!r}; it is "
+            "not a bound and no verdict computed from it means anything"
+        )
+    if tight_bound > hs_sup + band + 1e-9:
+        raise SystemExit(
+            f"the tight bound {tight_bound!r} exceeds the loose one {hs_sup + band!r}; the "
+            "derivation says it cannot, so one of them is computed wrongly"
+        )
 
     payload = {
         "hotspot_operator": hotspot_path.name, "fem_operator": fem_path.name,
@@ -136,6 +164,10 @@ def main() -> None:
         "hotspot_certified_peak_k": hs_sup,
         "fem_certified_peak_k": fem_sup,
         "delta_certified_k": fem_sup - hs_sup,
+        "loose_bound_k": hs_sup + band,
+        "tight_bound_k": tight_bound,
+        "effective_band_k": tight_bound - hs_sup,
+        "looseness_factor": band / max(tight_bound - hs_sup, 1e-12),
     }
     print(json.dumps(payload, indent=1, sort_keys=True))
     Path(str(fem_path).replace("-cell.npz", "-band.json")).write_text(
