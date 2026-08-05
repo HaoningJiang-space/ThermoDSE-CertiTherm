@@ -65,15 +65,23 @@ def activity_bounded_power_space(
     no workload can produce, so "these blocks require post-route extraction" could be an artifact of
     the abstraction rather than a property of the design.
 
-    This narrows it on two independent axes, both of which correspond to something a designer knows:
+    This narrows it on two axes, both of which correspond to something a designer knows -- but only
+    ONE of them narrows the set, and that was found by peer review rather than by construction:
 
     * **Activity span.** Each block stays within `placed * (1 +- span)`. A block's power varies with
       utilisation, not arbitrarily, and `span` is that variation. It bounds how much power a blind
       direction can actually move, which is the quantity the whole construction depends on.
     * **Class totals.** Each content class's aggregate stays within its own placed total times the
-      same span. This blocks redistribution ACROSS classes while leaving redistribution WITHIN a
-      class untouched -- which is the honest thing for it to do, since a class is exactly what a
-      module-level power report measures.
+      same span. **These rows are IMPLIED by the box and cut nothing off**: every block already obeys
+      `p_i <= (1 + span) * placed_i`, so summing within a class gives exactly the class row. Proved
+      in `tests/test_class_totals_are_implied.py`, which also shows dropping them changes no
+      supremum. They are retained as an explicit statement of the modelling intent and because a
+      class span *tighter* than the block span would make them bite -- but the earlier claim that
+      they are an independent narrowing axis was wrong.
+
+      The implication is not merely cosmetic: `cross_grid_bound._extreme_rows` is valid only where
+      the box-with-total IS the feasible set, and that validity rests on exactly this redundancy.
+      It is now proved rather than asserted.
 
     The workload total is kept as an equality: it is the one quantity the capture actually observes.
 
