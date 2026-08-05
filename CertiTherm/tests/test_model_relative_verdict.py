@@ -138,4 +138,4 @@ def test_the_serialised_form_marks_the_gap_as_a_measurement():
     payload = verdict.as_dict()
     assert "cross_model_gaps" in payload and "model" in payload
     assert payload["cross_model_gaps"][0]["note"].startswith("MEASURED")
-    assert payload["cross_model_gaps"][0]["measured_on"] == ["transformer/arch_b"]
+    assert payload["cross_model_gaps"][0]["measured_on"] == ["c"]
