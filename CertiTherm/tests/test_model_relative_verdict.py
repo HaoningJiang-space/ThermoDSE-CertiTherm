@@ -139,3 +139,22 @@ def test_the_serialised_form_marks_the_gap_as_a_measurement():
     assert "cross_model_gaps" in payload and "model" in payload
     assert payload["cross_model_gaps"][0]["note"].startswith("MEASURED")
     assert payload["cross_model_gaps"][0]["measured_on"] == ["c"]
+
+
+def test_an_unresolved_restatement_reports_the_BOUND_not_the_original_peak():
+    """Otherwise it prints a positive slack on a verdict that failed to certify.
+
+    The first fix for the REFUTED/UNRESOLVED error carried the original peak, so the returned
+    verdict said `slack = +0.7738 K` while being UNRESOLVED precisely because the bound exceeded
+    the ceiling. A reader sees room where there is none.
+    """
+    verdict = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED",
+                                   certified_peak_k=329.1662, ceiling_k=329.94,
+                                   case="transformer/arch_b", gaps=(_gap(),))
+    restated = verdict.verdict_if_gap_were_a_bound("dolfinx")
+    assert restated.status == "UNRESOLVED"
+    assert restated.certified_peak_k == pytest.approx(329.1662 + 1.8179)
+    assert restated.slack_k < 0.0, (
+        "an UNRESOLVED restatement reported POSITIVE slack; it is unresolved because the bound "
+        "exceeded the ceiling, so the number a reader sees must say that"
+    )

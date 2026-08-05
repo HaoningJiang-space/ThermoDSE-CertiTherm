@@ -214,14 +214,15 @@ class ModelRelativeVerdict:
         # REFUTED would manufacture a refutation from a failed certification, which is the exact
         # direction this project's fail-closed contract forbids. A REFUTED verdict needs an attained
         # witness or a lower bound above the ceiling, and this construction supplies neither.
+        # THE RETURNED PEAK IS THE BOUND, at both statuses. A first version of this fix carried the
+        # ORIGINAL peak on UNRESOLVED, on the stated grounds that the constructor would reject the
+        # bound -- it would not: `__post_init__` cross-checks only CERTIFIED and REFUTED, and leaves
+        # UNRESOLVED unconstrained. The comment was wrong and the consequence was worse than the
+        # comment: the verdict then reported `slack = +0.7738 K` while being UNRESOLVED *because*
+        # the bound exceeded the ceiling. A reassuring number produced by a broken construction is
+        # the failure shape this project has catalogued thirteen times; caught here by asking what
+        # the caller reads rather than whether the code runs.
         status = "CERTIFIED" if peak <= self.ceiling_k else "UNRESOLVED"
-        if status == "UNRESOLVED":
-            # The constructor cross-checks CERTIFIED/REFUTED against the numbers; UNRESOLVED carries
-            # the bound for the reader without asserting a verdict about it.
-            return ModelRelativeVerdict(
-                model=pair, status=status, certified_peak_k=self.certified_peak_k,
-                ceiling_k=self.ceiling_k, case=self.case, gaps=(),
-            )
         return ModelRelativeVerdict(
             model=pair, status=status, certified_peak_k=peak, ceiling_k=self.ceiling_k,
             case=self.case, gaps=(),
