@@ -85,9 +85,37 @@ def main() -> None:
     evaluator.generate_hardware()
     with monitor_snapshot(evaluator) as snapshot:
         evaluator.evaluate()
+
+    # ONE NETWORK, NAMED. `next(iter(...))` silently picks an arbitrary entry when there is more
+    # than one, and the aggregation semantics across networks are not specified here. Peer review,
+    # round 2: refuse rather than choose.
+    if len(snapshot["core_dict"]) != 1:
+        raise SystemExit(
+            f"the monitor carries {len(snapshot['core_dict'])} networks "
+            f"({sorted(snapshot['core_dict'])}); this oracle compares ONE network's per-core energy "
+            "and has no declared rule for combining several"
+        )
     network = next(iter(snapshot["core_dict"]))
     core_pj = np.asarray(snapshot["core_dict"][network], dtype=float)   # (orders, cores, components)
+    # THE AXIS INDEX IS ASSUMED TO BE THE CORE INDEX, AND THAT ASSUMPTION IS NOW STATED AND
+    # BOUNDED. `core_dict` is `(orders, cores, components)` and the trace's core ids come from block
+    # NAME suffixes; nothing in either object proves the two coordinate systems agree. What can be
+    # checked cheaply is that they have the same extent and that the TOTALS match -- a permuted axis
+    # would preserve the total and be invisible, so this is a necessary condition, not a sufficient
+    # one, and the per-core comparison below is only meaningful under the correspondence.
     monitor = {k: float(v) * 1e-12 for k, v in enumerate(core_pj.sum(axis=(0, 2)))}
+
+    # DETERMINISM IS CHECKED, NOT ASSUMED. The two derivations come from two separate ThermoDSE
+    # evaluations, and the docstring's claim that determinism "is what makes this legitimate" was an
+    # assertion. A second lowering of the same design must reproduce the first exactly, or the
+    # comparison below is between two runs rather than between two derivations of one run.
+    again = lower_case(work / "determinism", workload, arch_id)
+    if not np.array_equal(np.asarray(again.placed_w), np.asarray(case.placed_w)):
+        raise SystemExit(
+            "two lowerings of the same design produced different power vectors: worst difference "
+            f"{float(np.max(np.abs(again.placed_w - case.placed_w)))!r} W. The oracle compares two "
+            "evaluations, so nondeterminism makes its agreement or disagreement meaningless."
+        )
 
     trace = _core_energy_from_trace(case)
     missing = sorted(set(monitor) ^ set(trace))
@@ -113,7 +141,11 @@ def main() -> None:
         "reconciles": worst <= RELATIVE_TOLERANCE,
         "scope": ("core placement only. NoC, NoP and DRAM are placed BY THE ROUTE, so the monitor "
                   "has no per-block statement to compare against; their totals reconcile and their "
-                  "distribution remains unchecked."),
+                  "distribution remains unchecked. The monitor's core AXIS INDEX is assumed to be "
+                  "the trace's core NAME SUFFIX; a permuted axis preserves the total and would be "
+                  "invisible to this check, so the per-core agreement is meaningful only under that "
+                  "correspondence, which nothing here establishes."),
+        "determinism_checked": True,
         "per_core": rows,
     }
     print(json.dumps({k: v for k, v in payload.items() if k != "per_core"}, indent=1,

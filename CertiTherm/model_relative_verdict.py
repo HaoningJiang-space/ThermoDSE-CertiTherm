@@ -211,13 +211,35 @@ class ModelRelativeVerdict:
                 "measurement is not transferable to a case it was not measured on."
             )
         gap = max(on_this_case, key=lambda g: g.tight_bound_k)
+
+        # THE PAIR IS ONLY DEFINED WHEN THE TWO MODELS AGREE ON WHAT THEY OBSERVE. Combining a
+        # verdict at one package or endpoint with a gap measured at another produces a claim about
+        # neither. Selection began at a solver STRING, which names several possible
+        # model/package/operator combinations; the compatibility is now required rather than assumed.
+        for field in ("package_id", "endpoint"):
+            mine, theirs = getattr(self.model, field), getattr(gap.reference, field)
+            if mine != theirs:
+                raise ValueError(
+                    f"{self.case}: this verdict's {field} is {mine!r} and the gap's reference is "
+                    f"{theirs!r}. A pair model over two different {field}s describes neither."
+                )
+        # AND THE PAIR'S DIGEST IS A REAL DIGEST. An earlier version concatenated two TRUNCATED
+        # hashes with a `+`, which is not the SHA-256 of anything and would have been read as an
+        # operator identity. Peer review, round 2. This hashes the canonical pair instead, so the
+        # value is what it claims to be and two different pairs cannot collide by truncation.
+        import hashlib
+        payload = "\x00".join((
+            self.model.solver, self.model.model_id, self.model.operator_sha256,
+            gap.reference.solver, gap.reference.model_id, gap.reference.operator_sha256,
+            f"tight_bound_k={gap.tight_bound_k!r}",
+        )).encode("utf-8")
         peak = self.certified_peak_k + gap.tight_bound_k
         pair = ThermalModel(
             solver=f"max({self.model.solver},{gap.reference.solver})",
             model_id=f"{self.model.model_id}+{gap.reference.model_id}",
             package_id=self.model.package_id,
             endpoint=self.model.endpoint,
-            operator_sha256=f"{self.model.operator_sha256[:16]}+{gap.reference.operator_sha256[:16]}",
+            operator_sha256=hashlib.sha256(payload).hexdigest(),
         )
         # AN UPPER BOUND ABOVE THE CEILING IS `UNRESOLVED`, NOT `REFUTED`. `peak` here is an upper
         # bound on the pair's peak under the hypothetical premise; exceeding the ceiling means the

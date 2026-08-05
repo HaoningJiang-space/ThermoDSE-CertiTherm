@@ -158,3 +158,37 @@ def test_an_unresolved_restatement_reports_the_BOUND_not_the_original_peak():
         "an UNRESOLVED restatement reported POSITIVE slack; it is unresolved because the bound "
         "exceeded the ceiling, so the number a reader sees must say that"
     )
+
+
+def test_a_pair_over_two_packages_or_endpoints_is_refused():
+    """Combining models that observe different things describes neither."""
+    other = ThermalModel(solver="dolfinx", model_id="p1", package_id="standard",
+                         endpoint="tool_compatible", operator_sha256="d" * 64)
+    gap = CrossModelGap(reference=other, delta_certified_k=0.07, row_wise_band_k=2.0,
+                        tight_bound_k=1.0, measured_on=("c",))
+    verdict = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED", certified_peak_k=322.0,
+                                   ceiling_k=329.94, case="c", gaps=(gap,))
+    with pytest.raises(ValueError, match="package_id"):
+        verdict.verdict_if_gap_were_a_bound("dolfinx")
+
+
+def test_the_pair_digest_is_a_real_digest_and_separates_different_pairs():
+    """It used to be two TRUNCATED hashes joined by '+', which is the SHA-256 of nothing."""
+    v = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED", certified_peak_k=322.0,
+                             ceiling_k=329.94, case="c",
+                             gaps=(_gap(tight=1.0, row=2.0, cases=("c",)),))
+    a = v.verdict_if_gap_were_a_bound("dolfinx").model.operator_sha256
+    assert len(a) == 64 and all(ch in "0123456789abcdef" for ch in a)
+    # A different bound is a different hypothetical claim and must not share an identity.
+    w = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED", certified_peak_k=322.0,
+                             ceiling_k=329.94, case="c",
+                             gaps=(_gap(tight=1.5, row=2.0, cases=("c",)),))
+    assert w.verdict_if_gap_were_a_bound("dolfinx").model.operator_sha256 != a
+
+
+def test_only_a_certified_verdict_can_be_restated():
+    verdict = ModelRelativeVerdict(model=_hotspot(), status="REFUTED", certified_peak_k=331.0,
+                                   ceiling_k=329.94, case="c",
+                                   gaps=(_gap(tight=1.0, row=2.0, cases=("c",)),))
+    with pytest.raises(ValueError, match="only a CERTIFIED verdict"):
+        verdict.verdict_if_gap_were_a_bound("dolfinx")
