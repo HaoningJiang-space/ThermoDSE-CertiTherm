@@ -187,7 +187,19 @@ class ModelRelativeVerdict:
                 f"against a model it was never compared with. Have: "
                 f"{sorted({g.reference.solver for g in self.gaps})}"
             )
-        gap = max(matching, key=lambda g: g.tight_bound_k)
+        # THE GAP MUST HAVE BEEN MEASURED ON *THIS* CASE. `measured_on` was required so a gap could
+        # not be quoted for a case it was never measured on, and this method selected by solver name
+        # alone -- leaving open exactly the cross-case substitution the type exists to prevent.
+        # Peer review caught it; the requirement is now enforced where it is used, not only where it
+        # is stored.
+        on_this_case = [g for g in matching if self.case in g.measured_on]
+        if not on_this_case:
+            raise ValueError(
+                f"the gap against {reference_solver!r} was measured on "
+                f"{sorted({c for g in matching for c in g.measured_on})}, not on {self.case!r}. A "
+                "measurement is not transferable to a case it was not measured on."
+            )
+        gap = max(on_this_case, key=lambda g: g.tight_bound_k)
         peak = self.certified_peak_k + gap.tight_bound_k
         pair = ThermalModel(
             solver=f"max({self.model.solver},{gap.reference.solver})",
@@ -196,7 +208,20 @@ class ModelRelativeVerdict:
             endpoint=self.model.endpoint,
             operator_sha256=f"{self.model.operator_sha256[:16]}+{gap.reference.operator_sha256[:16]}",
         )
-        status = "CERTIFIED" if peak <= self.ceiling_k else "REFUTED"
+        # AN UPPER BOUND ABOVE THE CEILING IS `UNRESOLVED`, NOT `REFUTED`. `peak` here is an upper
+        # bound on the pair's peak under the hypothetical premise; exceeding the ceiling means the
+        # bound fails to certify, NOT that some admissible power map exceeds the limit. Returning
+        # REFUTED would manufacture a refutation from a failed certification, which is the exact
+        # direction this project's fail-closed contract forbids. A REFUTED verdict needs an attained
+        # witness or a lower bound above the ceiling, and this construction supplies neither.
+        status = "CERTIFIED" if peak <= self.ceiling_k else "UNRESOLVED"
+        if status == "UNRESOLVED":
+            # The constructor cross-checks CERTIFIED/REFUTED against the numbers; UNRESOLVED carries
+            # the bound for the reader without asserting a verdict about it.
+            return ModelRelativeVerdict(
+                model=pair, status=status, certified_peak_k=self.certified_peak_k,
+                ceiling_k=self.ceiling_k, case=self.case, gaps=(),
+            )
         return ModelRelativeVerdict(
             model=pair, status=status, certified_peak_k=peak, ceiling_k=self.ceiling_k,
             case=self.case, gaps=(),

@@ -20,9 +20,9 @@ def _fem():
                         endpoint="tool_compatible", operator_sha256="c" * 64)
 
 
-def _gap(delta=0.0708, row=4.9901, tight=1.8179):
+def _gap(delta=0.0708, row=4.9901, tight=1.8179, cases=("transformer/arch_b",)):
     return CrossModelGap(reference=_fem(), delta_certified_k=delta, row_wise_band_k=row,
-                         tight_bound_k=tight, measured_on=("transformer/arch_b",))
+                         tight_bound_k=tight, measured_on=cases)
 
 
 def test_a_verdict_cannot_exist_without_a_model():
@@ -55,7 +55,7 @@ def test_the_gap_is_not_subtracted_from_the_slack():
                                 ceiling_k=329.94, case="c")
     with_gap = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED",
                                     certified_peak_k=329.1662, ceiling_k=329.94, case="c",
-                                    gaps=(_gap(),))
+                                    gaps=(_gap(cases=("c",)),))
     assert with_gap.slack_k == pytest.approx(bare.slack_k), (
         "attaching a measured disagreement changed the slack; it is being folded in silently"
     )
@@ -67,8 +67,10 @@ def test_the_bound_restatement_is_a_different_object_with_a_different_model():
                                    certified_peak_k=329.1662, ceiling_k=329.94,
                                    case="transformer/arch_b", gaps=(_gap(),))
     restated = verdict.verdict_if_gap_were_a_bound("dolfinx")
-    assert restated.status == "REFUTED", (
-        "1.8179 K on top of a 0.7738 K slack must refute; the restatement is not applying the gap"
+    assert restated.status == "UNRESOLVED", (
+        "an upper bound above the ceiling means the bound FAILED TO CERTIFY; calling it REFUTED "
+        "manufactures a refutation from a failed certification. This test asserted REFUTED until "
+        "peer review pointed out the error -- a test can pin a defect as firmly as a feature."
     )
     assert restated.model.solver == "max(hotspot,dolfinx)", (
         "the restated verdict claims the original model; it is a claim about the PAIR"
@@ -78,9 +80,28 @@ def test_the_bound_restatement_is_a_different_object_with_a_different_model():
 
 def test_restating_against_a_model_never_compared_with_is_refused():
     verdict = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED", certified_peak_k=329.0,
-                                   ceiling_k=329.94, case="c", gaps=(_gap(),))
+                                   ceiling_k=329.94, case="c", gaps=(_gap(cases=("c",)),))
     with pytest.raises(ValueError, match="never compared"):
         verdict.verdict_if_gap_were_a_bound("3d-ice")
+
+
+def test_a_gap_measured_on_ANOTHER_case_cannot_be_applied_to_this_one():
+    """`measured_on` was required at construction and never checked at use -- the open back door."""
+    verdict = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED", certified_peak_k=329.0,
+                                   ceiling_k=329.94, case="resnet50/arch_a",
+                                   gaps=(_gap(cases=("transformer/arch_b",)),))
+    with pytest.raises(ValueError, match="not on 'resnet50/arch_a'"):
+        verdict.verdict_if_gap_were_a_bound("dolfinx")
+
+
+def test_a_bound_that_DOES_certify_is_reported_as_certified():
+    """The other branch: a small gap on top of a large slack certifies the PAIR."""
+    verdict = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED", certified_peak_k=322.0,
+                                   ceiling_k=329.94, case="c",
+                                   gaps=(_gap(tight=1.0, row=2.0, cases=("c",)),))
+    restated = verdict.verdict_if_gap_were_a_bound("dolfinx")
+    assert restated.status == "CERTIFIED"
+    assert restated.certified_peak_k == pytest.approx(323.0)
 
 
 def test_a_gap_without_named_cases_is_refused():
@@ -113,7 +134,7 @@ def test_a_status_contradicting_its_own_numbers_is_refused(status, peak):
 
 def test_the_serialised_form_marks_the_gap_as_a_measurement():
     verdict = ModelRelativeVerdict(model=_hotspot(), status="CERTIFIED", certified_peak_k=329.0,
-                                   ceiling_k=329.94, case="c", gaps=(_gap(),))
+                                   ceiling_k=329.94, case="c", gaps=(_gap(cases=("c",)),))
     payload = verdict.as_dict()
     assert "cross_model_gaps" in payload and "model" in payload
     assert payload["cross_model_gaps"][0]["note"].startswith("MEASURED")

@@ -105,7 +105,18 @@ def _core_groups(blocks):
         match = INDEXED.match(name)
         if match is None:
             continue
-        groups[int(match.group("index"))][match.group("prefix")] = row
+        index, prefix = int(match.group("index")), match.group("prefix")
+        # A DUPLICATE KEY USED TO LOSE POWER SILENTLY. The second row overwrote the first in the
+        # dict while BOTH were marked non-fixed, so the overwritten block appeared in neither the
+        # permuted profiles nor the fixed field -- its watts vanished from the objective and from
+        # the bound. Peer review caught it.
+        if prefix in groups[index]:
+            raise SystemExit(
+                f"two blocks resolve to core {index} component {prefix!r} "
+                f"({blocks[groups[index][prefix]]!r} and {blocks[row]!r}); the core partition is "
+                "ambiguous and a permutation over it would lose power"
+            )
+        groups[index][prefix] = row
         fixed[row] = False
     if not groups:
         raise SystemExit("no per-core blocks found; the mapping level does not exist here")
@@ -117,7 +128,20 @@ def _core_groups(blocks):
         )
     order = sorted(groups)
     prefixes = sorted(next(iter(signatures)))
-    return [[groups[k][p] for p in prefixes] for k in order], fixed
+    result = [[groups[k][p] for p in prefixes] for k in order]
+    # EVERY ROW CLASSIFIED EXACTLY ONCE, checked rather than assumed: the permuted set and the fixed
+    # set must partition the blocks, or the objective and the bound disagree about what moves.
+    permuted = {r for g in result for r in g}
+    if len(permuted) != sum(len(g) for g in result):
+        raise SystemExit("a block appears in two core groups; the partition is not a partition")
+    if permuted & set(np.flatnonzero(fixed).tolist()):
+        raise SystemExit("a block is both permuted and fixed")
+    if len(permuted) + int(fixed.sum()) != len(blocks):
+        raise SystemExit(
+            f"{len(blocks) - len(permuted) - int(fixed.sum())} block(s) are neither permuted nor "
+            "fixed; their power would be dropped from the objective"
+        )
+    return result, fixed
 
 
 def _apply(power, groups, permutation):
