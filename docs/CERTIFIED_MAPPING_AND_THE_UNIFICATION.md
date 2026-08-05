@@ -41,6 +41,17 @@ solved exactly per cell. One pass, no solver call beyond `linear_sum_assignment`
 
 > **On five of six designs ThermoDSE's geometric heuristic is within 0.08–0.25 K of the exact optimum
 > over all 16!–21! mappings. On the sixth — the one design that fails — it is 1.65 K away.**
+>
+> **CORRECTED after peer review.** Those are **upper bounds on regret**, not distances to a known
+> optimum: the bound is `max_j min_pi T_j(pi)`, which lower-bounds `min_pi max_j T_j(pi)` but is not
+> equal to it. What is established per design is an **interval**. On `arch_b`/transformer the search
+> attains `329.5358`, so regret is **at least** `329.9732 − 329.5358 = 0.4374 K` and **at most**
+> `1.6541 K`. Saying "1.65 K away" claims the upper end as the value.
+>
+> **And the objective here is the NOMINAL peak.** Both the search and the bound minimise
+> `max_j T_j(p_nom)`; certified peaks are evaluated afterwards. Nothing in this section bounds
+> `min_pi max_j sup_p T_j(pi, p)` — the robust mapping optimum — and no robust optimality gap is
+> claimed.
 
 That is the finding, and it cuts both ways. It **retires an open question in the incumbent's favour**:
 the distance proxy is essentially optimal wherever there is thermal slack, and no one could
@@ -59,6 +70,11 @@ certificate is for.
 | `arch_c`/resnet50 | 326.3818 | 326.3087 | 0.0731 |
 | `arch_c`/transformer | 329.0170 | 328.9961 | 0.0210 |
 
+**The gain is smaller than what the search may still be missing, on every case.** Improvement
+against remaining gap to the bound: `0.0725/0.1501`, `0.0197/0.0676`, `0.1114/0.1340`,
+`0.4374/1.2167`, `0.0748/0.0922`. **The unexplored remainder exceeds the gain in all five.** So
+"remapping recovers 0.02–0.52 K" is a floor on what remapping is worth, not a measurement of it.
+
 **Remapping alone does not rescue `arch_b`/transformer**: 331.04 is still above the 329.94 ceiling.
 It is **free** — a permutation costs no area, no energy and no latency — so it composes with the
 architecture change that does rescue it (`mtxu_h` 128 → 192, certified 329.612 at `+8.77 %` EDYP,
@@ -67,8 +83,10 @@ level buys feasibility at an EDYP price, the mapping level buys **0.02–0.52 K 
 
 ## The composition, measured on all four corners
 
-`composed_result.py` runs both levels end to end on `arch_b`/transformer — the design the incumbent
-refuses — and reports every corner rather than the favourable one.
+`composed_result.py` runs both levels end to end on `arch_b`/transformer — the design **the
+incumbent's nominal rule admits and the envelope refutes**, which is the whole point and which an
+earlier draft of this line mis-stated as "the design the incumbent refuses" — and reports every
+corner rather than the favourable one.
 
 | architecture | mapping | EDYP | certified peak | slack | |
 | --- | --- | ---: | ---: | ---: | --- |
@@ -88,10 +106,15 @@ refuses — and reports every corner rather than the favourable one.
 > from `−1.618 K` (refused) to `+0.774 K` of slack, and **more than doubles** the slack the
 > architecture change alone buys, at **no additional EDYP**: the last `0.446 K` is a permutation.
 
-That residual is the quantitative form of the independence claim. It is small but **negative**, so the
-gains do not quite add — the architecture change moves the argmax cell, and the mapping optimised for
-the old geometry is not quite the one the new geometry wants. Reporting it is what distinguishes a
-measured composition from an assumed one.
+That residual is a **small measured interaction on these four points**, not a demonstration of
+independence in general. And the mechanism I attributed to it — "the architecture change moves the
+argmax cell" — is a hypothesis I did not verify: the argmax cells before and after were never
+compared. Peer review caught both. What the table shows is the interaction's size; why it is that
+size is unestablished.
+
+Note also that the residual is computed from two **heuristic** mappings, and `arch_b`/transformer's
+mapping has `1.2167 K` unexplored against a residual of `0.0701 K` — seventeen times. Re-optimising
+either mapping could move the residual by more than the residual.
 
 ## The lower bound was wrong first, in the direction that would have flattered the incumbent
 
