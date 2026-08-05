@@ -1,5 +1,31 @@
 # The unification: architecture to SCBO, mapping to the certificate — with an exact bound
 
+> # WITHDRAWN 2026-08-05 in its mapping-gain claim. The end-to-end validation reverses the sign.
+>
+> Peer review ruled the permutation-only abstraction claim-blocking: it holds fabric power and
+> performance fixed while a real remapping re-routes. `remap_end_to_end.py` applies the permutation
+> for real — patching `Schedule.idx2coreidx_map`, so the schedule, the hop counts and the route
+> events all follow — on `arch_c`/transformer:
+>
+> | | fabric W | core W | EDYP | nominal | **certified** |
+> | --- | ---: | ---: | ---: | ---: | ---: |
+> | identity | 22.5445 | 23.5138 | 18.4394 | 327.548 | **329.017** |
+> | **remapped, re-routed** | **23.2122** | 23.5923 | **18.6737** | 327.648 | **329.127** |
+>
+> **The permutation is not free**: fabric power rises `0.668 W`, EDYP rises `1.27 %`, and the
+> certified peak rises **`+0.110 K`** — while this document reports that same permutation as
+> *recovering* `0.021 K`.
+>
+> **The sign is reversed.** Every "remapping recovers 0.02-0.52 K at no area, energy or latency
+> cost" statement below is withdrawn, and with it the composition table's `0.516 K` mapping term
+> and the `-0.070 K` additivity residual computed from it. What survives is the **exact lower bound**
+> and the regret interval, which are statements about the nominal objective on a fixed power map and
+> do not depend on the abstraction — and the finding that ThermoDSE's heuristic is within a bounded
+> regret of that objective's optimum.
+>
+> The mechanism is the one peer review named: moving work between cores moves the traffic between
+> them, and the fabric carries that traffic. The permutation-only model had no term for it.
+
 RESULT 2026-08-04, `moe-server`. NON-CLAIM. Routed traces, `grid128-avg` cell operators, span `0.30`,
 `default` package. **No external review** — Codex quota-locked to 2026-08-08.
 
