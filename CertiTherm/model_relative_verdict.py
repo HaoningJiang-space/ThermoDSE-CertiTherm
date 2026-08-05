@@ -180,6 +180,17 @@ class ModelRelativeVerdict:
         It uses `tight_bound_k`, the one-maximum aggregation, because that is the tightest sound
         form; the row-wise band would be the same statement, more loosely.
         """
+        # ONLY A CERTIFICATION MAY BE RESTATED. Adding a one-sided disagreement bound to an already
+        # REFUTED peak and returning UNRESOLVED would erase a refutation that stands on its own
+        # evidence -- the bound is an upper bound, and an upper bound cannot un-refute anything.
+        # Peer review, round 2. The operation exists to ask "does the PAIR still certify?", which is
+        # only a question when the single model certified.
+        if self.status != "CERTIFIED":
+            raise ValueError(
+                f"{self.case}: only a CERTIFIED verdict can be restated against a pair model; this "
+                f"one is {self.status}. Adding an upper bound to a {self.status} peak would replace "
+                "evidence with a weaker statement rather than strengthen it."
+            )
         matching = [g for g in self.gaps if g.reference.solver == reference_solver]
         if not matching:
             raise ValueError(

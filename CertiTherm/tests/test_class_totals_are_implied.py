@@ -46,26 +46,37 @@ def test_the_class_rows_are_implied_by_the_box(span):
 
 
 @pytest.mark.parametrize("span", SPANS)
-def test_dropping_the_class_rows_changes_no_supremum(span):
-    """The operational consequence: the certified quantity is identical with and without them."""
+def test_the_class_rows_do_not_move_the_LP_optimum(span):
+    """The operational consequence, tested where the rows can actually act: an LP that USES them.
+
+    An earlier version of this test compared `_extreme_rows` with and without the flag -- but
+    `_extreme_rows` never receives `a_ub` at all, so identical output followed by construction once
+    the two boxes were shown identical. It was near-vacuous and peer review (round 2) said so. The
+    honest test hands the inequalities to a solver that can honour them and checks the optimum does
+    not move.
+    """
+    from scipy.optimize import linprog
+
     blocks = [f"{p}_{i}" for p in ("mtxu", "vecu", "ubuf") for i in range(4)]
     rng = np.random.default_rng(1)
     placed = rng.uniform(0.2, 4.0, size=len(blocks))
-    rows = rng.uniform(0.0, 3.0, size=(40, len(blocks)))
-    total = float(placed.sum())
+    space = activity_bounded_power_space(blocks, placed, activity_span=span)
+    bounds = list(zip(np.asarray(space.lower_w, dtype=float),
+                      np.asarray(space.upper_w, dtype=float)))
+    a_eq = np.asarray(space.a_eq, dtype=float)
+    b_eq = np.asarray(space.b_eq, dtype=float)
+    a_ub = np.asarray(space.a_ub, dtype=float)
+    b_ub = np.asarray(space.b_ub, dtype=float)
 
-    with_rows = activity_bounded_power_space(blocks, placed, activity_span=span,
-                                             constrain_class_totals=True)
-    without = activity_bounded_power_space(blocks, placed, activity_span=span,
-                                           constrain_class_totals=False)
-    assert np.array_equal(with_rows.lower_w, without.lower_w)
-    assert np.array_equal(with_rows.upper_w, without.upper_w)
-
-    a = _extreme_rows(rows, np.asarray(with_rows.lower_w, dtype=float),
-                      np.asarray(with_rows.upper_w, dtype=float), total)
-    b = _extreme_rows(rows, np.asarray(without.lower_w, dtype=float),
-                      np.asarray(without.upper_w, dtype=float), total)
-    assert np.array_equal(a, b), "the flag changed a supremum, so the rows are not redundant"
+    for _ in range(25):
+        c = -rng.uniform(0.0, 3.0, size=len(blocks))      # maximise a random linear objective
+        constrained = linprog(c, A_ub=a_ub, b_ub=b_ub, A_eq=a_eq, b_eq=b_eq, bounds=bounds)
+        free = linprog(c, A_eq=a_eq, b_eq=b_eq, bounds=bounds)
+        assert constrained.success and free.success
+        assert constrained.fun == pytest.approx(free.fun, abs=1e-9), (
+            f"span {span}: the class inequalities moved the LP optimum by "
+            f"{abs(constrained.fun - free.fun):.3e}; they are NOT redundant"
+        )
 
 
 def test_a_class_row_would_bind_if_the_cap_were_tighter_than_the_box():
