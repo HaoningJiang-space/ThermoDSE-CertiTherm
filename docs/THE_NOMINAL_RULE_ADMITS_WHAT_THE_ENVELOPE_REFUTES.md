@@ -41,6 +41,20 @@ strictly more.
 | nominal rule, `peak ≤ 330.0` | **10 / 12** |
 | envelope rule, `sup ≤ 329.94` | **3 / 12** |
 
+> **The two thresholds differ by the `0.06 K` decision margin, and peer review was right that
+> calling this "the same limit" was imprecise.** Measured at a **common** threshold, both rules at
+> the same number:
+>
+> | common threshold | nominal | envelope | admitted-then-refuted | reverse |
+> | --- | ---: | ---: | ---: | ---: |
+> | **330.00 K** | **10 / 12** | **3 / 12** | **7** | **0** |
+> | 329.94 K | 9 / 12 | 3 / 12 | 6 | 0 |
+>
+> **The published counts are exactly the symmetric 330 K case**, so the asymmetry did not
+> manufacture the finding — but that is a measurement, not something the earlier wording had
+> established, and the margin belongs in a sensitivity row rather than inside one side of a
+> comparison.
+
 | rule | its optimum | EDYP | nominal | certified |
 | --- | --- | ---: | ---: | ---: |
 | nominal | `mtxu_h = 128` | **13.8628** | 329.973 | **331.558** |
